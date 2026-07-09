@@ -61,12 +61,15 @@ export const useDraft = create<DraftState>((set, get) => ({
 
   setRepeat: (repeat) => {
     const anchor = get().dates[0] ?? todayISO();
-    set({ repeat, dates: computeDates(repeat, get().horizon, anchor) });
+    // 'custom' = ผู้ใช้เลือกวันเองบนปฏิทิน → คงวันที่เลือกไว้ ไม่คำนวณใหม่
+    const dates = repeat === 'custom' ? get().dates : computeDates(repeat, get().horizon, anchor);
+    set({ repeat, dates: dates.length ? dates : [anchor] });
   },
 
   setHorizon: (horizon) => {
     const anchor = get().dates[0] ?? todayISO();
-    set({ horizon, dates: computeDates(get().repeat, horizon, anchor) });
+    const dates = computeDates(get().repeat, horizon, anchor);
+    set({ horizon, dates: dates.length ? dates : [anchor] });
   },
 
   toggleDate: (iso) => {

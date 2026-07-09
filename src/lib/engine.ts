@@ -91,7 +91,8 @@ export function conflictsOn(items: DayItem[], s: number, e: number): DayItem[] {
 
 /** วันที่ทั้งหมดตามกฎทำซ้ำ+horizon เริ่มจาก anchor (ใช้ในฟอร์มเพิ่มกิจกรรม) */
 export function computeDates(rule: RepeatRule, horizon: Horizon, anchor: string): string[] {
-  if (rule === 'none') return [anchor];
+  // 'custom' ไม่มีสูตรคำนวณ — ผู้ใช้เลือกวันเองบนปฏิทิน คืน anchor ไว้กันลิสต์ว่าง
+  if (rule === 'none' || rule === 'custom') return [anchor];
   const days = HORIZON_DAYS[horizon];
   const out: string[] = [];
   for (let i = 0; i < days; i++) {
