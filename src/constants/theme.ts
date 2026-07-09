@@ -1,65 +1,105 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
+// Design tokens — ตรงตาม prototype `Daily Routine Planner (1).html` (APP_STRUCTURE.md §10)
 
-import '@/global.css';
+export type ThemeName = 'light' | 'dark';
 
-import { Platform } from 'react-native';
+export const ACCENT = '#D2603A';
 
-export const Colors = {
-  light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
-  },
-  dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
-  },
+const light = {
+    bg: '#F4EFE6',
+    card: '#FFFFFF',
+    card2: '#FBF7F0',
+    ink: '#221C13',
+    sub: '#6E6555',
+    faint: '#A79C88',
+    line: 'rgba(34,28,19,0.08)',
+    line2: 'rgba(34,28,19,0.13)',
+    chip: '#F0EADF',
+    glass: 'rgba(247,243,236,0.72)',
+  sheet: '#FFFFFF',
+  overlay: 'rgba(30,24,16,0.34)',
+};
+
+const dark = {
+    bg: '#141009',
+    card: '#211c14',
+    card2: '#2b251b',
+    ink: '#F3ECDF',
+    sub: '#A79C89',
+    faint: '#6d6353',
+    line: 'rgba(255,255,255,0.09)',
+    line2: 'rgba(255,255,255,0.14)',
+    chip: '#2b251b',
+    glass: 'rgba(24,20,14,0.72)',
+  sheet: '#1c1810',
+  overlay: 'rgba(0,0,0,0.6)',
+};
+
+export type Palette = { [K in keyof typeof light]: string };
+export const PALETTES: Record<ThemeName, Palette> = { light, dark };
+
+export const GREEN = '#4C9A6A'; // done / เวลาว่าง
+export const DANGER = '#C0392B'; // ลบ / skipped
+export const RESC = '#D2603A'; // rescheduled
+
+export const FONT = {
+  ui: 'Anuphan_400Regular',
+  uiMed: 'Anuphan_500Medium',
+  uiBold: 'Anuphan_600SemiBold',
+  num: 'SpaceGrotesk_500Medium',
+  numBold: 'SpaceGrotesk_700Bold',
 } as const;
 
-export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
+export type CatId = 'routine' | 'work' | 'ex' | 'case' | 'learn' | 'me';
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: 'var(--font-display)',
-    serif: 'var(--font-serif)',
-    rounded: 'var(--font-rounded)',
-    mono: 'var(--font-mono)',
-  },
-});
+export interface Category {
+  id: CatId;
+  name: string;
+  short: string;
+  color: string;
+  icon: string; // ชื่อไอคอน (components/icon.tsx)
+  isCase?: boolean;
+}
 
-export const Spacing = {
-  half: 2,
-  one: 4,
-  two: 8,
-  three: 16,
-  four: 24,
-  five: 32,
-  six: 64,
-} as const;
+export const CATS: Category[] = [
+  { id: 'routine', name: 'กิจวัตรประจำวัน', short: 'กิจวัตร', color: '#E2A34A', icon: 'sun' },
+  { id: 'work', name: 'งานประจำ/งานอื่นๆ', short: 'งาน', color: '#5A7EA8', icon: 'briefcase' },
+  { id: 'ex', name: 'ออกกำลังกาย', short: 'ออกกำลังกาย', color: '#7DA35A', icon: 'dumbbell' },
+  { id: 'case', name: 'งานธุรกิจ/ทีม', short: 'นัดเคส', color: '#B45268', icon: 'users', isCase: true },
+  { id: 'learn', name: 'เรียนรู้/อ่านหนังสือ', short: 'เรียนรู้', color: '#836BA8', icon: 'book' },
+  { id: 'me', name: 'ส่วนตัว/พักผ่อน', short: 'ส่วนตัว', color: '#3E9C93', icon: 'moon' },
+];
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+export const CAT_BY_ID = Object.fromEntries(CATS.map((c) => [c.id, c])) as Record<CatId, Category>;
+
+export type PriorityId = 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6';
+
+export const PRI: { id: PriorityId; label: string; color: string }[] = [
+  { id: 'P1', label: 'คนใหม่ / มีปัญหา', color: '#C0392B' },
+  { id: 'P2', label: 'ด่วน', color: '#D2603A' },
+  { id: 'P3', label: 'ปกติ', color: '#E2A34A' },
+  { id: 'P4', label: 'ทีมภายใน', color: '#7DA35A' },
+  { id: 'P5', label: 'ติดตามผล', color: '#5A7EA8' },
+  { id: 'P6', label: 'ทั่วไป', color: '#8A8175' },
+];
+
+export const PRI_BY_ID = Object.fromEntries(PRI.map((p) => [p.id, p])) as Record<
+  PriorityId,
+  (typeof PRI)[number]
+>;
+
+// quick-pick chips ต่อหมวด (จาก prototype)
+export const QUICK_PICKS: Record<CatId, string[]> = {
+  routine: ['ตื่นนอน', 'อาบน้ำ', 'พักเที่ยง', 'เข้านอน'],
+  work: ['งานประจำ', 'ประชุมทีม', 'เคลียร์อีเมล'],
+  ex: ['เวทเทรนนิ่ง', 'คาร์ดิโอ', 'คลาสโยคะ'],
+  case: ['นัดเคส', 'ติดตามผล', 'ประชุมทีม'],
+  learn: ['อ่านหนังสือ', 'ฟังพอดแคสต์', 'คลาสออนไลน์'],
+  me: ['พักผ่อน/ดูซีรีส์', 'ตลาด & ธุระส่วนตัว'],
+};
+
+// หน้าต่างเวลาของวัน (นาที) — 05:30–26:00, ข้ามเที่ยงคืนได้
+export const DAY_START = 330;
+export const DAY_END = 1560;
+export const FREE_START = 360; // slot ว่างนับจาก 06:00
+export const MIN_FREE_GAP = 45;
+export const SNAP = 15;

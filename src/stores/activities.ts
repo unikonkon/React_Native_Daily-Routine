@@ -1,0 +1,163 @@
+// Store หลัก: ถือ series + occurrence map ทั้งหมดใน memory (โหลดครั้งเดียว — APP_STRUCTURE.md §0)
+// mutation ทุกตัว: อัปเดต state ทันที (optimistic) → เขียน SQLite → ตั้งคิวแจ้งเตือนใหม่
+
+import { useMemo } from 'react';
+import { create } from 'zustand';
+
+import { addDays } from '@/lib/dates';
+import * as db from '@/lib/db';
+import { dayItems } from '@/lib/engine';
+import { requestResync } from '@/lib/notifications';
+import type { Activity, DayItem, OccMap, OccStatus } from '@/lib/types';
+import { useSettings } from '@/stores/settings';
+
+export interface RescTarget {
+  date: string;
+  start: number;
+  end: number;
+}
+
+interface ActivitiesState {
+  loaded: boolean;
+  acts: Activity[];
+  occ: OccMap;
+  rescCounts: Record<number, number>;
+  /** เพิ่มทีละ 1 ทุก mutation — ใช้เป็น cache key ของ useDay() */
+  version: number;
+  boot: () => Promise<void>;
+  add: (a: Omit<Activity, 'id'>) => Promise<Activity>;
+  update: (a: Activity) => void;
+  /** status null = กลับเป็น planned */
+  setStatus: (item: DayItem, status: OccStatus | null) => void;
+  deleteOne: (item: DayItem) => void;
+  deleteSeries: (item: DayItem) => void;
+  reschedule: (item: DayItem, to: RescTarget, reason: string) => void;
+}
+
+function resync(s: Pick<ActivitiesState, 'acts' | 'occ'>) {
+  const { notifMaster, morning } = useSettings.getState();
+  requestResync(s.acts, s.occ, notifMaster, morning);
+}
+
+export const useActivities = create<ActivitiesState>((set, get) => {
+  const bump = (patch: Partial<ActivitiesState>) => {
+    set((s) => ({ ...patch, version: s.version + 1 }));
+    resync(get());
+  };
+
+  return {
+    loaded: false,
+    acts: [],
+    occ: {},
+    rescCounts: {},
+    version: 0,
+
+    boot: async () => {
+      const [acts, occ, rescCounts] = await Promise.all([
+        db.loadActivities(),
+        db.loadOccurrences(),
+        db.loadRescCounts(),
+      ]);
+      set((s) => ({ acts, occ, rescCounts, loaded: true, version: s.version + 1 }));
+      resync(get());
+    },
+
+    add: async (a) => {
+      const id = await db.insertActivity(a);
+      const full: Activity = { ...a, id };
+      bump({ acts: [...get().acts, full] });
+      return full;
+    },
+
+    update: (a) => {
+      bump({ acts: get().acts.map((x) => (x.id === a.id ? a : x)) });
+      db.updateActivity(a);
+    },
+
+    setStatus: (item, status) => {
+      const occ = { ...get().occ };
+      const day = { ...(occ[item.date] ?? {}) };
+      if (status === null || status === 'planned') delete day[item.id];
+      else day[item.id] = status;
+      occ[item.date] = day;
+      bump({ occ });
+      db.setOccurrence(item.id, item.date, status);
+    },
+
+    deleteOne: (item) => {
+      if (item.repeat === 'none') {
+        // ครั้งเดียว = ลบทั้งรายการ
+        bump({ acts: get().acts.filter((a) => a.id !== item.id) });
+        db.cancelActivity(item.id);
+      } else {
+        get().setStatus(item, 'cancelled');
+      }
+    },
+
+    deleteSeries: (item) => {
+      // เก็บประวัติ: ตัด end_date ถึงเมื่อวาน (อดีตยังแสดง/นับสถิติ) — ถ้าไม่เหลือช่วงเลยจึงยกเลิกทั้งรายการ
+      const cut = addDays(item.date, -1);
+      if (item.repeat === 'none' || cut < item.startDate) {
+        bump({ acts: get().acts.filter((a) => a.id !== item.id) });
+        db.cancelActivity(item.id);
+      } else {
+        bump({ acts: get().acts.map((a) => (a.id === item.id ? { ...a, endDate: cut } : a)) });
+        db.setEndDate(item.id, cut);
+      }
+    },
+
+    reschedule: async (item, to, reason) => {
+      const fields: Omit<Activity, 'id'> = {
+        title: item.title.endsWith(' (เลื่อนมา)') ? item.title : `${item.title} (เลื่อนมา)`,
+        cat: item.cat,
+        sub: item.sub,
+        loc: item.loc,
+        channel: item.channel,
+        priority: item.priority,
+        startMin: to.start,
+        endMin: to.end,
+        repeat: 'none',
+        daysMask: 0,
+        startDate: to.date,
+        endDate: null,
+        notify: item.notify,
+        notifyBefore: item.notifyBefore,
+        detachedFrom: item.id,
+        status: 'active',
+        contactIds: item.contactIds,
+      };
+      const newId = await db.insertActivity(fields);
+      db.insertRescheduleLog(newId, item.date, item.startMin, to.date, to.start, reason || null);
+
+      const occ = { ...get().occ, [item.date]: { ...(get().occ[item.date] ?? {}), [item.id]: 'rescheduled' as const } };
+      const prev = get().rescCounts[item.id] ?? 0;
+      bump({
+        acts: [...get().acts, { ...fields, id: newId }],
+        occ,
+        rescCounts: { ...get().rescCounts, [newId]: prev + 1 },
+      });
+      db.setOccurrence(item.id, item.date, 'rescheduled');
+    },
+  };
+});
+
+const dayCache = new Map<string, DayItem[]>();
+
+/** กิจกรรมของวันหนึ่ง — memoized ด้วย version, ไม่แตะฐานข้อมูล */
+export function getDay(date: string): DayItem[] {
+  const { acts, occ, version } = useActivities.getState();
+  const key = `${version}:${date}`;
+  let v = dayCache.get(key);
+  if (!v) {
+    if (dayCache.size > 200) dayCache.clear();
+    v = dayItems(acts, occ, date);
+    dayCache.set(key, v);
+  }
+  return v;
+}
+
+/** hook แบบ reactive สำหรับ component */
+export function useDay(date: string): DayItem[] {
+  const version = useActivities((s) => s.version);
+  return useMemo(() => getDay(date), [version, date]);
+}
