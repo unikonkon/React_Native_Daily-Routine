@@ -1,12 +1,12 @@
 // แท็บ 4 — ตั้งค่า: การ์ดสถิติ + เมนู (APP_STRUCTURE.md §6)
 import { useRouter } from 'expo-router';
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
-import { ACCENT, CATS, GREEN } from '@/constants/theme';
 import { Screen } from '@/components/screen';
 import { Card, Row, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
+import { ACCENT, CATS, GREEN } from '@/constants/theme';
 import { nowMin } from '@/lib/dates';
 import { computeStats } from '@/lib/engine';
 import { requestResync } from '@/lib/notifications';

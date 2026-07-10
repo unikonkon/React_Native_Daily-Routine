@@ -18,7 +18,7 @@ interface ScreenProps {
   back?: boolean;
 }
 
-export const TABBAR_H = 88;
+export const TABBAR_H = 52;
 
 export function Screen({ title, subtitle, children, scroll = true, back }: ScreenProps) {
   const t = useTokens();

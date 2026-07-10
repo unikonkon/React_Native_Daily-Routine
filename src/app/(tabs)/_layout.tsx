@@ -1,7 +1,6 @@
 // Tab bar 4 แท็บแบบกระจกฝ้า (APP_STRUCTURE.md §1)
 import { BlurView } from 'expo-blur';
 import { Tabs } from 'expo-router';
-import React from 'react';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,10 +10,10 @@ interface TabBarProps {
   navigation: { navigate: (name: string) => void };
 }
 
-import { ACCENT } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { TABBAR_H } from '@/components/screen';
 import { Txt, useTokens } from '@/components/ui';
+import { ACCENT } from '@/constants/theme';
 import { useSettings } from '@/stores/settings';
 
 const TABS = [

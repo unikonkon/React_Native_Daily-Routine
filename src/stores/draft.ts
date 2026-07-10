@@ -9,7 +9,6 @@ import { computeDates } from '@/lib/engine';
 import type { Activity, Channel, Horizon, RepeatRule } from '@/lib/types';
 
 interface DraftState {
-  step: 1 | 2;
   editId: number | null; // โหมดแก้ไข
   cat: CatId | null;
   title: string;
@@ -36,7 +35,6 @@ interface DraftState {
 }
 
 const initial = {
-  step: 1 as const,
   editId: null,
   cat: null,
   title: '',
@@ -85,7 +83,6 @@ export const useDraft = create<DraftState>((set, get) => ({
     // โหมดแก้ไข: เริ่มจากวันแรกของ series — ถ้าผู้ใช้เปลี่ยน repeat/horizon จะคำนวณวันใหม่จากตรงนั้น
     set({
       ...initial,
-      step: 1,
       editId: a.id,
       cat: a.cat,
       title: a.title,
@@ -104,6 +101,6 @@ export const useDraft = create<DraftState>((set, get) => ({
   },
 
   loadSlot: (date, start, end) => {
-    set({ ...initial, dates: [date], start, end, step: 1 });
+    set({ ...initial, dates: [date], start, end });
   },
 }));

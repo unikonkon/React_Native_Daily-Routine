@@ -1,7 +1,7 @@
-// แท็บ 2 — เพิ่ม/แก้ไขกิจกรรม: วิซาร์ด 2 ขั้น (APP_STRUCTURE.md §4)
-// ขั้น 1 เลือกหมวด+รายละเอียด → ขั้น 2 วันเวลา+ทำซ้ำ+พรีวิว+แจ้งเตือน
+// แท็บ 2 — เพิ่ม/แก้ไขกิจกรรม: ฟอร์มหน้าเดียว (APP_STRUCTURE.md §4)
+// ส่วนบน เลือกหมวด+รายละเอียด → ส่วนล่าง วันเวลา+ทำซ้ำ+พรีวิว+แจ้งเตือน → บันทึก
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 
 import { ACCENT, CATS, FONT, GREEN, PRI, QUICK_PICKS, SNAP, type CatId } from '@/constants/theme';
@@ -38,40 +38,22 @@ const HORIZONS: { key: Horizon; label: string }[] = [
 export default function AddScreen() {
   const d = useDraft();
   return (
-    <Screen title={d.editId ? 'แก้ไขกิจกรรม' : 'เพิ่มกิจกรรม'} subtitle={`ขั้นที่ ${d.step} จาก 2`}>
-      <StepDots step={d.step} />
-      {d.step === 1 ? <Step1 /> : <Step2 />}
+    <Screen title={d.editId ? 'แก้ไขกิจกรรม' : 'เพิ่มกิจกรรม'}>
+      <DetailsSection />
+      <ScheduleSection />
     </Screen>
   );
 }
 
-function StepDots({ step }: { step: number }) {
-  const t = useTokens();
-  return (
-    <View style={{ flexDirection: 'row', gap: 6, justifyContent: 'center' }}>
-      {[1, 2].map((s) => (
-        <View key={s} style={{ width: s === step ? 22 : 8, height: 8, borderRadius: 4, backgroundColor: s === step ? ACCENT : t.line2 }} />
-      ))}
-    </View>
-  );
-}
+// ---------- ส่วนบน: หมวด + รายละเอียด ----------
 
-// ---------- ขั้นที่ 1 ----------
-
-function Step1() {
+function DetailsSection() {
   const t = useTokens();
   const d = useDraft();
-  const showToast = useUI((s) => s.showToast);
   const contacts = useContacts((s) => s.list);
   const upsertContact = useContacts((s) => s.upsert);
   const [newName, setNewName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
-
-  const next = () => {
-    if (!d.cat) return showToast('เลือกหมวดก่อน');
-    if (!d.title.trim()) return showToast('ใส่ชื่อกิจกรรม');
-    d.set({ step: 2 });
-  };
 
   return (
     <>
@@ -211,15 +193,13 @@ function Step1() {
           </ChipRow>
         </Card>
       ) : null}
-
-      <Btn label="ถัดไป" icon="arrowR" onPress={next} />
     </>
   );
 }
 
-// ---------- ขั้นที่ 2 ----------
+// ---------- ส่วนล่าง: วันเวลา + ทำซ้ำ + พรีวิว + แจ้งเตือน ----------
 
-function Step2() {
+function ScheduleSection() {
   const t = useTokens();
   const d = useDraft();
   const router = useRouter();
@@ -233,6 +213,12 @@ function Step2() {
     return { y: dt.getFullYear(), m: dt.getMonth() };
   });
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // ฟอร์มหน้าเดียว mount ค้างไว้ — พอ loadActivity/loadSlot เปลี่ยนวันแรก ให้เลื่อนปฏิทินตาม
+  useEffect(() => {
+    const dt = fromISO(anchor);
+    setYm({ y: dt.getFullYear(), m: dt.getMonth() });
+  }, [anchor]);
 
   const timeInvalid = d.end <= d.start;
 
@@ -251,8 +237,9 @@ function Step2() {
   }, [version, d.dates, d.start, d.end, d.editId]);
 
   const onSave = async () => {
-    if (timeInvalid) return showToast('เวลาสิ้นสุดต้องมากกว่าเริ่ม');
     if (!d.cat) return showToast('เลือกหมวดก่อน');
+    if (!d.title.trim()) return showToast('ใส่ชื่อกิจกรรม');
+    if (timeInvalid) return showToast('เวลาสิ้นสุดต้องมากกว่าเริ่ม');
     const isOnce = d.repeat === 'none';
     const startDate = d.dates[0];
     const endDate = isOnce
@@ -375,10 +362,7 @@ function Step2() {
         ) : null}
       </Card>
 
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Btn style={{ flex: 1 }} kind="ghost" label="ย้อนกลับ" onPress={() => d.set({ step: 1 })} />
-        <Btn style={{ flex: 2 }} label={d.editId ? 'บันทึกการแก้ไข' : 'บันทึกกิจกรรม'} onPress={onSave} />
-      </View>
+      <Btn label={d.editId ? 'บันทึกการแก้ไข' : 'บันทึกกิจกรรม'} onPress={onSave} />
     </>
   );
 }
