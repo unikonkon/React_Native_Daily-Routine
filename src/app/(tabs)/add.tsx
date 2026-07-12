@@ -14,7 +14,7 @@ import { ACCENT, CATS, DAY_END, DAY_START, FONT, GREEN, PRI, QUICK_PICKS, SNAP, 
 import { MONTH_TH_FULL, addDays, beYear, fmtMin, fromISO, hoursText, thaiDate } from '@/lib/dates';
 import { conflictsOn, freeSlots, maskFromDates } from '@/lib/engine';
 import { HORIZON_DAYS, type Horizon, type RepeatRule } from '@/lib/types';
-import { getDay, useActivities } from '@/stores/activities';
+import { getDay, useActivities, useDayReader } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
@@ -213,8 +213,8 @@ function ScheduleSection() {
   const d = useDraft();
   const router = useRouter();
   const showToast = useUI((s) => s.showToast);
-  const { add, update, acts, version } = useActivities();
-  useActivities((s) => s.version);
+  const { add, update, acts } = useActivities();
+  const getDay = useDayReader(); // อ่านผ่าน hook — อัปเดตเมื่อข้อมูลเปลี่ยน (ปลอดภัยกับ React Compiler)
 
   const anchor = d.dates[0]; // draft การันตีมีอย่างน้อย 1 วันเสมอ
   const [ym, setYm] = useState(() => {
@@ -236,7 +236,6 @@ function ScheduleSection() {
   const activePeriod = PERIOD_PRESETS.find((p) => p.start === d.start);
 
   // วิเคราะห์การชน + พรีวิว — ตัดกิจกรรมที่กำลังแก้ไขออก
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const analysis = useMemo(() => {
     const per = d.dates.slice(0, 5).map((date) => {
       const items = getDay(date).filter((i) => i.id !== d.editId);
@@ -247,7 +246,7 @@ function ScheduleSection() {
       return conflictsOn(items, d.start, d.end).length > 0;
     }).length;
     return { per, conflictDays };
-  }, [version, d.dates, d.start, d.end, d.editId]);
+  }, [getDay, d.dates, d.start, d.end, d.editId]);
 
   const onSave = async () => {
     if (!d.cat) return showToast('เลือกหมวดก่อน');

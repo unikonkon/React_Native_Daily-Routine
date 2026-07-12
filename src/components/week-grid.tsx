@@ -5,7 +5,7 @@ import { Txt, useTokens } from '@/components/ui';
 import { CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { WD_TH, addDays, fmtMin, fromISO, todayISO } from '@/lib/dates';
 import { freeSlots } from '@/lib/engine';
-import { getDay, useActivities } from '@/stores/activities';
+import { useDayReader } from '@/stores/activities';
 
 const W_START = DAY_START;
 const W_END = DAY_END;
@@ -19,7 +19,7 @@ interface WeekGridProps {
 
 export function WeekGrid({ monday, mode = 'normal', onPressDay }: WeekGridProps) {
   const t = useTokens();
-  useActivities((s) => s.version); // re-render เมื่อข้อมูลเปลี่ยน
+  const getDay = useDayReader(); // อ่านผ่าน hook — อัปเดตเมื่อข้อมูลเปลี่ยน (ปลอดภัยกับ React Compiler)
   const today = todayISO();
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
   const height = (W_END - W_START) * PX;

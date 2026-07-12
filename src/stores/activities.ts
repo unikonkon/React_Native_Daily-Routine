@@ -143,7 +143,11 @@ export const useActivities = create<ActivitiesState>((set, get) => {
 
 const dayCache = new Map<string, DayItem[]>();
 
-/** กิจกรรมของวันหนึ่ง — memoized ด้วย version, ไม่แตะฐานข้อมูล */
+/**
+ * กิจกรรมของวันหนึ่ง — memoized ด้วย version, ไม่แตะฐานข้อมูล
+ * สำหรับโค้ดนอก React เท่านั้น (export CSV, notifications) — ห้ามเรียกตอน render:
+ * React Compiler จะ cache ผลไว้โดยไม่รู้ว่า store เปลี่ยน ทำให้ UI ค้างค่าเก่า ให้ใช้ useDay/useDayReader แทน
+ */
 export function getDay(date: string): DayItem[] {
   const { acts, occ, version } = useActivities.getState();
   const key = `${version}:${date}`;
@@ -156,8 +160,26 @@ export function getDay(date: string): DayItem[] {
   return v;
 }
 
-/** hook แบบ reactive สำหรับ component */
+/** hook แบบ reactive สำหรับ component — อ้าง acts/occ ตรง ๆ เพื่อให้ React Compiler เห็น dependency จริง */
 export function useDay(date: string): DayItem[] {
-  const version = useActivities((s) => s.version);
-  return useMemo(() => getDay(date), [version, date]);
+  const acts = useActivities((s) => s.acts);
+  const occ = useActivities((s) => s.occ);
+  return useMemo(() => dayItems(acts, occ, date), [acts, occ, date]);
+}
+
+/** เหมือน useDay แต่คืนฟังก์ชันอ่านได้หลายวัน (week/month grid, พรีวิวฟอร์มเพิ่ม) — identity เปลี่ยนเมื่อข้อมูลเปลี่ยน */
+export function useDayReader(): (date: string) => DayItem[] {
+  const acts = useActivities((s) => s.acts);
+  const occ = useActivities((s) => s.occ);
+  return useMemo(() => {
+    const cache = new Map<string, DayItem[]>();
+    return (date: string) => {
+      let v = cache.get(date);
+      if (!v) {
+        v = dayItems(acts, occ, date);
+        cache.set(date, v);
+      }
+      return v;
+    };
+  }, [acts, occ]);
 }

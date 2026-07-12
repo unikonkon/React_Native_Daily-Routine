@@ -27,14 +27,13 @@ function Body() {
   const item = useUI((s) => s.resc)!;
   const closeResc = useUI((s) => s.closeResc);
   const showToast = useUI((s) => s.showToast);
-  const { acts, occ, reschedule, version } = useActivities();
+  const { acts, occ, reschedule } = useActivities();
 
   const [reason, setReason] = useState('');
   const [range, setRange] = useState<RescRange>('3d');
   const [pick, setPick] = useState(0);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const cands = useMemo(() => rescheduleCandidates(acts, occ, item, range), [version, item, range]);
+  const cands = useMemo(() => rescheduleCandidates(acts, occ, item, range), [acts, occ, item, range]);
 
   return (
     <Modal transparent animationType="slide" onRequestClose={closeResc}>

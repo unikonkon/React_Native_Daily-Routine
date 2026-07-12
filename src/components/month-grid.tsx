@@ -9,7 +9,7 @@ import { ACCENT, CAT_BY_ID, GREEN } from '@/constants/theme';
 import { Txt, useTokens } from '@/components/ui';
 import { WD_TH, addDays, mondayOf, toISO, todayISO } from '@/lib/dates';
 import { freeMinutes, freeSlots } from '@/lib/engine';
-import { getDay, useActivities } from '@/stores/activities';
+import { useDayReader } from '@/stores/activities';
 
 interface MonthGridProps {
   year: number;
@@ -21,7 +21,7 @@ interface MonthGridProps {
 
 export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGridProps) {
   const t = useTokens();
-  useActivities((s) => s.version);
+  const getDay = useDayReader(); // อ่านผ่าน hook — อัปเดตเมื่อข้อมูลเปลี่ยน (ปลอดภัยกับ React Compiler)
   const today = todayISO();
   const first = toISO(new Date(year, month, 1));
   const start = mondayOf(first);

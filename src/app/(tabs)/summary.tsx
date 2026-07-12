@@ -13,7 +13,7 @@ import { WeekGrid } from '@/components/week-grid';
 import { Card, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
 import { MONTH_TH_FULL, addDays, beYear, fmtMin, hoursText, mondayOf, thaiDate, thaiWeekRange, todayISO } from '@/lib/dates';
 import { freeMinutes, freeSlots } from '@/lib/engine';
-import { getDay, useActivities, useDay } from '@/stores/activities';
+import { useActivities, useDay, useDayReader } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
@@ -149,13 +149,12 @@ function NavRow({ label, onPrev, onNext }: { label: string; onPrev: () => void; 
 
 function CasesMode() {
   const t = useTokens();
-  const version = useActivities((s) => s.version);
+  const getDay = useDayReader(); // อ่านผ่าน hook — อัปเดตเมื่อข้อมูลเปลี่ยน (ปลอดภัยกับ React Compiler)
   const rescCounts = useActivities((s) => s.rescCounts);
   const contacts = useContacts((s) => s.list);
   const openSheet = useUI((s) => s.openSheet);
 
   // นัดเคสช่วง 7 วันก่อน → 30 วันหน้า (ขยายจาก series ใน memory — ไม่ query DB)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const rows = useMemo(() => {
     const today = todayISO();
     const out: ReturnType<typeof getDay> = [];
@@ -163,7 +162,7 @@ function CasesMode() {
       for (const it of getDay(addDays(today, i))) if (it.cat === 'case') out.push(it);
     }
     return out;
-  }, [version]);
+  }, [getDay]);
 
   const done = rows.filter((r) => r.ostatus === 'done').length;
   const resc = rows.filter((r) => r.ostatus === 'rescheduled').length;
