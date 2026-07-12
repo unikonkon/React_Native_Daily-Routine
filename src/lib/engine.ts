@@ -63,7 +63,7 @@ export function assignLanes(items: DayItem[]): Record<number, { lane: number; n:
   return out;
 }
 
-/** ช่วงว่างของวัน: หน้าต่าง 06:00–26:00, ช่องว่าง ≥ minDur (ค่าปกติ 45 นาที) */
+/** ช่วงว่างของวัน: หน้าต่าง 06:00–30:00 (ครบ 24 ชม.), ช่องว่าง ≥ minDur (ค่าปกติ 45 นาที) */
 export function freeSlots(items: DayItem[], minDur: number = MIN_FREE_GAP): FreeSlot[] {
   const busy = items
     .filter((i) => i.ostatus === 'planned' || i.ostatus === 'done')

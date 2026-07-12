@@ -97,9 +97,9 @@ export const QUICK_PICKS: Record<CatId, string[]> = {
   me: ['พักผ่อน/ดูซีรีส์', 'ตลาด & ธุระส่วนตัว'],
 };
 
-// หน้าต่างเวลาของวัน (นาที) — 05:30–26:00, ข้ามเที่ยงคืนได้
-export const DAY_START = 330;
-export const DAY_END = 1560;
+// หน้าต่างเวลาของวัน (นาที) — 06:00–30:00 (06:00 วันถัดไป) ครบ 24 ชม., ข้ามเที่ยงคืนได้
+export const DAY_START = 360;
+export const DAY_END = 1800;
 export const FREE_START = 360; // slot ว่างนับจาก 06:00
 export const MIN_FREE_GAP = 45;
 export const SNAP = 15;

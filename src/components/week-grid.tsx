@@ -1,15 +1,15 @@
-// มุมมองสัปดาห์: 7 คอลัมน์ (จันทร์เริ่ม) 06:00–25:00 — ใช้ทั้งแท็บวันนี้ (normal) และสรุปวันว่าง (free)
+// มุมมองสัปดาห์: 7 คอลัมน์ (จันทร์เริ่ม) 06:00–30:00 ครบ 24 ชม. — ใช้ทั้งแท็บวันนี้ (normal) และสรุปวันว่าง (free)
 import React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
-import { CAT_BY_ID, GREEN } from '@/constants/theme';
+import { CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { Txt, useTokens } from '@/components/ui';
 import { WD_TH, addDays, fmtMin, fromISO, todayISO } from '@/lib/dates';
 import { freeSlots } from '@/lib/engine';
 import { useActivities, getDay } from '@/stores/activities';
 
-const W_START = 360;
-const W_END = 1500;
+const W_START = DAY_START;
+const W_END = DAY_END;
 const PX = 0.3;
 
 interface WeekGridProps {
@@ -24,7 +24,7 @@ export function WeekGrid({ monday, mode = 'normal', onPressDay }: WeekGridProps)
   const today = todayISO();
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
   const height = (W_END - W_START) * PX;
-  const rules = [360, 600, 840, 1080, 1320, 1500];
+  const rules = [360, 600, 840, 1080, 1320, 1560, 1800]; // ทุก 4 ชม.: 06:00 → 06:00 (+1)
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 140 }}>

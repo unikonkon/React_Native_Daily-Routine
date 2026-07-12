@@ -1,12 +1,12 @@
 // Timeline แนวตั้งของหนึ่งวัน — ใช้ทั้งแท็บวันนี้ (mode normal) และแท็บสรุปโหมดวันว่าง (mode free)
-// สเปกตาม APP_STRUCTURE.md §3.2 / §5.1: หน้าต่าง 05:30–26:00, เลนสำหรับเวลาทับกัน, เส้นตอนนี้
+// สเปกตาม APP_STRUCTURE.md §3.2 / §5.1: หน้าต่าง 06:00–30:00 (ครบ 24 ชม.), เลนสำหรับเวลาทับกัน, เส้นตอนนี้
 import React, { useMemo } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
 import { ACCENT, CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { PriBadge, Txt, useTokens } from '@/components/ui';
-import { fmtMin, fmtRange, hoursText, nowMin, todayISO } from '@/lib/dates';
+import { addDays, fmtMin, fmtRange, hoursText, nowMin, todayISO } from '@/lib/dates';
 import { assignLanes, freeSlots } from '@/lib/engine';
 import type { DayItem, FreeSlot } from '@/lib/types';
 
@@ -27,11 +27,13 @@ export function Timeline({ date, items, mode = 'normal', onPressItem, onPressSlo
   const height = (DAY_END - DAY_START) * px;
   const lanes = useMemo(() => assignLanes(items), [items]);
   const slots = useMemo(() => (mode === 'free' ? freeSlots(items) : []), [mode, items]);
-  const isToday = date === todayISO();
+  // เส้น "ตอนนี้": ช่วง 00:00–06:00 ถือเป็นท้ายหน้าต่างของเมื่อวาน (แสดงที่ now+1440)
   const now = nowMin();
+  const nowDate = now >= DAY_START ? todayISO() : addDays(todayISO(), -1);
+  const nowTop = now >= DAY_START ? now : now + 1440;
 
   const hourRules = [];
-  for (let m = 360; m <= DAY_END; m += 120) hourRules.push(m);
+  for (let m = DAY_START; m <= DAY_END; m += 120) hourRules.push(m);
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: bottomPad }}>
@@ -122,8 +124,8 @@ export function Timeline({ date, items, mode = 'normal', onPressItem, onPressSlo
             ))
           : null}
 
-        {mode === 'normal' && isToday && now >= DAY_START && now <= DAY_END ? (
-          <View style={{ position: 'absolute', top: (now - DAY_START) * px, left: GUTTER, right: 0, flexDirection: 'row', alignItems: 'center' }}>
+        {mode === 'normal' && date === nowDate ? (
+          <View style={{ position: 'absolute', top: (nowTop - DAY_START) * px, left: GUTTER, right: 0, flexDirection: 'row', alignItems: 'center' }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: ACCENT }} />
             <View style={{ flex: 1, height: 2, backgroundColor: ACCENT }} />
           </View>

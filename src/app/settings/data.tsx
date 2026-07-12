@@ -115,7 +115,7 @@ export default function DataScreen() {
   );
 }
 
-/** CSV สัปดาห์ปัจจุบัน: แถว = ช่วงเวลา 30 นาที (06:00–26:00), คอลัมน์ = จันทร์–อาทิตย์ */
+/** CSV สัปดาห์ปัจจุบัน: แถว = ช่วงเวลา 30 นาที (06:00–30:00 ครบ 24 ชม.), คอลัมน์ = จันทร์–อาทิตย์ */
 function buildWeekCsv(): string {
   const monday = mondayOf(todayISO());
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
@@ -123,7 +123,7 @@ function buildWeekCsv(): string {
   const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
 
   const lines = [['เวลา', ...days.map((d, i) => `${WD_TH_FULL[i]} ${d}`)].map(esc).join(',')];
-  for (let m = 360; m < 1560; m += 30) {
+  for (let m = 360; m < 1800; m += 30) {
     const row = [fmtMin(m)];
     for (const items of itemsPerDay) {
       const here = items.filter((it) => it.startMin < m + 30 && it.endMin > m);

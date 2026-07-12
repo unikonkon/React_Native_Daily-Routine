@@ -28,6 +28,7 @@ const REPEATS: { key: RepeatRule; label: string }[] = [
 ];
 
 // ช่วงเวลาสำเร็จรูป — แตะแล้วตั้งเวลาเริ่ม (สิ้นสุด = เริ่ม + ระยะเวลาที่เลือกอยู่)
+// 02:00 = 1560 นาที (ตี 2 ของวันถัดไป — หน้าต่างวันคือ 06:00–30:00)
 const PERIOD_PRESETS = [
   { label: '06:00', start: 360 },
   { label: '13:00', start: 780 },
@@ -343,7 +344,7 @@ function ScheduleSection() {
               small
               label={p.label}
               active={d.start === p.start}
-              onPress={() => d.set({ start: p.start, end: p.start + (duration > 0 ? duration : 60) })}
+              onPress={() => d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) })}
             />
           ))}
           <Chip small label="เลือกเอง" active={!activePeriod} onPress={() => setTimePickerOpen(true)} />
@@ -422,7 +423,7 @@ function ScheduleSection() {
 
 function TimeStepper({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   const t = useTokens();
-  const step = (dir: 1 | -1) => onChange(Math.min(Math.max(value + dir * SNAP, 0), DAY_END));
+  const step = (dir: 1 | -1) => onChange(Math.min(Math.max(value + dir * SNAP, DAY_START), DAY_END));
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       <Txt size={13} color={t.sub} style={{ width: 48 }}>{label}</Txt>
@@ -451,8 +452,8 @@ interface DayPreviewProps {
   newEnd: number;
 }
 
-// จุดบอกเวลาใต้แถบไทม์ไลน์พรีวิว (หน้าต่างวันคือ 05:30–26:00)
-const PREVIEW_TICKS = [360, 720, 1080, 1440]; // 06:00 12:00 18:00 24:00
+// จุดบอกเวลาใต้แถบไทม์ไลน์พรีวิว (หน้าต่างวันคือ 06:00–30:00 ครบ 24 ชม.)
+const PREVIEW_TICKS = [360, 720, 1080, 1440, 1800]; // 06:00 12:00 18:00 24:00 06:00(+1)
 
 function DayPreview({ date, items, conflicts, slots, newStart, newEnd }: DayPreviewProps) {
   const t = useTokens();
@@ -476,11 +477,23 @@ function DayPreview({ date, items, conflicts, slots, newStart, newEnd }: DayPrev
           <View style={{ position: 'absolute', top: 0, bottom: 0, backgroundColor: ACCENT, ...seg(newStart, newEnd) }} />
         </View>
         <View style={{ height: 13 }}>
-          {PREVIEW_TICKS.map((m) => (
-            <View key={m} style={{ position: 'absolute', left: `${pct(m)}%`, width: 40, marginLeft: -20, alignItems: 'center' }}>
-              <Txt size={9} num color={t.faint}>{fmtMin(m)}</Txt>
-            </View>
-          ))}
+          {PREVIEW_TICKS.map((m) => {
+            // ป้ายริมซ้าย/ขวาชิดขอบแถบ ไม่ให้ล้นการ์ด
+            const edge = m === DAY_START ? 'start' : m === DAY_END ? 'end' : 'mid';
+            return (
+              <View
+                key={m}
+                style={{
+                  position: 'absolute',
+                  left: `${pct(m)}%`,
+                  width: 40,
+                  marginLeft: edge === 'start' ? 0 : edge === 'end' ? -40 : -20,
+                  alignItems: edge === 'start' ? 'flex-start' : edge === 'end' ? 'flex-end' : 'center',
+                }}>
+                <Txt size={9} num color={t.faint}>{fmtMin(m)}</Txt>
+              </View>
+            );
+          })}
         </View>
       </View>
       {slots.length ? (

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, View } from 'react-native';
 
 import { Btn, Chip, ChipRow, Txt, useTokens } from '@/components/ui';
-import { DAY_END } from '@/constants/theme';
+import { DAY_END, DAY_START } from '@/constants/theme';
 import { fmtMin } from '@/lib/dates';
 
 const MINUTES = [0, 15, 30, 45];
@@ -21,11 +21,11 @@ function TimeField({ label, value, onChange }: { label: string; value: number; o
   const t = useTokens();
   const stepHour = (dir: 1 | -1) => {
     const v = value + dir * 60;
-    if (v >= 0 && v <= DAY_END) onChange(v);
+    if (v >= DAY_START && v <= DAY_END) onChange(v);
   };
   const setMinute = (m: number) => {
     const v = Math.floor(value / 60) * 60 + m;
-    if (v <= DAY_END) onChange(v);
+    if (v >= DAY_START && v <= DAY_END) onChange(v);
   };
   return (
     <View style={{ gap: 8 }}>
