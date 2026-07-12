@@ -1,18 +1,18 @@
 // แท็บ 2 — เพิ่ม/แก้ไขกิจกรรม: ฟอร์มหน้าเดียว (APP_STRUCTURE.md §4)
 // ส่วนบน เลือกหมวด+รายละเอียด → ส่วนล่าง วันเวลา+ทำซ้ำ+พรีวิว+แจ้งเตือน → บันทึก
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 
-import { ACCENT, CATS, FONT, GREEN, PRI, QUICK_PICKS, SNAP, type CatId } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
 import { MonthYearPicker } from '@/components/month-year-picker';
 import { Screen } from '@/components/screen';
+import { TimeRangeModal } from '@/components/time-range-modal';
 import { Btn, Card, Chip, ChipRow, Toggle, Txt, useTokens } from '@/components/ui';
+import { ACCENT, CATS, DAY_END, DAY_START, FONT, GREEN, PRI, QUICK_PICKS, SNAP, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, addDays, beYear, fmtMin, fromISO, hoursText, thaiDate } from '@/lib/dates';
 import { conflictsOn, freeSlots, maskFromDates } from '@/lib/engine';
-import { DAY_END, DAY_START } from '@/constants/theme';
 import { HORIZON_DAYS, type Horizon, type RepeatRule } from '@/lib/types';
 import { getDay, useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
@@ -20,11 +20,19 @@ import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
 
 const REPEATS: { key: RepeatRule; label: string }[] = [
-  { key: 'none', label: 'ครั้งเดียว' },
+  { key: 'none', label: 'วันนี้' },
   { key: 'daily', label: 'ทุกวัน' },
   { key: 'weekday', label: 'จ–ศ' },
   { key: 'weekend', label: 'ส–อา' },
   { key: 'custom', label: 'เลือกเอง' },
+];
+
+// ช่วงเวลาสำเร็จรูป — แตะแล้วตั้งเวลาเริ่ม (สิ้นสุด = เริ่ม + ระยะเวลาที่เลือกอยู่)
+const PERIOD_PRESETS = [
+  { label: '06:00', start: 360 },
+  { label: '13:00', start: 780 },
+  { label: '17:00', start: 1020 },
+  { label: '20:00', start: 1200 },
 ];
 
 const HORIZONS: { key: Horizon; label: string }[] = [
@@ -213,6 +221,7 @@ function ScheduleSection() {
     return { y: dt.getFullYear(), m: dt.getMonth() };
   });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [timePickerOpen, setTimePickerOpen] = useState(false);
 
   // ฟอร์มหน้าเดียว mount ค้างไว้ — พอ loadActivity/loadSlot เปลี่ยนวันแรก ให้เลื่อนปฏิทินตาม
   useEffect(() => {
@@ -221,11 +230,14 @@ function ScheduleSection() {
   }, [anchor]);
 
   const timeInvalid = d.end <= d.start;
+  const duration = d.end - d.start;
+  // ชิปช่วงเวลา active ตามเวลาเริ่มจริง — ครอบคลุมทั้งกดเองและค่าที่มาจากโหมดแก้ไข
+  const activePeriod = PERIOD_PRESETS.find((p) => p.start === d.start);
 
   // วิเคราะห์การชน + พรีวิว — ตัดกิจกรรมที่กำลังแก้ไขออก
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const analysis = useMemo(() => {
-    const per = d.dates.slice(0, 3).map((date) => {
+    const per = d.dates.slice(0, 5).map((date) => {
       const items = getDay(date).filter((i) => i.id !== d.editId);
       return { date, items, conflicts: conflictsOn(items, d.start, d.end), slots: freeSlots(items).slice(0, 4) };
     });
@@ -282,14 +294,6 @@ function ScheduleSection() {
 
   return (
     <>
-      {/* เวลา */}
-      <Card style={{ gap: 10 }}>
-        <Txt size={13} weight="med" color={t.sub}>เวลา (ปรับทีละ 15 นาที)</Txt>
-        <TimeStepper label="เริ่ม" value={d.start} onChange={(v) => d.set({ start: v })} />
-        <TimeStepper label="สิ้นสุด" value={d.end} onChange={(v) => d.set({ end: v })} />
-        {timeInvalid ? <Txt size={12} color="#C0392B">เวลาสิ้นสุดต้องมากกว่าเริ่ม</Txt> : null}
-      </Card>
-
       {/* ทำซ้ำ + horizon */}
       <Card style={{ gap: 10 }}>
         <Txt size={13} weight="med" color={t.sub}>รูปแบบทำซ้ำ</Txt>
@@ -329,6 +333,55 @@ function ScheduleSection() {
       </Card>
       <MonthYearPicker visible={pickerOpen} year={ym.y} month={ym.m} onClose={() => setPickerOpen(false)} onPick={(y, m) => setYm({ y, m })} />
 
+      {/* เวลา */}
+      <Card style={{ gap: 10 }}>
+        <Txt size={13} weight="med" color={t.sub}>ช่วงเวลา</Txt>
+        <ChipRow>
+          {PERIOD_PRESETS.map((p) => (
+            <Chip
+              key={p.label}
+              small
+              label={p.label}
+              active={d.start === p.start}
+              onPress={() => d.set({ start: p.start, end: p.start + (duration > 0 ? duration : 60) })}
+            />
+          ))}
+          <Chip small label="เลือกเอง" active={!activePeriod} onPress={() => setTimePickerOpen(true)} />
+        </ChipRow>
+
+        {activePeriod ? (
+          <>
+            <Txt size={13} weight="med" color={t.sub}>ระยะเวลา</Txt>
+            <ChipRow>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <Chip
+                  key={n}
+                  small
+                  label={`${n} ชม.`}
+                  active={duration === n * 60}
+                  onPress={() => d.set({ end: Math.min(d.start + n * 60, DAY_END) })}
+                />
+              ))}
+            </ChipRow>
+          </>
+        ) : null}
+
+        <Txt size={13} weight="med" color={t.sub}>ปรับละเอียด (ทีละ 15 นาที)</Txt>
+        <TimeStepper label="เริ่ม" value={d.start} onChange={(v) => d.set({ start: v })} />
+        <TimeStepper label="สิ้นสุด" value={d.end} onChange={(v) => d.set({ end: v })} />
+        {timeInvalid ? <Txt size={12} color="#C0392B">เวลาสิ้นสุดต้องมากกว่าเริ่ม</Txt> : null}
+      </Card>
+      <TimeRangeModal
+        visible={timePickerOpen}
+        start={d.start}
+        end={d.end}
+        onClose={() => setTimePickerOpen(false)}
+        onConfirm={(s, e) => {
+          d.set({ start: s, end: e });
+          setTimePickerOpen(false);
+        }}
+      />
+
       {/* เตือนเวลาชน (ไม่บล็อก) */}
       {analysis.conflictDays > 0 ? (
         <Card style={{ borderColor: '#D2603A55', backgroundColor: '#D2603A14' }}>
@@ -339,7 +392,7 @@ function ScheduleSection() {
       ) : null}
 
       {/* พรีวิวรายวัน (≤3 วัน) */}
-      {d.dates.length <= 3 ? (
+      {d.dates.length <= 5 ? (
         analysis.per.map((p) => <DayPreview key={p.date} {...p} newStart={d.start} newEnd={d.end} />)
       ) : (
         <Txt size={12} color={t.faint} style={{ textAlign: 'center' }}>
@@ -355,7 +408,7 @@ function ScheduleSection() {
         </View>
         {d.notify ? (
           <ChipRow>
-            {[15, 30, 60].map((m) => (
+            {[1, 5, 10, 15, 30, 60, 120].map((m) => (
               <Chip key={m} small label={`${m} นาที`} active={d.before === m} onPress={() => d.set({ before: m })} />
             ))}
           </ChipRow>
@@ -398,21 +451,37 @@ interface DayPreviewProps {
   newEnd: number;
 }
 
+// จุดบอกเวลาใต้แถบไทม์ไลน์พรีวิว (หน้าต่างวันคือ 05:30–26:00)
+const PREVIEW_TICKS = [360, 720, 1080, 1440]; // 06:00 12:00 18:00 24:00
+
 function DayPreview({ date, items, conflicts, slots, newStart, newEnd }: DayPreviewProps) {
   const t = useTokens();
   const span = DAY_END - DAY_START;
+  const pct = (m: number) => ((Math.min(Math.max(m, DAY_START), DAY_END) - DAY_START) / span) * 100;
   const seg = (s: number, e: number) => ({
-    left: `${((Math.max(s, DAY_START) - DAY_START) / span) * 100}%` as const,
-    width: `${((Math.min(e, DAY_END) - Math.max(s, DAY_START)) / span) * 100}%` as const,
+    left: `${pct(s)}%` as const,
+    width: `${pct(e) - pct(s)}%` as const,
   });
   return (
     <Card tone="card2" style={{ gap: 8 }}>
       <Txt size={13} weight="med">{thaiDate(date)} · มีกิจกรรมเดิม {items.length} รายการ</Txt>
-      <View style={{ height: 10, borderRadius: 5, backgroundColor: t.chip, overflow: 'hidden' }}>
-        {items.map((i) => (
-          <View key={`${i.id}`} style={{ position: 'absolute', top: 0, bottom: 0, backgroundColor: t.faint, opacity: 0.6, ...seg(i.startMin, i.endMin) }} />
-        ))}
-        <View style={{ position: 'absolute', top: 0, bottom: 0, backgroundColor: ACCENT, ...seg(newStart, newEnd) }} />
+      <View style={{ gap: 2 }}>
+        <View style={{ height: 10, borderRadius: 5, backgroundColor: t.chip, overflow: 'hidden' }}>
+          {PREVIEW_TICKS.map((m) => (
+            <View key={m} style={{ position: 'absolute', top: 0, bottom: 0, width: 1, backgroundColor: t.line2, left: `${pct(m)}%` }} />
+          ))}
+          {items.map((i) => (
+            <View key={`${i.id}`} style={{ position: 'absolute', top: 0, bottom: 0, backgroundColor: t.faint, opacity: 0.6, ...seg(i.startMin, i.endMin) }} />
+          ))}
+          <View style={{ position: 'absolute', top: 0, bottom: 0, backgroundColor: ACCENT, ...seg(newStart, newEnd) }} />
+        </View>
+        <View style={{ height: 13 }}>
+          {PREVIEW_TICKS.map((m) => (
+            <View key={m} style={{ position: 'absolute', left: `${pct(m)}%`, width: 40, marginLeft: -20, alignItems: 'center' }}>
+              <Txt size={9} num color={t.faint}>{fmtMin(m)}</Txt>
+            </View>
+          ))}
+        </View>
       </View>
       {slots.length ? (
         <ChipRow>

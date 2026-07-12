@@ -2,8 +2,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, TextStyle, View, ViewStyle } from 'react-native';
 
-import { ACCENT, FONT, PALETTES, PRI_BY_ID, type Palette, type PriorityId } from '@/constants/theme';
 import { Icon } from '@/components/icon';
+import { ACCENT, FONT, PALETTES, PRI_BY_ID, type Palette, type PriorityId } from '@/constants/theme';
 import { useSettings } from '@/stores/settings';
 
 /** palette ตามธีมปัจจุบัน */
@@ -43,7 +43,7 @@ export function Txt({ children, size = 14, color, weight = 'reg', num, style, nu
 export function Card({ children, style, tone = 'card' }: { children: React.ReactNode; style?: ViewStyle | ViewStyle[]; tone?: 'card' | 'card2' }) {
   const t = useTokens();
   return (
-    <View style={[{ backgroundColor: t[tone], borderRadius: 18, borderWidth: 1, borderColor: t.line, padding: 14 }, style]}>
+    <View style={[{ backgroundColor: t[tone], borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 14 }, style]}>
       {children}
     </View>
   );
