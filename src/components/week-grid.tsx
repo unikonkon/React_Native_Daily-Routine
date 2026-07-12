@@ -1,16 +1,15 @@
 // มุมมองสัปดาห์: 7 คอลัมน์ (จันทร์เริ่ม) 06:00–30:00 ครบ 24 ชม. — ใช้ทั้งแท็บวันนี้ (normal) และสรุปวันว่าง (free)
-import React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
-import { CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { Txt, useTokens } from '@/components/ui';
+import { CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { WD_TH, addDays, fmtMin, fromISO, todayISO } from '@/lib/dates';
 import { freeSlots } from '@/lib/engine';
-import { useActivities, getDay } from '@/stores/activities';
+import { getDay, useActivities } from '@/stores/activities';
 
 const W_START = DAY_START;
 const W_END = DAY_END;
-const PX = 0.3;
+const PX = 0.4; // 24px/ชม. — พอสำหรับป้ายเวลาทุก 1 ชม.
 
 interface WeekGridProps {
   monday: string;
@@ -24,7 +23,9 @@ export function WeekGrid({ monday, mode = 'normal', onPressDay }: WeekGridProps)
   const today = todayISO();
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
   const height = (W_END - W_START) * PX;
-  const rules = [360, 600, 840, 1080, 1320, 1560, 1800]; // ทุก 4 ชม.: 06:00 → 06:00 (+1)
+  // ป้ายเวลาทุก 1 ชม. (รวมชั่วโมงเลขคี่): 06:00 → 06:00 (+1)
+  const rules = [];
+  for (let m = W_START; m <= W_END; m += 60) rules.push(m);
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 140 }}>
@@ -44,8 +45,9 @@ export function WeekGrid({ monday, mode = 'normal', onPressDay }: WeekGridProps)
 
       <View style={{ flexDirection: 'row', gap: 4, height }}>
         <View style={{ width: 34 }}>
+          {/* กึ่งกลางป้าย = พิกัดนาที + 1px (ชดเชย border คอลัมน์) ให้ตรงขอบบนบล็อกกิจกรรมพอดี */}
           {rules.map((m) => (
-            <Txt key={m} size={9} num color={t.faint} style={{ position: 'absolute', top: (m - W_START) * PX - 5 }}>
+            <Txt key={m} size={9} num color={t.faint} style={{ position: 'absolute', top: (m - W_START) * PX - 5, lineHeight: 12 }}>
               {fmtMin(m)}
             </Txt>
           ))}

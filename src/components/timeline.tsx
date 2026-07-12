@@ -32,15 +32,17 @@ export function Timeline({ date, items, mode = 'normal', onPressItem, onPressSlo
   const nowDate = now >= DAY_START ? todayISO() : addDays(todayISO(), -1);
   const nowTop = now >= DAY_START ? now : now + 1440;
 
+  // เส้นบอกเวลาทุก 1 ชม. (รวมชั่วโมงเลขคี่)
   const hourRules = [];
-  for (let m = DAY_START; m <= DAY_END; m += 120) hourRules.push(m);
+  for (let m = DAY_START; m <= DAY_END; m += 60) hourRules.push(m);
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: bottomPad }}>
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 8, paddingBottom: bottomPad }}>
       <View style={{ height, marginHorizontal: 18 }}>
+        {/* ตรึงความสูงแถว 16px แล้วเลื่อนขึ้นครึ่งหนึ่ง — ให้ตัวเส้น (กึ่งกลางแถว) อยู่ที่พิกัดนาทีพอดี ตรงกับบล็อกกิจกรรม */}
         {hourRules.map((m) => (
-          <View key={m} style={{ position: 'absolute', top: (m - DAY_START) * px, left: 0, right: 0, flexDirection: 'row', alignItems: 'center' }}>
-            <Txt size={11} num color={t.faint} style={{ width: GUTTER }}>
+          <View key={m} style={{ position: 'absolute', top: (m - DAY_START) * px - 8, height: 16, left: 0, right: 0, flexDirection: 'row', alignItems: 'center' }}>
+            <Txt size={11} num color={t.faint} style={{ width: GUTTER, lineHeight: 16 }}>
               {fmtMin(m)}
             </Txt>
             <View style={{ flex: 1, height: 1, backgroundColor: t.line }} />
@@ -125,7 +127,7 @@ export function Timeline({ date, items, mode = 'normal', onPressItem, onPressSlo
           : null}
 
         {mode === 'normal' && date === nowDate ? (
-          <View style={{ position: 'absolute', top: (nowTop - DAY_START) * px, left: GUTTER, right: 0, flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ position: 'absolute', top: (nowTop - DAY_START) * px - 4, height: 8, left: GUTTER, right: 0, flexDirection: 'row', alignItems: 'center' }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: ACCENT }} />
             <View style={{ flex: 1, height: 2, backgroundColor: ACCENT }} />
           </View>
