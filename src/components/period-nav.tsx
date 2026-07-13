@@ -5,9 +5,9 @@ import { Modal, Pressable, ScrollView, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { MonthYearPicker } from '@/components/month-year-picker';
-import { Txt, useTokens } from '@/components/ui';
+import { Chip, Txt, useTokens } from '@/components/ui';
 import { ACCENT } from '@/constants/theme';
-import { MONTH_TH, MONTH_TH_FULL, addDays, beYear, fromISO, mondayOf, thaiWeekRange, toISO } from '@/lib/dates';
+import { MONTH_TH, MONTH_TH_FULL, addDays, beYear, fromISO, mondayOf, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
 
 // ขอบเขตปีให้สอดคล้อง MonthYearPicker (พ.ศ. 2569–2573)
 const MIN_Y = 2026;
@@ -23,15 +23,18 @@ function PeriodNav({
   onPrev,
   onNext,
   onPressLabel,
+  onToday,
 }: {
   label: string;
   onPrev: () => void;
   onNext: () => void;
   onPressLabel: () => void;
+  /** แสดงชิป "วันนี้" เมื่อส่งมา (ซ่อนเมื่อดูช่วงปัจจุบันอยู่แล้ว) */
+  onToday?: () => void;
 }) {
   const t = useTokens();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 8 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 8, gap: 4 }}>
       <Pressable onPress={onPrev} style={{ padding: 6 }}>
         <Icon name="chevL" size={20} color={t.sub} />
       </Pressable>
@@ -43,6 +46,7 @@ function PeriodNav({
         </Txt>
         <Icon name="chevD" size={14} color={t.sub} />
       </Pressable>
+      {onToday ? <Chip small label="วันนี้" active color={ACCENT} onPress={onToday} /> : null}
       <Pressable onPress={onNext} style={{ padding: 6 }}>
         <Icon name="chevR" size={20} color={t.sub} />
       </Pressable>
@@ -53,6 +57,7 @@ function PeriodNav({
 /** มุมมองสัปดาห์: ป้าย "6 ก.ค. – 12 ก.ค. 2569" + เลื่อนทีละ 7 วัน — แตะป้ายเปิด popup เลือก สัปดาห์/เดือน/ปี */
 export function WeekNav({ monday, onChange }: { monday: string; onChange: (monday: string) => void }) {
   const [open, setOpen] = useState(false);
+  const thisWeek = mondayOf(todayISO());
   return (
     <>
       <PeriodNav
@@ -60,6 +65,7 @@ export function WeekNav({ monday, onChange }: { monday: string; onChange: (monda
         onPrev={() => onChange(addDays(monday, -7))}
         onNext={() => onChange(addDays(monday, 7))}
         onPressLabel={() => setOpen(true)}
+        onToday={monday !== thisWeek ? () => onChange(thisWeek) : undefined}
       />
       <WeekPicker
         visible={open}
@@ -81,6 +87,8 @@ export function MonthNav({ ym, onChange }: { ym: YM; onChange: (ym: YM) => void 
     const dt = new Date(ym.y, ym.m + d, 1);
     onChange({ y: dt.getFullYear(), m: dt.getMonth() });
   };
+  const now = fromISO(todayISO());
+  const thisMonth = { y: now.getFullYear(), m: now.getMonth() };
   return (
     <>
       <PeriodNav
@@ -88,6 +96,7 @@ export function MonthNav({ ym, onChange }: { ym: YM; onChange: (ym: YM) => void 
         onPrev={() => shift(-1)}
         onNext={() => shift(1)}
         onPressLabel={() => setOpen(true)}
+        onToday={ym.y !== thisMonth.y || ym.m !== thisMonth.m ? () => onChange(thisMonth) : undefined}
       />
       <MonthYearPicker
         visible={open}

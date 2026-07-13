@@ -8,11 +8,14 @@ interface UIState {
   sheet: { id: number; date: string } | null;
   /** นัดที่กำลังเลื่อน (Reschedule Modal) */
   resc: DayItem | null;
+  /** วันที่ให้แท็บวันนี้เปิดโชว์ (ตั้งหลังบันทึกกิจกรรม แล้วแท็บวันนี้ consume ทิ้ง) */
+  focusDate: string | null;
   showToast: (msg: string) => void;
   openSheet: (id: number, date: string) => void;
   closeSheet: () => void;
   openResc: (item: DayItem) => void;
   closeResc: () => void;
+  setFocusDate: (iso: string | null) => void;
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -21,6 +24,7 @@ export const useUI = create<UIState>((set) => ({
   toast: null,
   sheet: null,
   resc: null,
+  focusDate: null,
 
   showToast: (msg) => {
     set({ toast: msg });
@@ -31,4 +35,5 @@ export const useUI = create<UIState>((set) => ({
   closeSheet: () => set({ sheet: null }),
   openResc: (item) => set({ resc: item, sheet: null }),
   closeResc: () => set({ resc: null }),
+  setFocusDate: (iso) => set({ focusDate: iso }),
 }));

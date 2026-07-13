@@ -1,6 +1,6 @@
 // แท็บ 1 — วันนี้: มุมมอง วัน/สัปดาห์/เดือน + FAB (APP_STRUCTURE.md §3)
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -35,6 +35,16 @@ export default function TodayScreen() {
   });
 
   const items = useDay(focus);
+
+  // หลังบันทึกจากฟอร์มเพิ่มกิจกรรม — เด้งไปมุมมองวันของวันที่เพิ่งบันทึก แล้วล้างค่าทิ้ง
+  const focusDate = useUI((s) => s.focusDate);
+  useEffect(() => {
+    if (focusDate) {
+      setFocus(focusDate);
+      setView('day');
+      useUI.getState().setFocusDate(null);
+    }
+  }, [focusDate]);
 
   const goDay = (iso: string) => {
     setFocus(iso);

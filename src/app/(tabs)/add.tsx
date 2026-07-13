@@ -289,6 +289,8 @@ function ScheduleSection() {
       showToast(`เพิ่มแล้ว ${d.dates.length} วัน ✓`);
     }
     d.reset();
+    // ให้แท็บวันนี้เปิดโชว์วันแรกของกิจกรรมที่เพิ่งบันทึก — ผู้ใช้เห็นผลทันทีแม้ลงวันอื่น
+    useUI.getState().setFocusDate(startDate);
     router.navigate('/');
   };
 
