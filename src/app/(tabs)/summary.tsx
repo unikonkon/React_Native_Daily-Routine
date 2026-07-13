@@ -7,11 +7,12 @@ import { GREEN } from '@/constants/theme';
 import { DateStrip } from '@/components/date-strip';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
+import { MonthNav, WeekNav } from '@/components/period-nav';
 import { Screen } from '@/components/screen';
 import { Timeline } from '@/components/timeline';
 import { WeekGrid } from '@/components/week-grid';
 import { Card, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
-import { MONTH_TH_FULL, addDays, beYear, fmtMin, hoursText, mondayOf, thaiDate, thaiWeekRange, todayISO } from '@/lib/dates';
+import { addDays, fmtMin, mondayOf, thaiDate, todayISO } from '@/lib/dates';
 import { freeMinutes, freeSlots } from '@/lib/engine';
 import { useActivities, useDay, useDayReader } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
@@ -104,44 +105,20 @@ function FreeMode() {
 
       {view === 'week' ? (
         <>
-          <NavRow label={thaiWeekRange(monday)} onPrev={() => setMonday(addDays(monday, -7))} onNext={() => setMonday(addDays(monday, 7))} />
+          <WeekNav monday={monday} onChange={setMonday} />
           <WeekGrid monday={monday} mode="free" onPressDay={goDay} />
         </>
       ) : null}
 
       {view === 'month' ? (
         <>
-          <NavRow
-            label={`${MONTH_TH_FULL[ym.m]} ${beYear(ym.y)}`}
-            onPrev={() => setYm(shift(ym, -1))}
-            onNext={() => setYm(shift(ym, 1))}
-          />
+          <MonthNav ym={ym} onChange={setYm} />
           <View style={{ paddingHorizontal: 18 }}>
             <MonthGrid year={ym.y} month={ym.m} mode="heat-hours" onPressDay={goDay} />
           </View>
         </>
       ) : null}
     </>
-  );
-}
-
-const shift = (ym: { y: number; m: number }, d: number) => {
-  const dt = new Date(ym.y, ym.m + d, 1);
-  return { y: dt.getFullYear(), m: dt.getMonth() };
-};
-
-function NavRow({ label, onPrev, onNext }: { label: string; onPrev: () => void; onNext: () => void }) {
-  const t = useTokens();
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 8 }}>
-      <Pressable onPress={onPrev} style={{ padding: 6 }}>
-        <Icon name="chevL" size={20} color={t.sub} />
-      </Pressable>
-      <Txt size={14} weight="med" style={{ flex: 1, textAlign: 'center' }}>{label}</Txt>
-      <Pressable onPress={onNext} style={{ padding: 6 }}>
-        <Icon name="chevR" size={20} color={t.sub} />
-      </Pressable>
-    </View>
   );
 }
 

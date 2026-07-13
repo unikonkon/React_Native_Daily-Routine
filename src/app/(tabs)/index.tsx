@@ -7,12 +7,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DateStrip } from '@/components/date-strip';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
+import { MonthNav, WeekNav } from '@/components/period-nav';
 import { Screen, TABBAR_H } from '@/components/screen';
 import { Timeline } from '@/components/timeline';
 import { Segmented, Txt, useTokens } from '@/components/ui';
 import { WeekGrid } from '@/components/week-grid';
 import { ACCENT } from '@/constants/theme';
-import { MONTH_TH_FULL, addDays, beYear, mondayOf, thaiDateFull, thaiWeekRange, todayISO } from '@/lib/dates';
+import { mondayOf, thaiDateFull, todayISO } from '@/lib/dates';
 import { useDay } from '@/stores/activities';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
@@ -70,22 +71,14 @@ export default function TodayScreen() {
 
       {view === 'week' ? (
         <>
-          <NavBar
-            label={thaiWeekRange(monday)}
-            onPrev={() => setMonday(addDays(monday, -7))}
-            onNext={() => setMonday(addDays(monday, 7))}
-          />
+          <WeekNav monday={monday} onChange={setMonday} />
           <WeekGrid monday={monday} onPressDay={goDay} />
         </>
       ) : null}
 
       {view === 'month' ? (
         <>
-          <NavBar
-            label={`${MONTH_TH_FULL[ym.m]} ${beYear(ym.y)}`}
-            onPrev={() => setYm(shiftMonth(ym, -1))}
-            onNext={() => setYm(shiftMonth(ym, 1))}
-          />
+          <MonthNav ym={ym} onChange={setYm} />
           <View style={{ paddingHorizontal: 18 }}>
             <MonthGrid year={ym.y} month={ym.m} mode="heat-dots" onPressDay={goDay} />
           </View>
@@ -118,27 +111,5 @@ export default function TodayScreen() {
         <Icon name="plus" size={26} color="#FFFFFF" />
       </Pressable>
     </Screen>
-  );
-}
-
-function shiftMonth(ym: { y: number; m: number }, d: number) {
-  const dt = new Date(ym.y, ym.m + d, 1);
-  return { y: dt.getFullYear(), m: dt.getMonth() };
-}
-
-function NavBar({ label, onPrev, onNext }: { label: string; onPrev: () => void; onNext: () => void }) {
-  const t = useTokens();
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 8 }}>
-      <Pressable onPress={onPrev} style={{ padding: 6 }}>
-        <Icon name="chevL" size={20} color={t.sub} />
-      </Pressable>
-      <Txt size={14} weight="med" style={{ flex: 1, textAlign: 'center' }}>
-        {label}
-      </Txt>
-      <Pressable onPress={onNext} style={{ padding: 6 }}>
-        <Icon name="chevR" size={20} color={t.sub} />
-      </Pressable>
-    </View>
   );
 }
