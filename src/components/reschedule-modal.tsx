@@ -1,6 +1,6 @@
 // Smart Reschedule Modal (APP_STRUCTURE.md §3.4) — เฉพาะนัดหมวด case
-import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ACCENT, FONT, GREEN } from '@/constants/theme';
@@ -35,10 +35,34 @@ function Body() {
 
   const cands = useMemo(() => rescheduleCandidates(acts, occ, item, range), [acts, occ, item, range]);
 
+  // เข้าเร็วและลื่นแบบเดียวกับ ActivitySheet: ไม่ใช้แอนิเมชันของระบบ — สไลด์ขึ้น+จางเข้าเองด้วย native driver สั้น ๆ
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, { toValue: 1, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [anim]);
+
   return (
-    <Modal transparent animationType="slide" onRequestClose={closeResc}>
-      <Pressable style={{ flex: 1, backgroundColor: t.overlay }} onPress={closeResc} />
-      <View style={{ backgroundColor: t.sheet, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: insets.bottom + 20, gap: 12, maxHeight: '85%' }}>
+    <Modal transparent animationType="none" onRequestClose={closeResc}>
+      {/* ไม่มีฉากหลังมืด — โปร่งใส แตะพื้นที่ว่างเพื่อปิดได้เหมือนเดิม */}
+      <Pressable style={{ flex: 1 }} onPress={closeResc} />
+      <Animated.View
+        style={{
+          opacity: anim,
+          transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }],
+          backgroundColor: t.sheet,
+          borderTopLeftRadius: 28,
+          borderTopRightRadius: 28,
+          padding: 20,
+          paddingBottom: insets.bottom + 20,
+          gap: 12,
+          maxHeight: '85%',
+          // เงานุ่มแทน overlay — ให้แผ่นยังแยกจากเนื้อหาด้านหลังชัด
+          shadowColor: '#000',
+          shadowOpacity: 0.22,
+          shadowRadius: 24,
+          shadowOffset: { width: 0, height: -8 },
+          elevation: 16,
+        }}>
         <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: t.line2, alignSelf: 'center' }} />
         <Txt size={20} weight="bold">เลื่อนนัด · {item.title}</Txt>
         <Txt size={13} num color={t.sub}>
@@ -107,7 +131,7 @@ function Body() {
             showToast('เลื่อนนัดแล้ว · ย้ายแจ้งเตือนอัตโนมัติ');
           }}
         />
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

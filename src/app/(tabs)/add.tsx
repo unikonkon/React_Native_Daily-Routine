@@ -60,7 +60,20 @@ export default function AddScreen() {
 
 // ---------- หัวข้อขั้นตอน: เลขวงกลม (✓ เขียวเมื่อผ่านแล้ว) + ชื่อขั้น ----------
 
-function StepSection({ n, title, done, children }: { n: number; title: string; done: boolean; children: ReactNode }) {
+function StepSection({
+  n,
+  title,
+  done,
+  right,
+  children,
+}: {
+  n: number;
+  title: string;
+  done: boolean;
+  /** ปุ่ม/ชิปมุมขวาของหัวข้อขั้น (เช่น ล้างค่าในขั้น 1) */
+  right?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <View style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -75,7 +88,8 @@ function StepSection({ n, title, done, children }: { n: number; title: string; d
           }}>
           {done ? <Icon name="check" size={14} color="#FFFFFF" /> : <Txt size={12} num weight="bold" color="#FFFFFF">{n}</Txt>}
         </View>
-        <Txt size={15} weight="bold">{title}</Txt>
+        <Txt size={15} weight="bold" style={{ flex: 1 }}>{title}</Txt>
+        {right ?? null}
       </View>
       {children}
     </View>
@@ -87,13 +101,33 @@ function StepSection({ n, title, done, children }: { n: number; title: string; d
 function DetailsSection() {
   const t = useTokens();
   const d = useDraft();
+  const showToast = useUI((s) => s.showToast);
   const contacts = useContacts((s) => s.list);
   const upsertContact = useContacts((s) => s.upsert);
   const [newName, setNewName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
 
+  // มีอะไรให้ล้างไหม — ชิป "ล้างค่า" โผล่เฉพาะตอนฟอร์มมีข้อมูลแล้ว (reset ทั้ง draft: หมวด/ชื่อ/วัน/เวลา/แจ้งเตือน)
+  const dirty = !!d.cat || !!d.title || !!d.editId;
+
   return (
-    <StepSection n={1} title="เลือกหมวดและรายละเอียด" done={!!d.cat && !!d.title.trim()}>
+    <StepSection
+      n={1}
+      title="เลือกหมวดและรายละเอียด"
+      done={!!d.cat && !!d.title.trim()}
+      right={
+        dirty ? (
+          <Chip
+            small
+            icon="restore"
+            label="ล้างค่า"
+            onPress={() => {
+              d.reset();
+              showToast('ล้างค่าฟอร์มแล้ว');
+            }}
+          />
+        ) : undefined
+      }>
       {/* หมวด + รายละเอียด รวมในการ์ดพื้นหลังเดียว — ส่วนรายละเอียดโผล่ใต้เส้นคั่นเมื่อเลือกหมวดแล้ว */}
       <Card style={{ gap: 12 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>

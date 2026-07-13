@@ -1,12 +1,12 @@
 // Bottom Sheet รายละเอียดกิจกรรม (APP_STRUCTURE.md §3.3) — ใช้ร่วมแท็บวันนี้ + สรุปเคส
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Modal, Pressable, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Modal, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CAT_BY_ID, GREEN } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { Btn, PriBadge, Txt, useTokens } from '@/components/ui';
+import { CAT_BY_ID, GREEN } from '@/constants/theme';
 import { durText, fmtRange, thaiDate } from '@/lib/dates';
 import { useActivities, useDay } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
@@ -30,9 +30,10 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   const item = useDay(date).find((i) => i.id === id);
   const [confirm, setConfirm] = useState(false);
 
+  // เข้าเร็วและลื่น: Modal ไม่ใส่แอนิเมชันของระบบ (ช้า ~300ms) — สไลด์ขึ้น+จางเข้าเองด้วย native driver สั้น ๆ
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(anim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+    Animated.timing(anim, { toValue: 1, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, [anim]);
 
   if (!item) {
@@ -56,17 +57,25 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   };
 
   return (
-    <Modal transparent animationType="fade" onRequestClose={closeSheet}>
-      <Pressable style={{ flex: 1, backgroundColor: t.overlay }} onPress={closeSheet} />
+    <Modal transparent animationType="none" onRequestClose={closeSheet}>
+      {/* ไม่มีฉากหลังมืด — โปร่งใส แตะพื้นที่ว่างเพื่อปิดได้เหมือนเดิม */}
+      <Pressable style={{ flex: 1 }} onPress={closeSheet} />
       <Animated.View
         style={{
-          transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [80, 0] }) }],
+          opacity: anim,
+          transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }],
           backgroundColor: t.sheet,
           borderTopLeftRadius: 28,
           borderTopRightRadius: 28,
           padding: 20,
           paddingBottom: insets.bottom + 20,
           gap: 12,
+          // เงานุ่มแทน overlay — ให้แผ่นยังแยกจากเนื้อหาด้านหลังชัด
+          shadowColor: '#000',
+          shadowOpacity: 0.22,
+          shadowRadius: 24,
+          shadowOffset: { width: 0, height: -8 },
+          elevation: 16,
         }}>
         <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: t.line2, alignSelf: 'center' }} />
 
