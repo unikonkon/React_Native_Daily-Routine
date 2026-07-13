@@ -1,7 +1,7 @@
-// แท็บ 2 — เพิ่ม/แก้ไขกิจกรรม: ฟอร์มหน้าเดียว (APP_STRUCTURE.md §4)
-// ส่วนบน เลือกหมวด+รายละเอียด → ส่วนล่าง วันเวลา+ทำซ้ำ+พรีวิว+แจ้งเตือน → บันทึก
+// แท็บ 2 — เพิ่ม/แก้ไขกิจกรรม: ฟอร์มแบ่ง 4 ขั้น เปิดต่ออัตโนมัติ (APP_STRUCTURE.md §4)
+// ① หมวด+รายละเอียด (การ์ดเดียว รายละเอียดโผล่เมื่อเลือกหมวด) → ② วันที่+ทำซ้ำ ③ เวลา+พรีวิว ④ แจ้งเตือน+บันทึก (โผล่เมื่อใส่ชื่อแล้ว)
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
@@ -46,11 +46,39 @@ const HORIZONS: { key: Horizon; label: string }[] = [
 
 export default function AddScreen() {
   const d = useDraft();
+  // เปิดขั้นถัดไปอัตโนมัติจากข้อมูลใน draft: เลือกหมวด+ใส่ชื่อ (ขั้น 1) แล้ว → ขั้น 2–4 ทั้งหมด
+  const hasTitle = !!d.title.trim();
   return (
-    <Screen title={d.editId ? 'แก้ไขกิจกรรม' : 'เพิ่มกิจกรรม'}>
+    <Screen
+      title={d.editId ? 'แก้ไขกิจกรรม' : 'เพิ่มกิจกรรม'}
+      subtitle={!d.cat || !hasTitle ? 'ขั้นที่ 1 จาก 4' : undefined}>
       <DetailsSection />
-      <ScheduleSection />
+      {d.cat && hasTitle ? <ScheduleSection /> : null}
     </Screen>
+  );
+}
+
+// ---------- หัวข้อขั้นตอน: เลขวงกลม (✓ เขียวเมื่อผ่านแล้ว) + ชื่อขั้น ----------
+
+function StepSection({ n, title, done, children }: { n: number; title: string; done: boolean; children: ReactNode }) {
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 12,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: done ? GREEN : ACCENT,
+          }}>
+          {done ? <Icon name="check" size={14} color="#FFFFFF" /> : <Txt size={12} num weight="bold" color="#FFFFFF">{n}</Txt>}
+        </View>
+        <Txt size={15} weight="bold">{title}</Txt>
+      </View>
+      {children}
+    </View>
   );
 }
 
@@ -65,144 +93,148 @@ function DetailsSection() {
   const [addingContact, setAddingContact] = useState(false);
 
   return (
-    <>
-      <Txt size={14} weight="med" color={t.sub}>เลือกหมวดของกิจกรรม</Txt>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-        {CATS.map((c) => {
-          const active = d.cat === c.id;
-          return (
-            <Pressable
-              key={c.id}
-              onPress={() => d.set({ cat: c.id })}
-              style={{
-                width: '47.5%',
-                padding: 14,
-                borderRadius: 18,
-                backgroundColor: active ? c.color + '22' : t.card,
-                borderWidth: 1.5,
-                borderColor: active ? c.color : t.line,
-                gap: 8,
-              }}>
-              <Icon name={c.icon} size={22} color={c.color} />
-              <Txt size={13} weight="med">{c.name}</Txt>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {d.cat ? (
-        <Card style={{ gap: 12 }}>
-          <TextInput
-            value={d.title}
-            onChangeText={(title) => d.set({ title })}
-            placeholder="พิมพ์ชื่อ…"
-            placeholderTextColor={t.faint}
-            style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 12, color: t.ink, fontFamily: FONT.uiMed, fontSize: 15 }}
-          />
-          <ChipRow>
-            {QUICK_PICKS[d.cat].map((q) => (
-              <Chip key={q} small label={q} active={d.title === q} onPress={() => d.set({ title: q })} />
-            ))}
-          </ChipRow>
-
-          {d.cat === 'work' ? (
-            <>
-              <Txt size={13} weight="med" color={t.sub}>สถานที่</Txt>
-              <ChipRow>
-                {['ออฟฟิศ', 'บ้าน (WFH)', 'ลูกค้า'].map((l) => (
-                  <Chip key={l} small label={l} active={d.loc === l} onPress={() => d.set({ loc: d.loc === l ? '' : l })} />
-                ))}
-              </ChipRow>
-            </>
-          ) : null}
-
-          {d.cat === 'ex' ? (
-            <>
-              <Txt size={13} weight="med" color={t.sub}>ประเภท</Txt>
-              <ChipRow>
-                {[
-                  { k: 'weight', l: 'เวท' },
-                  { k: 'cardio', l: 'คาร์ดิโอ' },
-                  { k: 'class', l: 'คลาส' },
-                ].map((s) => (
-                  <Chip key={s.k} small label={s.l} active={d.sub === s.k} onPress={() => d.set({ sub: d.sub === s.k ? '' : s.k })} />
-                ))}
-              </ChipRow>
-            </>
-          ) : null}
-
-          {d.cat === 'learn' ? (
-            <>
-              <Txt size={13} weight="med" color={t.sub}>สื่อ</Txt>
-              <ChipRow>
-                {[
-                  { k: 'book', l: 'หนังสือ' },
-                  { k: 'audio', l: 'เสียง/พอดแคสต์' },
-                ].map((s) => (
-                  <Chip key={s.k} small label={s.l} active={d.sub === s.k} onPress={() => d.set({ sub: d.sub === s.k ? '' : s.k })} />
-                ))}
-              </ChipRow>
-            </>
-          ) : null}
-        </Card>
-      ) : null}
-
-      {d.cat === 'case' ? (
-        <Card style={{ gap: 12 }}>
-          <Txt size={13} weight="med" color={t.sub}>คนที่นัด</Txt>
-          <ChipRow>
-            {contacts.map((c) => (
-              <Chip
+    <StepSection n={1} title="เลือกหมวดและรายละเอียด" done={!!d.cat && !!d.title.trim()}>
+      {/* หมวด + รายละเอียด รวมในการ์ดพื้นหลังเดียว — ส่วนรายละเอียดโผล่ใต้เส้นคั่นเมื่อเลือกหมวดแล้ว */}
+      <Card style={{ gap: 12 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {CATS.map((c) => {
+            const active = d.cat === c.id;
+            return (
+              <Pressable
                 key={c.id}
-                small
-                label={c.name}
-                active={d.contactIds.includes(c.id)}
-                onPress={() =>
-                  d.set({
-                    contactIds: d.contactIds.includes(c.id) ? d.contactIds.filter((x) => x !== c.id) : [...d.contactIds, c.id],
-                  })
-                }
-              />
-            ))}
-            <Chip small label="+ เพิ่ม" onPress={() => setAddingContact(true)} />
-          </ChipRow>
-          {addingContact ? (
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TextInput
-                value={newName}
-                onChangeText={setNewName}
-                placeholder="ชื่อรายชื่อใหม่…"
-                placeholderTextColor={t.faint}
-                style={{ flex: 1, backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
-              />
-              <Btn
-                label="เพิ่ม"
-                onPress={async () => {
-                  const name = newName.trim();
-                  if (!name) return;
-                  await upsertContact({ name, priority: 'P6', phone: null, line: null });
-                  setNewName('');
-                  setAddingContact(false);
-                }}
-              />
-            </View>
-          ) : null}
+                onPress={() => d.set({ cat: c.id })}
+                style={{
+                  width: '47.5%',
+                  padding: 14,
+                  borderRadius: 18,
+                  backgroundColor: active ? c.color + '22' : t.card2,
+                  borderWidth: 1.5,
+                  borderColor: active ? c.color : t.line,
+                  gap: 8,
+                }}>
+                <Icon name={c.icon} size={22} color={c.color} />
+                <Txt size={13} weight="med">{c.name}</Txt>
+              </Pressable>
+            );
+          })}
+        </View>
 
-          <Txt size={13} weight="med" color={t.sub}>ระดับความสำคัญ</Txt>
-          <ChipRow>
-            {PRI.map((p) => (
-              <Chip key={p.id} small label={p.id} color={p.color} active={d.priority === p.id} onPress={() => d.set({ priority: p.id })} />
-            ))}
-          </ChipRow>
+        {d.cat ? (
+          <>
+            <View style={{ height: 1, backgroundColor: t.line }} />
+            <TextInput
+              value={d.title}
+              onChangeText={(title) => d.set({ title })}
+              placeholder="พิมพ์ชื่อ…"
+              placeholderTextColor={t.faint}
+              style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 12, color: t.ink, fontFamily: FONT.uiMed, fontSize: 15 }}
+            />
+            <ChipRow>
+              {QUICK_PICKS[d.cat].map((q) => (
+                <Chip key={q} small label={q} active={d.title === q} onPress={() => d.set({ title: q })} />
+              ))}
+            </ChipRow>
 
-          <Txt size={13} weight="med" color={t.sub}>ช่องทาง</Txt>
-          <ChipRow>
-            <Chip small icon="video" label="ออนไลน์" active={d.channel === 'online'} onPress={() => d.set({ channel: 'online' })} />
-            <Chip small icon="mappin" label="พบตัว" active={d.channel === 'inperson'} onPress={() => d.set({ channel: 'inperson' })} />
-          </ChipRow>
-        </Card>
-      ) : null}
-    </>
+            {d.cat === 'work' ? (
+              <>
+                <Txt size={13} weight="med" color={t.sub}>สถานที่</Txt>
+                <ChipRow>
+                  {['ออฟฟิศ', 'บ้าน (WFH)', 'ลูกค้า'].map((l) => (
+                    <Chip key={l} small label={l} active={d.loc === l} onPress={() => d.set({ loc: d.loc === l ? '' : l })} />
+                  ))}
+                </ChipRow>
+              </>
+            ) : null}
+
+            {d.cat === 'ex' ? (
+              <>
+                <Txt size={13} weight="med" color={t.sub}>ประเภท</Txt>
+                <ChipRow>
+                  {[
+                    { k: 'weight', l: 'เวท' },
+                    { k: 'cardio', l: 'คาร์ดิโอ' },
+                    { k: 'class', l: 'คลาส' },
+                  ].map((s) => (
+                    <Chip key={s.k} small label={s.l} active={d.sub === s.k} onPress={() => d.set({ sub: d.sub === s.k ? '' : s.k })} />
+                  ))}
+                </ChipRow>
+              </>
+            ) : null}
+
+            {d.cat === 'learn' ? (
+              <>
+                <Txt size={13} weight="med" color={t.sub}>สื่อ</Txt>
+                <ChipRow>
+                  {[
+                    { k: 'book', l: 'หนังสือ' },
+                    { k: 'audio', l: 'เสียง/พอดแคสต์' },
+                  ].map((s) => (
+                    <Chip key={s.k} small label={s.l} active={d.sub === s.k} onPress={() => d.set({ sub: d.sub === s.k ? '' : s.k })} />
+                  ))}
+                </ChipRow>
+              </>
+            ) : null}
+          </>
+        ) : null}
+
+        {d.cat === 'case' ? (
+          <>
+            <View style={{ height: 1, backgroundColor: t.line }} />
+            <Txt size={13} weight="med" color={t.sub}>คนที่นัด</Txt>
+            <ChipRow>
+              {contacts.map((c) => (
+                <Chip
+                  key={c.id}
+                  small
+                  label={c.name}
+                  active={d.contactIds.includes(c.id)}
+                  onPress={() =>
+                    d.set({
+                      contactIds: d.contactIds.includes(c.id) ? d.contactIds.filter((x) => x !== c.id) : [...d.contactIds, c.id],
+                    })
+                  }
+                />
+              ))}
+              <Chip small label="+ เพิ่ม" onPress={() => setAddingContact(true)} />
+            </ChipRow>
+            {addingContact ? (
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TextInput
+                  value={newName}
+                  onChangeText={setNewName}
+                  placeholder="ชื่อรายชื่อใหม่…"
+                  placeholderTextColor={t.faint}
+                  style={{ flex: 1, backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
+                />
+                <Btn
+                  label="เพิ่ม"
+                  onPress={async () => {
+                    const name = newName.trim();
+                    if (!name) return;
+                    await upsertContact({ name, priority: 'P6', phone: null, line: null });
+                    setNewName('');
+                    setAddingContact(false);
+                  }}
+                />
+              </View>
+            ) : null}
+
+            <Txt size={13} weight="med" color={t.sub}>ระดับความสำคัญ</Txt>
+            <ChipRow>
+              {PRI.map((p) => (
+                <Chip key={p.id} small label={p.id} color={p.color} active={d.priority === p.id} onPress={() => d.set({ priority: p.id })} />
+              ))}
+            </ChipRow>
+
+            <Txt size={13} weight="med" color={t.sub}>ช่องทาง</Txt>
+            <ChipRow>
+              <Chip small icon="video" label="ออนไลน์" active={d.channel === 'online'} onPress={() => d.set({ channel: 'online' })} />
+              <Chip small icon="mappin" label="พบตัว" active={d.channel === 'inperson'} onPress={() => d.set({ channel: 'inperson' })} />
+            </ChipRow>
+          </>
+        ) : null}
+      </Card>
+    </StepSection>
   );
 }
 
@@ -296,128 +328,135 @@ function ScheduleSection() {
 
   return (
     <>
-      {/* ทำซ้ำ + horizon */}
-      <Card style={{ gap: 10 }}>
-        <Txt size={13} weight="med" color={t.sub}>รูปแบบทำซ้ำ</Txt>
-        <ChipRow>
-          {REPEATS.map((r) => (
-            <Chip key={r.key} small label={r.label} active={d.repeat === r.key} onPress={() => d.setRepeat(r.key)} />
-          ))}
-        </ChipRow>
-        {d.repeat !== 'none' && d.repeat !== 'custom' ? (
-          <>
-            <Txt size={13} weight="med" color={t.sub}>ระยะเวลาที่ลง</Txt>
-            <ChipRow>
-              {HORIZONS.map((h) => (
-                <Chip key={h.key} small label={h.label} active={d.horizon === h.key} onPress={() => d.setHorizon(h.key)} />
-              ))}
-            </ChipRow>
-          </>
-        ) : null}
-        <Txt size={12} color={t.faint}>
-          {d.repeat === 'none' ? `ลงวันเดียว: ${thaiDate(d.dates[0])}` : `รวม ${d.dates.length} วัน · เริ่ม ${thaiDate(d.dates[0])}`}
-        </Txt>
-      </Card>
-
-      {/* ปฏิทินเลือกวันที่ */}
-      <Card style={{ gap: 8 }}>
-        <Pressable onPress={() => setPickerOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          <Txt size={14} weight="bold">{MONTH_TH_FULL[ym.m]} {beYear(ym.y)}</Txt>
-          <Icon name="chevD" size={16} color={t.sub} />
-        </Pressable>
-        <MonthGrid
-          year={ym.y}
-          month={ym.m}
-          mode="select"
-          selected={d.dates}
-          onPressDay={(iso) => d.toggleDate(iso)}
-        />
-      </Card>
-      <MonthYearPicker visible={pickerOpen} year={ym.y} month={ym.m} onClose={() => setPickerOpen(false)} onPick={(y, m) => setYm({ y, m })} />
-
-      {/* เวลา */}
-      <Card style={{ gap: 10 }}>
-        <Txt size={13} weight="med" color={t.sub}>ช่วงเวลา</Txt>
-        <ChipRow>
-          {PERIOD_PRESETS.map((p) => (
-            <Chip
-              key={p.label}
-              small
-              label={p.label}
-              active={d.start === p.start}
-              onPress={() => d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) })}
-            />
-          ))}
-          <Chip small label="เลือกเอง" active={!activePeriod} onPress={() => setTimePickerOpen(true)} />
-        </ChipRow>
-
-        {activePeriod ? (
-          <>
-            <Txt size={13} weight="med" color={t.sub}>ระยะเวลา</Txt>
-            <ChipRow>
-              {[1, 2, 3, 4, 5].map((n) => (
-                <Chip
-                  key={n}
-                  small
-                  label={`${n} ชม.`}
-                  active={duration === n * 60}
-                  onPress={() => d.set({ end: Math.min(d.start + n * 60, DAY_END) })}
-                />
-              ))}
-            </ChipRow>
-          </>
-        ) : null}
-
-        <Txt size={13} weight="med" color={t.sub}>ปรับละเอียด (ทีละ 15 นาที)</Txt>
-        <TimeStepper label="เริ่ม" value={d.start} onChange={(v) => d.set({ start: v })} />
-        <TimeStepper label="สิ้นสุด" value={d.end} onChange={(v) => d.set({ end: v })} />
-        {timeInvalid ? <Txt size={12} color="#C0392B">เวลาสิ้นสุดต้องมากกว่าเริ่ม</Txt> : null}
-      </Card>
-      <TimeRangeModal
-        visible={timePickerOpen}
-        start={d.start}
-        end={d.end}
-        onClose={() => setTimePickerOpen(false)}
-        onConfirm={(s, e) => {
-          d.set({ start: s, end: e });
-          setTimePickerOpen(false);
-        }}
-      />
-
-      {/* เตือนเวลาชน (ไม่บล็อก) */}
-      {analysis.conflictDays > 0 ? (
-        <Card style={{ borderColor: '#D2603A55', backgroundColor: '#D2603A14' }}>
-          <Txt size={13} color="#D2603A" weight="med">
-            ⚠ เวลาที่เลือกชนกับกิจกรรมเดิมใน {analysis.conflictDays} วัน — บันทึกต่อได้
+      <StepSection n={2} title="วันที่และการทำซ้ำ" done={d.dates.length > 0}>
+        {/* ทำซ้ำ + ปฏิทินเลือกวันที่ รวมในการ์ดพื้นหลังเดียว คั่นด้วยเส้นบาง — สรุปจำนวนวันอยู่ท้ายการ์ด */}
+        <Card style={{ gap: 10 }}>
+          <Txt size={14} color={t.faint} style={{ textAlign: 'center' }}>
+            {d.repeat === 'none' ? `ลงวันเดียว: ${thaiDate(d.dates[0])}` : `รวม ${d.dates.length} วัน · เริ่ม ${thaiDate(d.dates[0])}`}
           </Txt>
-        </Card>
-      ) : null}
 
-      {/* พรีวิวรายวัน (≤3 วัน) */}
-      {d.dates.length <= 5 ? (
-        analysis.per.map((p) => <DayPreview key={p.date} {...p} newStart={d.start} newEnd={d.end} />)
-      ) : (
-        <Txt size={12} color={t.faint} style={{ textAlign: 'center' }}>
-          เลือกไว้ {d.dates.length} วัน — พรีวิวรายวันแสดงเมื่อเลือกไม่เกิน 3 วัน
-        </Txt>
-      )}
-
-      {/* แจ้งเตือน */}
-      <Card style={{ gap: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Txt size={14} weight="med" style={{ flex: 1 }}>แจ้งเตือน</Txt>
-          <Toggle value={d.notify} onChange={(v) => d.set({ notify: v })} />
-        </View>
-        {d.notify ? (
           <ChipRow>
-            {[1, 5, 10, 15, 30, 60, 120].map((m) => (
-              <Chip key={m} small label={`${m} นาที`} active={d.before === m} onPress={() => d.set({ before: m })} />
+            {REPEATS.map((r) => (
+              <Chip key={r.key} small label={r.label} active={d.repeat === r.key} onPress={() => d.setRepeat(r.key)} />
             ))}
           </ChipRow>
-        ) : null}
-      </Card>
+          {d.repeat !== 'none' && d.repeat !== 'custom' ? (
+            <>
+              <Txt size={13} weight="med" color={t.sub}>ระยะเวลาที่ลง</Txt>
+              <ChipRow>
+                {HORIZONS.map((h) => (
+                  <Chip key={h.key} small label={h.label} active={d.horizon === h.key} onPress={() => d.setHorizon(h.key)} />
+                ))}
+              </ChipRow>
+            </>
+          ) : null}
 
-      <Btn label={d.editId ? 'บันทึกการแก้ไข' : 'บันทึกกิจกรรม'} onPress={onSave} />
+          <View style={{ height: 1, backgroundColor: t.line }} />
+
+          <Pressable onPress={() => setPickerOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <Txt size={14} weight="bold">{MONTH_TH_FULL[ym.m]} {beYear(ym.y)}</Txt>
+            <Icon name="chevD" size={16} color={t.sub} />
+          </Pressable>
+          <MonthGrid
+            year={ym.y}
+            month={ym.m}
+            mode="select"
+            selected={d.dates}
+            onPressDay={(iso) => d.toggleDate(iso)}
+          />
+
+        </Card>
+      </StepSection>
+      <MonthYearPicker visible={pickerOpen} year={ym.y} month={ym.m} onClose={() => setPickerOpen(false)} onPick={(y, m) => setYm({ y, m })} />
+
+      <StepSection n={3} title="เวลา" done={!timeInvalid}>
+        {/* เวลา */}
+        <Card style={{ gap: 10 }}>
+          <Txt size={13} weight="med" color={t.sub}>ช่วงเวลา</Txt>
+          <ChipRow>
+            {PERIOD_PRESETS.map((p) => (
+              <Chip
+                key={p.label}
+                small
+                label={p.label}
+                active={d.start === p.start}
+                onPress={() => d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) })}
+              />
+            ))}
+            <Chip small label="เลือกเอง" active={!activePeriod} onPress={() => setTimePickerOpen(true)} />
+          </ChipRow>
+
+          {activePeriod ? (
+            <>
+              <Txt size={13} weight="med" color={t.sub}>ระยะเวลา</Txt>
+              <ChipRow>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <Chip
+                    key={n}
+                    small
+                    label={`${n} ชม.`}
+                    active={duration === n * 60}
+                    onPress={() => d.set({ end: Math.min(d.start + n * 60, DAY_END) })}
+                  />
+                ))}
+              </ChipRow>
+            </>
+          ) : null}
+
+          <Txt size={13} weight="med" color={t.sub}>ปรับละเอียด (ทีละ 15 นาที)</Txt>
+          <TimeStepper label="เริ่ม" value={d.start} onChange={(v) => d.set({ start: v })} />
+          <TimeStepper label="สิ้นสุด" value={d.end} onChange={(v) => d.set({ end: v })} />
+          {timeInvalid ? <Txt size={12} color="#C0392B">เวลาสิ้นสุดต้องมากกว่าเริ่ม</Txt> : null}
+        </Card>
+        <TimeRangeModal
+          visible={timePickerOpen}
+          start={d.start}
+          end={d.end}
+          onClose={() => setTimePickerOpen(false)}
+          onConfirm={(s, e) => {
+            d.set({ start: s, end: e });
+            setTimePickerOpen(false);
+          }}
+        />
+
+        {/* เตือนเวลาชน (ไม่บล็อก) */}
+        {analysis.conflictDays > 0 ? (
+          <Card style={{ borderColor: '#D2603A55', backgroundColor: '#D2603A14' }}>
+            <Txt size={13} color="#D2603A" weight="med">
+              ⚠ เวลาที่เลือกชนกับกิจกรรมเดิมใน {analysis.conflictDays} วัน — บันทึกต่อได้
+            </Txt>
+          </Card>
+        ) : null}
+
+        {/* พรีวิวรายวัน (≤3 วัน) */}
+        {d.dates.length <= 5 ? (
+          analysis.per.map((p) => <DayPreview key={p.date} {...p} newStart={d.start} newEnd={d.end} />)
+        ) : (
+          <Txt size={12} color={t.faint} style={{ textAlign: 'center' }}>
+            เลือกไว้ {d.dates.length} วัน — พรีวิวรายวันแสดงเมื่อเลือกไม่เกิน 3 วัน
+          </Txt>
+        )}
+
+      </StepSection>
+
+      <StepSection n={4} title="แจ้งเตือนและบันทึก" done={false}>
+        {/* แจ้งเตือน */}
+        <Card style={{ gap: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Txt size={14} weight="med" style={{ flex: 1 }}>แจ้งเตือน</Txt>
+            <Toggle value={d.notify} onChange={(v) => d.set({ notify: v })} />
+          </View>
+          {d.notify ? (
+            <ChipRow>
+              {[1, 5, 10, 15, 30, 60, 120].map((m) => (
+                <Chip key={m} small label={`${m} นาที`} active={d.before === m} onPress={() => d.set({ before: m })} />
+              ))}
+            </ChipRow>
+          ) : null}
+        </Card>
+
+        <Btn label={d.editId ? 'บันทึกการแก้ไข' : 'บันทึกกิจกรรม'} onPress={onSave} />
+      </StepSection>
     </>
   );
 }
