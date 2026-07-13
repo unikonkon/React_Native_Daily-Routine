@@ -30,6 +30,11 @@ export function addDays(iso: string, n: number): string {
   return toISO(d);
 }
 
+/** จำนวนวันจาก a → b (ติดลบได้เมื่อ b มาก่อน a) */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((+fromISO(b) - +fromISO(a)) / 86400000);
+}
+
 /** weekday แบบจันทร์เริ่ม: 0=จ … 6=อา */
 export function wdMon(iso: string): number {
   return (fromISO(iso).getDay() + 6) % 7;

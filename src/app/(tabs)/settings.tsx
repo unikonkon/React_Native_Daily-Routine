@@ -17,12 +17,11 @@ import { useSettings } from '@/stores/settings';
 export default function SettingsScreen() {
   const t = useTokens();
   const router = useRouter();
-  const { acts, occ, version } = useActivities();
+  const { acts, occ } = useActivities();
   const nContacts = useContacts((s) => s.list.length);
   const settings = useSettings();
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const stats = useMemo(() => computeStats(acts, occ, nowMin()), [version]);
+  const stats = useMemo(() => computeStats(acts, occ, nowMin()), [acts, occ]);
   const maxH = Math.max(...Object.values(stats.hoursByCat), 1);
 
   const syncNotif = (master: boolean, morning: boolean) => requestResync(acts, occ, master, morning);

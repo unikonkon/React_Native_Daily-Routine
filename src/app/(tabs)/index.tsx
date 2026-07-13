@@ -1,10 +1,9 @@
 // แท็บ 1 — วันนี้: มุมมอง วัน/สัปดาห์/เดือน + FAB (APP_STRUCTURE.md §3)
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ACCENT } from '@/constants/theme';
 import { DateStrip } from '@/components/date-strip';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
@@ -12,7 +11,8 @@ import { Screen, TABBAR_H } from '@/components/screen';
 import { Timeline } from '@/components/timeline';
 import { Segmented, Txt, useTokens } from '@/components/ui';
 import { WeekGrid } from '@/components/week-grid';
-import { MONTH_TH_FULL, addDays, beYear, fromISO, mondayOf, thaiDateFull, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
+import { ACCENT } from '@/constants/theme';
+import { MONTH_TH_FULL, addDays, beYear, mondayOf, thaiDateFull, thaiWeekRange, todayISO } from '@/lib/dates';
 import { useDay } from '@/stores/activities';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
