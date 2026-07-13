@@ -88,7 +88,8 @@ export function ChipRow({ children, style }: { children: React.ReactNode; style?
 }
 
 interface SegmentedProps<K extends string> {
-  options: { key: K; label: string }[];
+  /** icon = ชื่อจาก components/icon.tsx, iconColor = สีไอคอนตอน active (ตอน inactive จางตามป้าย) */
+  options: { key: K; label: string; icon?: string; iconColor?: string }[];
   value: K;
   onChange: (k: K) => void;
 }
@@ -103,7 +104,17 @@ export function Segmented<K extends string>({ options, value, onChange }: Segmen
           <Pressable
             key={o.key}
             onPress={() => onChange(o.key)}
-            style={{ flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: 99, backgroundColor: active ? t.card : 'transparent' }}>
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+              paddingVertical: 7,
+              borderRadius: 99,
+              backgroundColor: active ? t.card : 'transparent',
+            }}>
+            {o.icon ? <Icon name={o.icon} size={14} color={active ? (o.iconColor ?? t.ink) : t.sub} /> : null}
             <Txt size={13} weight={active ? 'bold' : 'med'} color={active ? t.ink : t.sub}>
               {o.label}
             </Txt>

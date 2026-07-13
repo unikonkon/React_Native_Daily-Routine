@@ -1,17 +1,17 @@
 // แท็บ 3 — สรุป: โหมด "วันว่าง" (Free Slot) / "สรุปเคส" (APP_STRUCTURE.md §5)
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
-import { GREEN } from '@/constants/theme';
 import { DateStrip } from '@/components/date-strip';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
 import { MonthNav, WeekNav } from '@/components/period-nav';
 import { Screen } from '@/components/screen';
 import { Timeline } from '@/components/timeline';
-import { WeekGrid } from '@/components/week-grid';
 import { Card, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
+import { WeekGrid } from '@/components/week-grid';
+import { CAT_BY_ID, GREEN } from '@/constants/theme';
 import { addDays, fmtMin, mondayOf, thaiDate, todayISO } from '@/lib/dates';
 import { freeMinutes, freeSlots } from '@/lib/engine';
 import { useActivities, useDay, useDayReader } from '@/stores/activities';
@@ -24,12 +24,12 @@ type View3 = 'day' | 'week' | 'month';
 export default function SummaryScreen() {
   const [mode, setMode] = useState<'free' | 'cases'>('free');
   return (
-    <Screen title="สรุป" subtitle={mode === 'free' ? 'ช่วงเวลาว่าง' : 'เคสนัดหมาย'} scroll={false}>
-      <View style={{ paddingHorizontal: 18, marginBottom: 10 }}>
+    <Screen title="สรุป" scroll={false}>
+      <View style={{ paddingHorizontal: 18, marginBottom: 4 }}>
         <Segmented
           options={[
-            { key: 'free', label: '🟢 วันว่าง' },
-            { key: 'cases', label: '👥 สรุปเคส' },
+            { key: 'free', label: 'วันว่าง', icon: 'clock', iconColor: GREEN },
+            { key: 'cases', label: 'สรุปเคส', icon: 'users', iconColor: CAT_BY_ID.case.color },
           ]}
           value={mode}
           onChange={setMode}
