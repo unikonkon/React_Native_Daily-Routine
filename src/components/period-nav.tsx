@@ -109,9 +109,9 @@ export function MonthNav({ ym, onChange }: { ym: YM; onChange: (ym: YM) => void 
   );
 }
 
-// ---------- popup เลือกสัปดาห์: ปี → เดือน → รายการสัปดาห์ของเดือนนั้น ----------
+// ---------- popup เลือกสัปดาห์: ปี → เดือน → รายการสัปดาห์ของเดือนนั้น (ใช้ซ้ำใน Reschedule Modal ด้วย) ----------
 
-function WeekPicker({
+export function WeekPicker({
   visible,
   monday,
   onClose,

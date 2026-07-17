@@ -1,7 +1,7 @@
 // Core engine — pure functions ทั้งหมด ไม่มี I/O (APP_STRUCTURE.md §0, §5.1, §3.4)
 // ข้อมูลเข้า = activities + occurrence map จาก store ที่โหลดไว้แล้ว → ไม่ query ฐานข้อมูลซ้ำ
 
-import { DAY_END, FREE_START, MIN_FREE_GAP } from '@/constants/theme';
+import { DAY_END, FREE_START, MIN_FREE_GAP, SNAP } from '@/constants/theme';
 import { addDays, mondayOf, todayISO, wdMon } from '@/lib/dates';
 import type { Activity, DayItem, FreeSlot, Horizon, OccMap, RepeatRule } from '@/lib/types';
 import { HORIZON_DAYS } from '@/lib/types';
@@ -115,43 +115,66 @@ export interface RescCandidate extends FreeSlot {
 }
 
 /**
- * หา slot สำหรับเลื่อนนัด: สแกนช่วงวัน แล้วให้คะแนน
+ * ช่วงว่างทั้งหมดสำหรับเลื่อนนัดระหว่าง from–to เรียงตามวัน+เวลา พร้อมคะแนน (ใช้หา "แนะนำ")
  *   +3 เวลาเริ่มห่างจากเวลานัดเดิม ≤ 60 นาที
  *   +max(0, 4 − จำนวนวันห่าง) — วันใกล้ได้ก่อน
  *   +2 เคส P1 และ slot เริ่มก่อน 10:00
- * คืน 6 อันดับแรก
+ * ส่ง now (นาทีปัจจุบัน 0–1439) มาเพื่อตัดเวลาที่ผ่านแล้วของ "วันนี้" — เริ่มเสนอจากเวลาปัจจุบันปัดขึ้นทีละ 15 นาที
  */
+export function rescheduleSlots(
+  acts: Activity[],
+  occ: OccMap,
+  item: DayItem,
+  from: string,
+  to: string,
+  now?: number,
+): RescCandidate[] {
+  const today = todayISO();
+  const dur = item.endMin - item.startMin;
+  const out: RescCandidate[] = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const daysAway = Math.round((+new Date(d) - +new Date(today)) / 86400000);
+    for (const s of freeSlots(dayItems(acts, occ, d), dur)) {
+      let winStart = s.start;
+      // วันนี้: ขยับจุดเริ่มให้พ้นเวลาปัจจุบัน (ก่อน 06:00 ไม่ต้องตัด — หน้าต่างวันยังไม่เริ่ม)
+      if (now != null && d === today && now >= FREE_START && winStart < now) {
+        winStart = Math.ceil(now / SNAP) * SNAP;
+      }
+      // ไล่สร้างช่วงย่อยความยาวเท่านัดต่อ ๆ กันจนเต็มหน้าต่างว่าง — แสดงเวลาว่างที่จองได้ทั้งหมด ไม่ใช่แค่ช่วงแรก
+      for (let start = winStart; s.end - start >= dur; start += dur) {
+        // ข้าม slot เดิมของนัดที่กำลังเลื่อน (วันเดิม เวลาเดิม)
+        if (d === item.date && start === item.startMin) continue;
+        let score = 0;
+        if (Math.abs(start - item.startMin) <= 60) score += 3;
+        score += Math.max(0, 4 - daysAway);
+        if (item.priority === 'P1' && start < 600) score += 2;
+        out.push({ date: d, start, end: start + dur, score });
+      }
+    }
+  }
+  return out; // เรียงตามวัน+เวลาอยู่แล้วจากลำดับการสแกน
+}
+
+/** ช่วงวันของ filter เลื่อนนัด (3 วัน / สัปดาห์นี้ / สัปดาห์หน้า) */
+export function rescRangeDates(range: RescRange): { from: string; to: string } {
+  const today = todayISO();
+  if (range === '3d') return { from: today, to: addDays(today, 3) };
+  if (range === 'w') return { from: today, to: addDays(mondayOf(today), 6) };
+  const from = addDays(mondayOf(today), 7);
+  return { from, to: addDays(from, 6) };
+}
+
+/** 6 อันดับแรกตามคะแนน (ใช้ที่อื่นที่ต้องการแค่ตัวเลือกย่อ) */
 export function rescheduleCandidates(
   acts: Activity[],
   occ: OccMap,
   item: DayItem,
   range: RescRange,
 ): RescCandidate[] {
-  const today = todayISO();
-  let from = today;
-  let to: string;
-  if (range === '3d') to = addDays(today, 3);
-  else if (range === 'w') to = addDays(mondayOf(today), 6);
-  else {
-    from = addDays(mondayOf(today), 7);
-    to = addDays(from, 6);
-  }
-
-  const dur = item.endMin - item.startMin;
-  const out: RescCandidate[] = [];
-  for (let d = from; d <= to; d = addDays(d, 1)) {
-    const daysAway = Math.round((+new Date(d) - +new Date(today)) / 86400000);
-    for (const s of freeSlots(dayItems(acts, occ, d), dur)) {
-      // ข้าม slot เดิมของนัดที่กำลังเลื่อน (วันเดิม เวลาเดิม)
-      if (d === item.date && s.start === item.startMin) continue;
-      let score = 0;
-      if (Math.abs(s.start - item.startMin) <= 60) score += 3;
-      score += Math.max(0, 4 - daysAway);
-      if (item.priority === 'P1' && s.start < 600) score += 2;
-      out.push({ date: d, start: s.start, end: s.start + dur, score });
-    }
-  }
-  return out.sort((a, b) => b.score - a.score || a.date.localeCompare(b.date)).slice(0, 6);
+  const { from, to } = rescRangeDates(range);
+  return rescheduleSlots(acts, occ, item, from, to)
+    .sort((a, b) => b.score - a.score || a.date.localeCompare(b.date))
+    .slice(0, 6);
 }
 
 // ---------- สถิติ (§6.1) ----------
