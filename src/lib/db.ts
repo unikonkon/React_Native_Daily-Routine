@@ -3,6 +3,7 @@
 
 import * as SQLite from 'expo-sqlite';
 
+import { addDays } from '@/lib/dates';
 import type { Activity, Contact, OccMap, OccStatus } from '@/lib/types';
 
 let db: SQLite.SQLiteDatabase | null = null;
@@ -240,6 +241,73 @@ export async function saveSetting(key: string, value: string): Promise<void> {
     'INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT DO UPDATE SET value=excluded.value',
     key, value,
   );
+}
+
+// ---------- จัดการข้อมูลรายช่วง (settings/manage) ----------
+
+/**
+ * ลบข้อมูลช่วงวัน from–to ถาวร (รวมแถว cancelled ที่มองไม่เห็นด้วย):
+ *  - occurrences / reschedule_logs ที่วันที่อยู่ในช่วง
+ *  - กิจกรรมครั้งเดียวที่ start_date อยู่ในช่วง และ series ที่ทั้งช่วงชีวิตอยู่ในกรอบ → ลบทั้งแถว
+ *  - series คาบเกี่ยวกรอบ: ตัดท้าย / เลื่อนหัว / คร่อมทั้งกรอบ → แยกเป็นสองท่อน (ท่อนหลังได้ id ใหม่)
+ */
+export async function purgeRange(from: string, to: string): Promise<void> {
+  const d = getDb();
+  await d.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync('DELETE FROM occurrences WHERE date BETWEEN ? AND ?', from, to);
+    await txn.runAsync(
+      'DELETE FROM reschedule_logs WHERE (from_date BETWEEN ? AND ?) OR (to_date BETWEEN ? AND ?)',
+      from, to, from, to,
+    );
+
+    // ลบทั้งแถว: ครั้งเดียวในช่วง + series ที่อยู่ในกรอบทั้งช่วงชีวิต
+    const gone = await txn.getAllAsync<{ id: number }>(
+      `SELECT id FROM activities
+       WHERE (repeat='none' AND start_date BETWEEN ? AND ?)
+          OR (repeat!='none' AND start_date >= ? AND end_date IS NOT NULL AND end_date <= ?)`,
+      from, to, from, to,
+    );
+    for (const { id } of gone) {
+      await txn.runAsync('DELETE FROM activity_contacts WHERE activity_id=?', id);
+      await txn.runAsync('DELETE FROM occurrences WHERE activity_id=?', id);
+      await txn.runAsync('DELETE FROM reschedule_logs WHERE activity_id=?', id);
+      await txn.runAsync('DELETE FROM activities WHERE id=?', id);
+    }
+
+    const before = addDays(from, -1);
+    const after = addDays(to, 1);
+    const spanning = await txn.getAllAsync<ActivityRow>(
+      "SELECT * FROM activities WHERE repeat!='none' AND start_date <= ? AND (end_date IS NULL OR end_date >= ?)",
+      to, from,
+    );
+    for (const a of spanning) {
+      const headBefore = a.start_date < from;
+      const tailAfter = a.end_date === null || a.end_date > to;
+      if (headBefore && tailAfter) {
+        // คร่อมทั้งกรอบ — ท่อนแรกจบก่อนกรอบ, ท่อนหลังเริ่มหลังกรอบ (สำเนาแถว + ย้าย exception ฝั่งหลังตาม)
+        await txn.runAsync('UPDATE activities SET end_date=? WHERE id=?', before, a.id);
+        const res = await txn.runAsync(
+          `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
+             repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.start_min, a.end_min,
+          a.repeat, a.days_mask, after, a.end_date, a.notify, a.notify_before, a.detached_from, a.status,
+        );
+        const newId = res.lastInsertRowId;
+        await txn.runAsync('UPDATE occurrences SET activity_id=? WHERE activity_id=? AND date > ?', newId, a.id, to);
+        const links = await txn.getAllAsync<{ contact_id: number }>(
+          'SELECT contact_id FROM activity_contacts WHERE activity_id=?', a.id,
+        );
+        for (const l of links) {
+          await txn.runAsync('INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id) VALUES (?,?)', newId, l.contact_id);
+        }
+      } else if (headBefore) {
+        await txn.runAsync('UPDATE activities SET end_date=? WHERE id=?', before, a.id);
+      } else if (tailAfter) {
+        await txn.runAsync('UPDATE activities SET start_date=? WHERE id=?', after, a.id);
+      }
+    }
+  });
 }
 
 // ---------- Export / Import (§6.5) ----------
