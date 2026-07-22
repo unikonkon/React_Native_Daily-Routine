@@ -1,9 +1,9 @@
 // ปฏิทินเดือน (จันทร์เริ่ม) — คอมโพเนนต์เดียว 3 โหมด:
-//   heat-dots  = แท็บวันนี้ (พื้นเขียวตามชั่วโมงว่าง + จุดสีหมวด ≤3)
-//   heat-hours = แท็บสรุปวันว่าง (พื้นเขียว + ตัวเลข "18ช")
+//   heat-dots  = แท็บวันนี้ (ลุค iOS: เส้นแบ่งแถว + จุดสีหมวด ≤3 ใต้เลข, วันนี้วงกลมทึบ)
+//   heat-hours = แท็บสรุปวันว่าง (พื้นเขียวตามชั่วโมงว่าง + ตัวเลข "18ช")
 //   select     = ปฏิทินฟอร์มเพิ่มกิจกรรม (multi-select, วันที่ผ่านมากดไม่ได้)
 import React from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ACCENT, CAT_BY_ID, GREEN } from '@/constants/theme';
 import { Txt, useTokens } from '@/components/ui';
@@ -27,6 +27,7 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
   const start = mondayOf(first);
   const cells = Array.from({ length: 42 }, (_, i) => addDays(start, i));
   const selSet = new Set(selected ?? []);
+  const ios = mode === 'heat-dots'; // ลุคปฏิทิน iOS: เส้นแบ่งแถว, เซลล์สูง, ไม่มีพื้น heat
 
   return (
     <View>
@@ -38,7 +39,18 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
         ))}
       </View>
       {Array.from({ length: 6 }, (_, r) => (
-        <View key={r} style={{ flexDirection: 'row' }}>
+        <View
+          key={r}
+          style={{
+            flexDirection: 'row',
+            ...(ios
+              ? {
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopColor: t.line,
+                  ...(r === 5 ? { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.line } : {}),
+                }
+              : {}),
+          }}>
           {cells.slice(r * 7, r * 7 + 7).map((d) => {
             const inMonth = d.slice(0, 7) === first.slice(0, 7);
             const isToday = d === today;
@@ -48,7 +60,7 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
 
             let bg = 'transparent';
             let hoursLabel = '';
-            if (inMonth && mode !== 'select') {
+            if (inMonth && mode === 'heat-hours') {
               const freeH = freeMinutes(freeSlots(items)) / 60;
               const g = Math.min(freeH / 20.5, 1);
               bg = `rgba(76,154,106,${(0.08 + g * 0.44).toFixed(3)})`;
@@ -64,28 +76,41 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
                 onPress={() => onPressDay(d)}
                 style={{
                   flex: 1,
-                  aspectRatio: 0.9,
-                  margin: 2,
-                  borderRadius: 10,
+                  aspectRatio: ios ? 0.78 : 0.9,
+                  margin: ios ? 0 : 2,
+                  borderRadius: ios ? 0 : 10,
+                  paddingTop: ios ? 6 : 0,
                   alignItems: 'center',
-                  justifyContent: 'center',
+                  justifyContent: ios ? 'flex-start' : 'center',
                   backgroundColor: inMonth ? bg : 'transparent',
-                  borderWidth: isToday ? 1.5 : 0,
-                  borderColor: ACCENT,
                   opacity: !inMonth ? 0 : mode === 'select' && past ? 0.3 : 1,
                 }}>
-                <Txt size={13} num weight={isToday || isSel ? 'bold' : 'reg'} color={isSel && mode === 'select' ? '#FFFFFF' : t.ink}>
-                  {parseInt(d.slice(8), 10)}
-                </Txt>
+                <View
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 13,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: isToday ? ACCENT : 'transparent',
+                  }}>
+                  <Txt
+                    size={13}
+                    num
+                    weight={isToday || isSel ? 'bold' : 'reg'}
+                    color={isToday || (isSel && mode === 'select') ? '#FFFFFF' : t.ink}>
+                    {parseInt(d.slice(8), 10)}
+                  </Txt>
+                </View>
                 {mode === 'heat-dots' ? (
-                  <View style={{ flexDirection: 'row', gap: 2, marginTop: 2, height: 4 }}>
+                  <View style={{ flexDirection: 'row', gap: 2, marginTop: 3, height: 5 }}>
                     {[...new Set(items.map((i) => i.cat))].slice(0, 3).map((c) => (
-                      <View key={c} style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: CAT_BY_ID[c].color }} />
+                      <View key={c} style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: CAT_BY_ID[c].color }} />
                     ))}
                   </View>
                 ) : null}
                 {mode === 'heat-hours' ? (
-                  <Txt size={9} num color={t.sub}>
+                  <Txt size={9} num color={t.sub} style={{ marginTop: 2 }}>
                     {hoursLabel}
                   </Txt>
                 ) : null}
@@ -94,7 +119,7 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
           })}
         </View>
       ))}
-      {mode !== 'select' ? (
+      {mode === 'heat-hours' ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, justifyContent: 'center' }}>
           <Txt size={11} color={t.faint}>เวลาว่าง/วัน</Txt>
           {[0.12, 0.3, 0.52].map((a) => (

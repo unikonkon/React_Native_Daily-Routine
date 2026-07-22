@@ -5,10 +5,7 @@ import { Modal, Pressable, View } from 'react-native';
 import { ACCENT } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
-import { MONTH_TH, beYear } from '@/lib/dates';
-
-const MIN_Y = 2026;
-const MAX_Y = 2030;
+import { MONTH_TH, SCHED_MAX_Y, SCHED_MIN_Y, beYear } from '@/lib/dates';
 
 interface Props {
   visible: boolean;
@@ -16,9 +13,12 @@ interface Props {
   month: number; // 0-based
   onClose: () => void;
   onPick: (year: number, month: number) => void;
+  /** ขอบเขตปี — ค่าปกติ = ชุดจอง (อนาคต); แท็บดูข้อมูลส่งชุด VIEW เข้ามาเพื่อย้อนอดีต */
+  minYear?: number;
+  maxYear?: number;
 }
 
-export function MonthYearPicker({ visible, year, month, onClose, onPick }: Props) {
+export function MonthYearPicker({ visible, year, month, onClose, onPick, minYear = SCHED_MIN_Y, maxYear = SCHED_MAX_Y }: Props) {
   const t = useTokens();
   if (!visible) return null;
   return (
@@ -27,11 +27,11 @@ export function MonthYearPicker({ visible, year, month, onClose, onPick }: Props
         <Pressable style={{ backgroundColor: t.sheet, borderRadius: 22, padding: 18, width: 300, gap: 12 }} onPress={() => {}}>
           <Txt size={16} weight="bold" style={{ textAlign: 'center' }}>เลือกเดือน & ปี</Txt>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
-            <Pressable disabled={year <= MIN_Y} onPress={() => onPick(year - 1, month)} style={{ opacity: year <= MIN_Y ? 0.3 : 1 }}>
+            <Pressable disabled={year <= minYear} onPress={() => onPick(year - 1, month)} style={{ opacity: year <= minYear ? 0.3 : 1 }}>
               <Icon name="chevL" size={22} color={t.sub} />
             </Pressable>
             <Txt size={18} num weight="bold">{beYear(year)}</Txt>
-            <Pressable disabled={year >= MAX_Y} onPress={() => onPick(year + 1, month)} style={{ opacity: year >= MAX_Y ? 0.3 : 1 }}>
+            <Pressable disabled={year >= maxYear} onPress={() => onPick(year + 1, month)} style={{ opacity: year >= maxYear ? 0.3 : 1 }}>
               <Icon name="chevR" size={22} color={t.sub} />
             </Pressable>
           </View>

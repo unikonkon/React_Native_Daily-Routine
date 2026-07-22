@@ -1,0 +1,373 @@
+<title>Daily Routine — Mockup UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#f2f2f6; --stage:#e9e9ee;
+    --screen:#000000;
+    --ink:#ffffff; --ink-2:#8e8e93; --ink-3:#48484a;
+    --sep:#1c1c1e; --sep-soft:#2c2c2e;
+    --card:#0c0c0d;
+    --accent:#ff453a;
+    --today-txt:#ffffff;
+    --sel:#ffffff; --sel-txt:#000000;
+    --c-green:#30d158; --c-purple:#bf5af2; --c-orange:#ff9f0a; --c-blue:#0a84ff; --c-red:#ff453a;
+    --now:#ff453a;
+    --chip:#1c1c1e;
+    --frame:#1a1a1c; --frame-edge:#3a3a3c;
+    --panel:#ffffff; --panel-ink:#1c1c1e; --panel-ink2:#6b6b70; --panel-sep:#e4e4ea;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#ececef; --stage:#e2e2e7; }
+  }
+  :root[data-theme="dark"]{ --bg:#161618; --stage:#1e1e21; --panel:#161618; --panel-ink:#f2f2f4; --panel-ink2:#a0a0a6; --panel-sep:#2a2a2e; }
+  :root[data-theme="light"]{ --bg:#ececef; --stage:#e2e2e7; --panel:#ffffff; --panel-ink:#1c1c1e; --panel-ink2:#6b6b70; --panel-sep:#e4e4ea; }
+
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","Noto Sans Thai",system-ui,sans-serif;
+    background:
+      radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%),
+      var(--bg);
+    color:var(--panel-ink);
+    min-height:100%;
+    display:flex; flex-direction:column; align-items:center;
+    padding:32px 16px 64px;
+    gap:24px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .intro{max-width:430px; width:100%; text-align:center}
+  .intro .eyebrow{
+    font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--panel-ink2); font-weight:600;
+  }
+  .intro h1{
+    font-size:26px; line-height:1.15; margin-top:8px; font-weight:700;
+    letter-spacing:-.02em; text-wrap:balance; color:var(--panel-ink);
+  }
+  .intro p{margin-top:10px; font-size:14px; line-height:1.55; color:var(--panel-ink2)}
+
+  /* segmented view switch (app-level) */
+  .switch{
+    display:inline-flex; background:var(--stage); border-radius:12px; padding:4px;
+    gap:2px; box-shadow:inset 0 0 0 1px rgba(0,0,0,.04);
+  }
+  .switch button{
+    font:inherit; font-size:13px; font-weight:600; border:0; cursor:pointer;
+    padding:8px 18px; border-radius:9px; background:transparent; color:var(--panel-ink2);
+    transition:.15s;
+  }
+  .switch button[aria-selected="true"]{ background:var(--panel); color:var(--panel-ink); box-shadow:0 1px 3px rgba(0,0,0,.14) }
+
+  /* phone frame */
+  .phone{
+    width:390px; max-width:100%;
+    background:linear-gradient(160deg, var(--frame-edge), var(--frame));
+    border-radius:52px; padding:12px;
+    box-shadow:0 40px 80px -30px rgba(0,0,0,.55), 0 2px 0 rgba(255,255,255,.1) inset;
+  }
+  .screen{
+    background:var(--screen); color:var(--ink);
+    border-radius:42px; overflow:hidden;
+    height:788px; display:flex; flex-direction:column; position:relative;
+  }
+  .statusbar{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:14px 30px 6px; font-size:15px; font-weight:600; flex:0 0 auto;
+  }
+  .statusbar .right{display:flex; gap:7px; align-items:center; font-size:13px; letter-spacing:.02em}
+  .batt{border:1px solid #6b6b70; border-radius:4px; padding:1px 3px; font-size:10px; font-weight:700}
+
+  /* nav header */
+  .nav{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:6px 18px 10px; flex:0 0 auto;
+  }
+  .nav .back{display:flex; align-items:center; gap:2px; color:var(--accent); font-size:17px; font-weight:600; background:var(--chip); padding:7px 14px 7px 8px; border-radius:20px; border:0; cursor:pointer}
+  .nav .back svg{width:16px;height:16px}
+  .nav .tools{display:flex; align-items:center; gap:4px; background:var(--chip); border-radius:22px; padding:6px}
+  .nav .tools button{width:38px;height:32px;border-radius:16px;border:0;background:transparent;color:var(--ink);display:grid;place-items:center;cursor:pointer}
+  .nav .tools button svg{width:20px;height:20px}
+
+  .view{flex:1 1 auto; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch}
+  .view::-webkit-scrollbar{width:0}
+
+  /* ---------- YEAR VIEW ---------- */
+  .year-title{font-size:34px; font-weight:800; padding:4px 20px 2px; color:var(--accent); letter-spacing:-.01em}
+  .year-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:22px 14px; padding:14px 18px 30px}
+  .mini h4{font-size:16px; font-weight:700; margin-bottom:6px}
+  .mini.cur h4{color:var(--accent)}
+  .mini .days{display:grid; grid-template-columns:repeat(7,1fr); gap:1px}
+  .mini .d{font-size:9px; text-align:center; line-height:15px; color:var(--ink); font-variant-numeric:tabular-nums}
+  .mini .d.mute{color:transparent}
+  .mini .d.today{background:var(--accent); color:#fff; border-radius:50%}
+
+  /* ---------- MONTH VIEW ---------- */
+  .month-name{font-size:30px; font-weight:800; padding:2px 20px 8px}
+  .wk{display:grid; grid-template-columns:repeat(7,1fr); padding:0 8px 6px; border-bottom:.5px solid var(--sep-soft)}
+  .wk span{text-align:center; font-size:11px; color:var(--ink-2); font-weight:600}
+  .wk span.sun{color:var(--accent)}
+  .mgrid{display:grid; grid-template-columns:repeat(7,1fr)}
+  .cell{
+    min-height:96px; border-bottom:.5px solid var(--sep); border-right:.5px solid var(--sep);
+    padding:8px 0 4px; display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer;
+    position:relative;
+  }
+  .cell:nth-child(7n){border-right:0}
+  .cell .num{font-size:15px; font-weight:500; font-variant-numeric:tabular-nums; width:26px; height:26px; display:grid; place-items:center; border-radius:50%}
+  .cell.out .num{color:var(--ink-3)}
+  .cell.today .num{background:var(--accent); color:#fff; font-weight:700}
+  .cell.sel .num{box-shadow:0 0 0 1.5px var(--ink)}
+  .dots{display:flex; gap:3px; flex-wrap:wrap; justify-content:center; max-width:34px}
+  .dot{width:6px;height:6px;border-radius:50%}
+  .dot.wide{width:14px}
+  .dot.green{background:var(--c-green)} .dot.purple{background:var(--c-purple)}
+  .dot.orange{background:var(--c-orange)} .dot.blue{background:var(--c-blue)}
+
+  /* ---------- DAY VIEW ---------- */
+  .weekstrip{display:grid; grid-template-columns:repeat(7,1fr); padding:2px 6px 8px; border-bottom:.5px solid var(--sep-soft)}
+  .weekstrip .wd{display:flex; flex-direction:column; align-items:center; gap:5px; cursor:pointer}
+  .weekstrip .wd small{font-size:11px; color:var(--ink-2); font-weight:600}
+  .weekstrip .wd b{font-size:18px; font-weight:600; width:34px; height:34px; display:grid; place-items:center; border-radius:50%; font-variant-numeric:tabular-nums}
+  .weekstrip .wd.today b{background:var(--accent); color:#fff}
+  .weekstrip .wd.sel b{background:var(--sel); color:var(--sel-txt)}
+  .weekstrip .wd small.sun{color:var(--accent)}
+  .daylabel{text-align:center; font-size:15px; font-weight:600; padding:9px 0; color:var(--ink)}
+  .timeline{position:relative; padding:0 0 40px}
+  .row{display:flex; align-items:flex-start; height:64px; position:relative}
+  .row .t{width:64px; flex:0 0 64px; text-align:right; padding-right:10px; font-size:12px; color:var(--ink-2); transform:translateY(-7px); font-variant-numeric:tabular-nums}
+  .row .line{flex:1; border-top:.5px solid var(--sep); height:100%}
+  .nowline{position:absolute; left:56px; right:0; height:0; border-top:2px solid var(--now); z-index:5; display:flex; align-items:center}
+  .nowline .bub{position:absolute; left:-42px; transform:translateY(-50%); top:0; background:var(--now); color:#fff; font-size:11px; font-weight:700; padding:2px 6px; border-radius:9px}
+  .event{position:absolute; left:74px; right:14px; border-radius:8px; padding:6px 10px; overflow:hidden; z-index:3}
+  .event b{font-size:13px; font-weight:600; display:block}
+  .event small{font-size:11px; opacity:.8}
+  .event.green{background:color-mix(in srgb,var(--c-green) 22%,#000); border-left:3px solid var(--c-green)}
+  .event.purple{background:color-mix(in srgb,var(--c-purple) 22%,#000); border-left:3px solid var(--c-purple)}
+  .event.orange{background:color-mix(in srgb,var(--c-orange) 22%,#000); border-left:3px solid var(--c-orange)}
+  .event.blue{background:color-mix(in srgb,var(--c-blue) 22%,#000); border-left:3px solid var(--c-blue)}
+
+  /* bottom floating bar */
+  .fabbar{position:absolute; bottom:16px; left:0; right:0; display:flex; justify-content:space-between; padding:0 18px; pointer-events:none}
+  .fabbar > *{pointer-events:auto}
+  .today-btn{background:var(--chip); color:var(--ink); border:0; font:inherit; font-weight:600; font-size:15px; padding:11px 20px; border-radius:24px; cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,.4)}
+  .today-btn.accent{color:var(--accent)}
+  .fabbar .grp{display:flex; gap:4px; background:var(--chip); border-radius:24px; padding:6px; box-shadow:0 8px 20px rgba(0,0,0,.4)}
+  .fabbar .grp button{width:40px;height:36px;border-radius:18px;border:0;background:transparent;color:var(--ink);display:grid;place-items:center;cursor:pointer}
+  .fabbar .grp button svg{width:20px;height:20px}
+
+  /* annotations panel */
+  .notes{max-width:430px; width:100%; background:var(--panel); border:1px solid var(--panel-sep); border-radius:18px; padding:20px 22px}
+  .notes h2{font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:var(--panel-ink2); font-weight:700}
+  .notes ul{list-style:none; margin-top:12px; display:flex; flex-direction:column; gap:11px}
+  .notes li{display:flex; gap:11px; font-size:13.5px; line-height:1.5; color:var(--panel-ink)}
+  .notes li .k{flex:0 0 auto; width:9px; height:9px; border-radius:50%; margin-top:6px}
+  .notes li b{color:var(--panel-ink)}
+  .hint{font-size:12.5px; color:var(--panel-ink2); text-align:center; max-width:430px}
+</style>
+
+<section class="intro">
+  <div class="eyebrow">React Native · Mockup</div>
+  <h1>บันทึกกิจกรรมประจำวัน</h1>
+  <p>ดูกิจกรรมย้อนได้ 3 ระดับ — รายปี · รายเดือน · รายวัน แตะสลับได้จริงเพื่อจำลอง flow การใช้งาน</p>
+</section>
+
+<div class="switch" role="tablist" aria-label="โหมดการดู">
+  <button role="tab" aria-selected="false" data-go="year">ปี</button>
+  <button role="tab" aria-selected="false" data-go="month">เดือน</button>
+  <button role="tab" aria-selected="true" data-go="day">วัน</button>
+</div>
+
+<div class="phone">
+  <div class="screen">
+    <div class="statusbar">
+      <span>17:49</span>
+      <span class="right">••• &nbsp;<span>ᯤ</span>&nbsp; <span class="batt">80</span></span>
+    </div>
+
+    <!-- header swaps per view -->
+    <div class="nav" id="nav"></div>
+
+    <div class="view" id="view"></div>
+
+    <div class="fabbar">
+      <button class="today-btn" id="todayBtn">วันนี้</button>
+      <div class="grp">
+        <button title="ปฏิทิน" data-go="month">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+        </button>
+        <button title="รายการ">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 13h18"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>สิ่งที่จะเขียนใน React Native</h2>
+  <ul>
+    <li><span class="k" style="background:var(--c-blue)"></span><span><b>YearScreen</b> — FlatList เดือน (MiniMonth) ข้ามปี พ.ศ. ไฮไลต์เดือนปัจจุบัน แตะ → เดือน</span></li>
+    <li><span class="k" style="background:var(--c-green)"></span><span><b>MonthScreen</b> — grid 7×6 + จุดสีกิจกรรม (group ตามวันที่) แตะวัน → ไทม์ไลน์</span></li>
+    <li><span class="k" style="background:var(--c-purple)"></span><span><b>DayScreen</b> — แถบสัปดาห์ + ไทม์ไลน์ 24 ชม. + เส้นเวลาปัจจุบัน (auto-scroll)</span></li>
+    <li><span class="k" style="background:var(--c-orange)"></span><span><b>Shared</b> — selectedDate/viewMode state, ปุ่ม “วันนี้”, +เพิ่ม, ค้นหา, locale ไทย +543 ปี</span></li>
+  </ul>
+</div>
+<p class="hint">แตะปุ่ม ปี/เดือน/วัน ด้านบน หรือแตะเดือน/วันในจอเพื่อเลื่อนเข้าไปดูระดับถัดไป</p>
+
+<script>
+  const TH_MONTHS = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+  const TH_ABBR = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+  const TH_DOW = ["อา","จ","อ","พ","พฤ","ศ","ส"];
+  const TH_DOW_FULL = ["วันอาทิตย์","วันจันทร์","วันอังคาร","วันพุธ","วันพฤหัสบดี","วันศุกร์","วันเสาร์"];
+  const be = y => y + 543;
+
+  // fixed "today" so mockup is deterministic (2026-07-22 = 22 ก.ค. 2569)
+  const TODAY = {y:2026, m:6, d:22};
+  const state = {view:"day", y:2026, m:6, d:22};
+
+  // sample activities keyed "y-m-d"
+  const ACT = {
+    "2026-6-22":[
+      {s:6.5, e:7.5, c:"green",  t:"วิ่งออกกำลัง", note:"สวนสาธารณะ"},
+      {s:9,   e:11,  c:"blue",   t:"ประชุมทีม", note:"Google Meet"},
+      {s:13,  e:14,  c:"orange", t:"มื้อกลางวัน", note:""},
+      {s:15.5,e:17.5,c:"purple", t:"เขียนโค้ด RN", note:"DayScreen"},
+      {s:19,  e:20,  c:"green",  t:"อ่านหนังสือ", note:""},
+    ],
+    "2026-6-28":["green","purple"],
+    "2026-6-29":["purple"],
+    "2026-6-30":["purple"],
+    "2026-6-23":["blue"],
+    "2026-6-25":["orange","green"],
+    "2026-6-15":["blue","purple","orange"],
+  };
+  const daysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
+  const firstDow=(y,m)=>new Date(y,m,1).getDay();
+
+  const nav=document.getElementById("nav"), view=document.getElementById("view");
+  const todayBtn=document.getElementById("todayBtn");
+
+  const chevron='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 5l-7 7 7 7"/></svg>';
+  const search='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
+  const plus='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>';
+  const layout='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/></svg>';
+
+  function setSwitch(){
+    document.querySelectorAll('.switch button').forEach(b=>b.setAttribute('aria-selected', b.dataset.go===state.view));
+  }
+
+  function renderNav(){
+    if(state.view==="year"){
+      nav.innerHTML = `<div style="width:70px"></div>
+        <div class="tools"><button>${search}</button><button>${plus}</button></div>`;
+    } else if(state.view==="month"){
+      nav.innerHTML = `<button class="back" data-go="year">${chevron}${be(state.y)}</button>
+        <div class="tools"><button>${layout}</button><button>${search}</button><button>${plus}</button></div>`;
+    } else {
+      nav.innerHTML = `<button class="back" data-go="month">${chevron}${TH_MONTHS[state.m]}</button>
+        <div class="tools"><button>${layout}</button><button>${search}</button><button>${plus}</button></div>`;
+    }
+  }
+
+  function renderYear(){
+    let h = `<div class="year-title">${be(state.y)}</div><div class="year-grid">`;
+    for(let m=0;m<12;m++){
+      const cur = m===TODAY.m && state.y===TODAY.y;
+      h += `<div class="mini ${cur?'cur':''}" data-month="${m}"><h4>${TH_MONTHS[m]}</h4><div class="days">`;
+      const pad=firstDow(state.y,m), dim=daysInMonth(state.y,m);
+      for(let i=0;i<pad;i++) h+=`<span class="d mute">0</span>`;
+      for(let d=1;d<=dim;d++){
+        const t = cur && d===TODAY.d;
+        h+=`<span class="d ${t?'today':''}">${d}</span>`;
+      }
+      h += `</div></div>`;
+    }
+    view.innerHTML = h+"</div>";
+    view.querySelectorAll('.mini').forEach(el=>el.onclick=()=>{state.m=+el.dataset.month; go('month');});
+  }
+
+  function renderMonth(){
+    let h = `<div class="month-name">${TH_MONTHS[state.m]}</div>
+      <div class="wk">${TH_DOW.map((d,i)=>`<span class="${i===0?'sun':''}">${d}</span>`).join('')}</div><div class="mgrid">`;
+    const pad=firstDow(state.y,state.m), dim=daysInMonth(state.y,state.m);
+    const prevDim=daysInMonth(state.y, state.m-1<0?11:state.m-1);
+    for(let i=pad-1;i>=0;i--) h+=`<div class="cell out"><span class="num">${prevDim-i}</span></div>`;
+    for(let d=1;d<=dim;d++){
+      const t = d===TODAY.d && state.m===TODAY.m && state.y===TODAY.y;
+      const sel = d===state.d && state.view==="month";
+      const acts = ACT[`${state.y}-${state.m}-${d}`];
+      let dots="";
+      if(Array.isArray(acts)) dots = `<div class="dots">${acts.map(c=>`<span class="dot ${c}"></span>`).join('')}</div>`;
+      h+=`<div class="cell ${t?'today':''} ${sel?'sel':''}" data-day="${d}"><span class="num">${d}</span>${dots}</div>`;
+    }
+    const total=pad+dim, tail=(7-total%7)%7;
+    for(let d=1;d<=tail;d++) h+=`<div class="cell out"><span class="num">${d}</span></div>`;
+    view.innerHTML = h+"</div>";
+    view.querySelectorAll('.cell[data-day]').forEach(el=>el.onclick=()=>{state.d=+el.dataset.day; go('day');});
+  }
+
+  function renderDay(){
+    // week strip around selected day
+    const cur=new Date(state.y,state.m,state.d);
+    const start=new Date(cur); start.setDate(cur.getDate()-cur.getDay());
+    let strip="";
+    for(let i=0;i<7;i++){
+      const dt=new Date(start); dt.setDate(start.getDate()+i);
+      const t = dt.getFullYear()===TODAY.y && dt.getMonth()===TODAY.m && dt.getDate()===TODAY.d;
+      const sel = dt.getDate()===state.d && dt.getMonth()===state.m && !t;
+      strip+=`<div class="wd ${t?'today':''} ${sel?'sel':''}" data-dt="${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}">
+        <small class="${i===0?'sun':''}">${TH_DOW[i]}</small><b>${dt.getDate()}</b></div>`;
+    }
+    const label = `${TH_DOW_FULL[cur.getDay()]} – ${state.d} ${TH_ABBR[state.m]} ${be(state.y)}`;
+    // timeline 6:00 - 22:00
+    const H0=6, H1=22, PX=64;
+    let rows="";
+    for(let hh=H0; hh<=H1; hh++){
+      const lab = String(hh).padStart(2,'0')+":00";
+      rows+=`<div class="row"><div class="t">${lab}</div><div class="line"></div></div>`;
+    }
+    const acts = ACT[`${state.y}-${state.m}-${state.d}`];
+    let events="";
+    if(Array.isArray(acts) && typeof acts[0]==='object'){
+      acts.forEach(a=>{
+        const top=(a.s-H0)*PX, hgt=(a.e-a.s)*PX-6;
+        const fmt=v=>`${String(Math.floor(v)).padStart(2,'0')}:${v%1?'30':'00'}`;
+        events+=`<div class="event ${a.c}" style="top:${top}px;height:${hgt}px">
+          <b>${a.t}</b><small>${fmt(a.s)}–${fmt(a.e)}${a.note?' · '+a.note:''}</small></div>`;
+      });
+    }
+    // now line only when viewing today
+    let now="";
+    const isToday = state.y===TODAY.y&&state.m===TODAY.m&&state.d===TODAY.d;
+    if(isToday){
+      const nowT=17+49/60, top=(nowT-H0)*PX;
+      now=`<div class="nowline" style="top:${top}px"><span class="bub">17:49</span></div>`;
+    }
+    view.innerHTML = `<div class="weekstrip">${strip}</div>
+      <div class="daylabel">${label}</div>
+      <div class="timeline">${rows}${events}${now}</div>`;
+    view.querySelectorAll('.wd').forEach(el=>el.onclick=()=>{
+      const [y,m,d]=el.dataset.dt.split('-').map(Number); state.y=y;state.m=m;state.d=d; renderDay();
+    });
+    if(isToday) requestAnimationFrame(()=>{ view.scrollTop = (17-H0)*PX - 120; });
+  }
+
+  function go(v){ state.view=v; render(); }
+  function render(){
+    setSwitch(); renderNav();
+    todayBtn.classList.toggle('accent', !(state.y===TODAY.y&&state.m===TODAY.m));
+    if(state.view==="year") renderYear();
+    else if(state.view==="month") renderMonth();
+    else renderDay();
+  }
+
+  document.querySelectorAll('[data-go]').forEach(el=>{
+    if(el.closest('.grp')||el.classList.contains('switch')||el.parentElement.classList.contains('switch')||el.dataset.go)
+      el.addEventListener('click', e=>{ if(el.dataset.go){go(el.dataset.go);} });
+  });
+  nav.addEventListener('click', e=>{ const b=e.target.closest('[data-go]'); if(b) go(b.dataset.go); });
+  todayBtn.onclick=()=>{ state.y=TODAY.y; state.m=TODAY.m; state.d=TODAY.d; render(); };
+
+  render();
+</script>

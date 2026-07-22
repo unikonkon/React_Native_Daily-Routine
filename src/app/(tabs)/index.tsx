@@ -7,18 +7,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DateStrip } from '@/components/date-strip';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
-import { MonthNav, WeekNav } from '@/components/period-nav';
+import { MonthNav, WeekNav, YearNav } from '@/components/period-nav';
 import { Screen, TABBAR_H } from '@/components/screen';
 import { Timeline } from '@/components/timeline';
 import { Segmented, Txt, useTokens } from '@/components/ui';
 import { WeekGrid } from '@/components/week-grid';
+import { YearGrid } from '@/components/year-grid';
 import { ACCENT } from '@/constants/theme';
-import { mondayOf, thaiDateFull, todayISO } from '@/lib/dates';
+import { mondayOf, todayISO } from '@/lib/dates';
 import { useDay } from '@/stores/activities';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
 
-type View3 = 'day' | 'week' | 'month';
+type View3 = 'day' | 'week' | 'month' | 'year';
 
 export default function TodayScreen() {
   const t = useTokens();
@@ -52,13 +53,14 @@ export default function TodayScreen() {
   };
 
   return (
-    <Screen title="วันนี้" subtitle={thaiDateFull(focus)} scroll={false}>
+    <Screen title="วันนี้" scroll={false}>
       <View style={{ paddingHorizontal: 18, marginBottom: 10 }}>
         <Segmented
           options={[
             { key: 'day', label: 'วัน' },
             { key: 'week', label: 'สัปดาห์' },
             { key: 'month', label: 'เดือน' },
+            { key: 'year', label: 'ปี' },
           ]}
           value={view}
           onChange={setView}
@@ -68,9 +70,9 @@ export default function TodayScreen() {
       {view === 'day' ? (
         <>
           <DateStrip focus={focus} onChange={setFocus} />
-          <View style={{ flex: 1, marginTop: 8 }}>
+          <View style={{ flex: 1, marginTop: 2 }}>
             {items.length === 0 ? (
-              <Txt size={13} color={t.faint} style={{ textAlign: 'center', marginTop: 30 }}>
+              <Txt size={13} color={t.faint} style={{ textAlign: 'center', marginTop: 6 }}>
                 ยังไม่มีกิจกรรมวันนี้ — แตะ ⊕ เพื่อเพิ่ม
               </Txt>
             ) : null}
@@ -92,6 +94,20 @@ export default function TodayScreen() {
           <View style={{ paddingHorizontal: 18 }}>
             <MonthGrid year={ym.y} month={ym.m} mode="heat-dots" onPressDay={goDay} />
           </View>
+        </>
+      ) : null}
+
+      {view === 'year' ? (
+        <>
+          <YearNav year={ym.y} onChange={(y) => setYm({ ...ym, y })} />
+          <YearGrid
+            year={ym.y}
+            bottomPad={TABBAR_H + insets.bottom + 90}
+            onPressMonth={(m) => {
+              setYm({ y: ym.y, m });
+              setView('month');
+            }}
+          />
         </>
       ) : null}
 

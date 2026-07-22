@@ -7,11 +7,21 @@ import { Icon } from '@/components/icon';
 import { MonthYearPicker } from '@/components/month-year-picker';
 import { Chip, Txt, useTokens } from '@/components/ui';
 import { ACCENT } from '@/constants/theme';
-import { MONTH_TH, MONTH_TH_FULL, addDays, beYear, fromISO, mondayOf, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
-
-// ขอบเขตปีให้สอดคล้อง MonthYearPicker (พ.ศ. 2569–2573)
-const MIN_Y = 2026;
-const MAX_Y = 2030;
+import {
+  MONTH_TH,
+  MONTH_TH_FULL,
+  SCHED_MAX_Y,
+  SCHED_MIN_Y,
+  VIEW_MAX_Y,
+  VIEW_MIN_Y,
+  addDays,
+  beYear,
+  fromISO,
+  mondayOf,
+  thaiWeekRange,
+  toISO,
+  todayISO,
+} from '@/lib/dates';
 
 export interface YM {
   y: number;
@@ -55,7 +65,17 @@ function PeriodNav({
 }
 
 /** มุมมองสัปดาห์: ป้าย "6 ก.ค. – 12 ก.ค. 2569" + เลื่อนทีละ 7 วัน — แตะป้ายเปิด popup เลือก สัปดาห์/เดือน/ปี */
-export function WeekNav({ monday, onChange }: { monday: string; onChange: (monday: string) => void }) {
+export function WeekNav({
+  monday,
+  onChange,
+  minYear = VIEW_MIN_Y,
+  maxYear = VIEW_MAX_Y,
+}: {
+  monday: string;
+  onChange: (monday: string) => void;
+  minYear?: number;
+  maxYear?: number;
+}) {
   const [open, setOpen] = useState(false);
   const thisWeek = mondayOf(todayISO());
   return (
@@ -70,6 +90,8 @@ export function WeekNav({ monday, onChange }: { monday: string; onChange: (monda
       <WeekPicker
         visible={open}
         monday={monday}
+        minYear={minYear}
+        maxYear={maxYear}
         onClose={() => setOpen(false)}
         onPick={(m) => {
           onChange(m);
@@ -80,8 +102,48 @@ export function WeekNav({ monday, onChange }: { monday: string; onChange: (monda
   );
 }
 
+/** มุมมองปี: ป้าย "พ.ศ. 2569" + เลื่อนทีละ 1 ปี + ชิป "ปีนี้" — ค่าปกติย้อนถึง พ.ศ. 2563 */
+export function YearNav({
+  year,
+  onChange,
+  minYear = VIEW_MIN_Y,
+  maxYear = VIEW_MAX_Y,
+}: {
+  year: number;
+  onChange: (y: number) => void;
+  minYear?: number;
+  maxYear?: number;
+}) {
+  const t = useTokens();
+  const thisYear = fromISO(todayISO()).getFullYear();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 8, gap: 4 }}>
+      <Pressable disabled={year <= minYear} onPress={() => onChange(year - 1)} hitSlop={8} style={{ padding: 6, opacity: year <= minYear ? 0.3 : 1 }}>
+        <Icon name="chevL" size={20} color={t.sub} />
+      </Pressable>
+      <View style={{ flex: 1, alignItems: 'center' }}>
+        <Txt size={14} weight="med">พ.ศ. {beYear(year)}</Txt>
+      </View>
+      {year !== thisYear ? <Chip small label="ปีนี้" active color={ACCENT} onPress={() => onChange(thisYear)} /> : null}
+      <Pressable disabled={year >= maxYear} onPress={() => onChange(year + 1)} hitSlop={8} style={{ padding: 6, opacity: year >= maxYear ? 0.3 : 1 }}>
+        <Icon name="chevR" size={20} color={t.sub} />
+      </Pressable>
+    </View>
+  );
+}
+
 /** มุมมองเดือน: ป้าย "กรกฎาคม 2569" (พ.ศ.) + เลื่อนทีละ 1 เดือน — แตะป้ายเปิด popup เลือก เดือน/ปี */
-export function MonthNav({ ym, onChange }: { ym: YM; onChange: (ym: YM) => void }) {
+export function MonthNav({
+  ym,
+  onChange,
+  minYear = VIEW_MIN_Y,
+  maxYear = VIEW_MAX_Y,
+}: {
+  ym: YM;
+  onChange: (ym: YM) => void;
+  minYear?: number;
+  maxYear?: number;
+}) {
   const [open, setOpen] = useState(false);
   const shift = (d: number) => {
     const dt = new Date(ym.y, ym.m + d, 1);
@@ -102,6 +164,8 @@ export function MonthNav({ ym, onChange }: { ym: YM; onChange: (ym: YM) => void 
         visible={open}
         year={ym.y}
         month={ym.m}
+        minYear={minYear}
+        maxYear={maxYear}
         onClose={() => setOpen(false)}
         onPick={(y, m) => onChange({ y, m })}
       />
@@ -116,11 +180,15 @@ export function WeekPicker({
   monday,
   onClose,
   onPick,
+  minYear = SCHED_MIN_Y,
+  maxYear = SCHED_MAX_Y,
 }: {
   visible: boolean;
   monday: string;
   onClose: () => void;
   onPick: (monday: string) => void;
+  minYear?: number;
+  maxYear?: number;
 }) {
   const t = useTokens();
   const [ym, setYm] = useState<YM>(() => {
@@ -152,11 +220,11 @@ export function WeekPicker({
 
           {/* ปี */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
-            <Pressable disabled={ym.y <= MIN_Y} onPress={() => setYm({ ...ym, y: ym.y - 1 })} style={{ opacity: ym.y <= MIN_Y ? 0.3 : 1 }}>
+            <Pressable disabled={ym.y <= minYear} onPress={() => setYm({ ...ym, y: ym.y - 1 })} style={{ opacity: ym.y <= minYear ? 0.3 : 1 }}>
               <Icon name="chevL" size={22} color={t.sub} />
             </Pressable>
             <Txt size={18} num weight="bold">{beYear(ym.y)}</Txt>
-            <Pressable disabled={ym.y >= MAX_Y} onPress={() => setYm({ ...ym, y: ym.y + 1 })} style={{ opacity: ym.y >= MAX_Y ? 0.3 : 1 }}>
+            <Pressable disabled={ym.y >= maxYear} onPress={() => setYm({ ...ym, y: ym.y + 1 })} style={{ opacity: ym.y >= maxYear ? 0.3 : 1 }}>
               <Icon name="chevR" size={22} color={t.sub} />
             </Pressable>
           </View>

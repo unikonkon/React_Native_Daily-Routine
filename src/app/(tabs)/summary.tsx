@@ -6,11 +6,12 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { DateStrip } from '@/components/date-strip';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
-import { MonthNav, WeekNav } from '@/components/period-nav';
+import { MonthNav, WeekNav, YearNav } from '@/components/period-nav';
 import { Screen } from '@/components/screen';
 import { Timeline } from '@/components/timeline';
 import { Card, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
 import { WeekGrid } from '@/components/week-grid';
+import { YearGrid } from '@/components/year-grid';
 import { CAT_BY_ID, GREEN } from '@/constants/theme';
 import { addDays, fmtMin, mondayOf, thaiDate, todayISO } from '@/lib/dates';
 import { freeMinutes, freeSlots } from '@/lib/engine';
@@ -19,7 +20,7 @@ import { useContacts } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
 
-type View3 = 'day' | 'week' | 'month';
+type View3 = 'day' | 'week' | 'month' | 'year';
 
 export default function SummaryScreen() {
   const [mode, setMode] = useState<'free' | 'cases'>('free');
@@ -77,6 +78,7 @@ function FreeMode() {
             { key: 'day', label: 'วัน' },
             { key: 'week', label: 'สัปดาห์' },
             { key: 'month', label: 'เดือน' },
+            { key: 'year', label: 'ปี' },
           ]}
           value={view}
           onChange={setView}
@@ -92,7 +94,8 @@ function FreeMode() {
                 {freeH % 1 === 0 ? freeH : freeH.toFixed(1)}
               </Txt>
               <View>
-                <Txt size={14} weight="med">เวลาว่าง ({thaiDate(focus)})</Txt>
+                {/* <Txt size={14} weight="med">เวลาว่าง ({thaiDate(focus)})</Txt> */}
+                <Txt size={14} weight="med">เวลาว่าง</Txt>
                 <Txt size={12} color={t.faint}>{slots.length} ช่วงว่าง · แตะเพื่อจอง</Txt>
               </View>
             </Card>
@@ -116,6 +119,20 @@ function FreeMode() {
           <View style={{ paddingHorizontal: 18 }}>
             <MonthGrid year={ym.y} month={ym.m} mode="heat-hours" onPressDay={goDay} />
           </View>
+        </>
+      ) : null}
+
+      {view === 'year' ? (
+        <>
+          <YearNav year={ym.y} onChange={(y) => setYm({ ...ym, y })} />
+          <YearGrid
+            year={ym.y}
+            bottomPad={140}
+            onPressMonth={(m) => {
+              setYm({ y: ym.y, m });
+              setView('month');
+            }}
+          />
         </>
       ) : null}
     </>
