@@ -41,23 +41,32 @@ export default function DataScreen() {
     showToast('ยกเลิกการเชื่อมต่อ Google Sheets แล้ว ✓');
   };
 
-  const sendToSheets = async (range: SheetsRange) => {
+  /** ช่วงที่รอเลือกรูปแบบก่อนส่งขึ้นชีต (มีสี / ค่าล้วน) */
+  const [sheetsPick, setSheetsPick] = useState<SheetsRange | null>(null);
+
+  const sendToSheets = async (range: SheetsRange, styled: boolean) => {
     if (sending) return;
     setSending(range);
     try {
       const { acts, occ } = useActivities.getState();
-      const tabs = buildSheetTabs(getDay, acts, occ, range);
+      const tabs = buildSheetTabs(getDay, acts, occ, range, styled);
       if (!tabs.length) {
         showToast('ไม่มีข้อมูลให้ส่ง');
         return;
       }
       await pushToSheets(sheetsUrl, tabs);
-      showToast(`ส่งขึ้น Sheets แล้ว ✓ (${tabs.length} แท็บ)`);
+      showToast(`ส่งขึ้น Sheets ${styled ? 'แบบมีสี' : ''}แล้ว ✓ (${tabs.length} แท็บ)`);
     } catch (err) {
       showToast(`ส่งไม่สำเร็จ — ${err instanceof Error ? err.message : 'ลองใหม่อีกครั้ง'}`);
     } finally {
       setSending(null);
     }
+  };
+
+  const pickAndSend = (styled: boolean) => {
+    const range = sheetsPick;
+    setSheetsPick(null);
+    if (range) sendToSheets(range, styled);
   };
 
   const pickDocument = async (type: string[]) => {
@@ -262,16 +271,33 @@ export default function DataScreen() {
                 style={{ flex: 1 }}
                 label={sending === 'month' ? 'กำลังส่ง…' : 'ส่งเดือนนี้'}
                 disabled={sending !== null}
-                onPress={() => sendToSheets('month')}
+                onPress={() => setSheetsPick('month')}
               />
               <Btn
                 style={{ flex: 1 }}
                 kind="ghost"
                 label={sending === 'all' ? 'กำลังส่ง…' : 'ส่งทั้งหมด'}
                 disabled={sending !== null}
-                onPress={() => sendToSheets('all')}
+                onPress={() => setSheetsPick('all')}
               />
             </View>
+
+            {sheetsPick ? (
+              <View style={{ gap: 8 }}>
+                <Txt size={14} weight="bold">
+                  {sheetsPick === 'month' ? 'ส่งเดือนนี้' : 'ส่งทั้งหมด'} — เลือกรูปแบบ
+                </Txt>
+                <Txt size={12} color={t.sub}>
+                  มีสี: พื้นสีตามหมวด ตัวหนา ✓/✗ ในชีตเลย (ต้องใช้สคริปต์เวอร์ชันล่าสุด — ถ้ายังไม่อัปเดต
+                  ข้อมูลจะลงแบบค่าล้วน){'\n'}แบบเดิม: ค่าล้วนไม่จัดรูปแบบ
+                </Txt>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setSheetsPick(null)} />
+                  <Btn style={{ flex: 1 }} label="มีสี" onPress={() => pickAndSend(true)} />
+                  <Btn style={{ flex: 1 }} kind="ghost" label="แบบเดิม" onPress={() => pickAndSend(false)} />
+                </View>
+              </View>
+            ) : null}
 
             {confirmDisconnect ? (
               <View style={{ gap: 8 }}>

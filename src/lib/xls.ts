@@ -8,8 +8,8 @@ import type { DayItem } from '@/lib/types';
 
 type Read = (date: string) => DayItem[];
 
-/** ผสมสี hex เข้าหาขาว (target=255) หรือดำ (target=0) ตามสัดส่วน 0–1 */
-function mix(hex: string, target: number, ratio: number): string {
+/** ผสมสี hex เข้าหาขาว (target=255) หรือดำ (target=0) ตามสัดส่วน 0–1 — ใช้ร่วมกับ lib/sheets ด้วย */
+export function mix(hex: string, target: number, ratio: number): string {
   const n = parseInt(hex.slice(1), 16);
   const f = (v: number) => Math.round(v + (target - v) * ratio);
   const r = f((n >> 16) & 255);

@@ -29,9 +29,15 @@ function doPost(e) {
     data.sheets.forEach(function (s) {
       if (!s || !s.name || !Array.isArray(s.rows)) return;
       var sh = ss.getSheetByName(s.name) || ss.insertSheet(s.name);
-      sh.clearContents();
+      sh.clear(); // ล้างทั้งค่าและสีเดิม — สลับโหมดมีสี/ค่าล้วนแล้วไม่มีสีค้าง
       if (s.rows.length > 0) {
-        sh.getRange(1, 1, s.rows.length, s.rows[0].length).setValues(s.rows);
+        var range = sh.getRange(1, 1, s.rows.length, s.rows[0].length);
+        range.setValues(s.rows);
+        // โหมดมีสี: แอปส่ง style arrays ขนาดเดียวกับ rows มาด้วย (ไม่ส่ง = ค่าล้วน)
+        if (Array.isArray(s.bg)) range.setBackgrounds(s.bg);
+        if (Array.isArray(s.fg)) range.setFontColors(s.fg);
+        if (Array.isArray(s.bold)) range.setFontWeights(s.bold);
+        if (Array.isArray(s.line)) range.setFontLines(s.line);
       }
     });
 
