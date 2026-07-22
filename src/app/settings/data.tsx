@@ -5,11 +5,12 @@ import { File, Paths } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useRef, useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
+import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { Btn, Card, Chip, Row, Txt, useTokens } from '@/components/ui';
-import { CAT_BY_ID } from '@/constants/theme';
+import { CAT_BY_ID, DANGER } from '@/constants/theme';
 import { WD_TH_FULL, addDays, fmtMin, mondayOf, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
 import { buildSheetTabs, pushToSheets, type SheetsRange } from '@/lib/sheets';
@@ -29,16 +30,31 @@ export default function DataScreen() {
   /** กันเปิด document picker ซ้อน (native อนุญาตทีละตัว — เรียกซ้ำจะ throw) */
   const picking = useRef(false);
 
-  // Google Sheets (Apps Script Web App URL — ตั้งค่า/แก้ไขที่หน้า settings/sheets-setup)
+  // Google Sheets (Apps Script Web App URL — เก็บใน SQLite ผ่าน settings store, ตั้งค่าที่หน้า settings/sheets-setup)
   const sheetsUrl = useSettings((s) => s.sheetsUrl);
+  const sheetsUrls = useSettings((s) => s.sheetsUrls);
   const setSheetsUrl = useSettings((s) => s.setSheetsUrl);
+  const removeSheetsUrl = useSettings((s) => s.removeSheetsUrl);
   const [sending, setSending] = useState<SheetsRange | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [showSwitch, setShowSwitch] = useState(false);
+  /** URL อื่นที่บันทึกไว้ (ไม่รวมตัวที่ใช้งานอยู่) */
+  const savedOthers = sheetsUrls.filter((u) => u !== sheetsUrl);
 
   const disconnectSheets = () => {
-    setSheetsUrl(''); // ล้างค่าใน settings (SQLite) — กลับสู่สถานะยังไม่เชื่อมต่อ
+    setSheetsUrl(''); // ล้างเฉพาะ URL ที่ใช้งาน — รายการที่บันทึกไว้ยังอยู่ครบ ให้เชื่อมต่อใหม่ได้
     setConfirmDisconnect(false);
-    showToast('ยกเลิกการเชื่อมต่อ Google Sheets แล้ว ✓');
+    showToast('ยกเลิกการเชื่อมต่อแล้ว — เลือกเชื่อมต่อใหม่จากรายการได้ตลอด');
+  };
+
+  const connectUrl = (url: string) => {
+    setSheetsUrl(url);
+    showToast('เชื่อมต่อ Google Sheets แล้ว ✓');
+  };
+
+  const deleteUrl = (url: string) => {
+    removeSheetsUrl(url);
+    showToast('ลบ URL ออกจากรายการแล้ว');
   };
 
   /** ช่วงที่รอเลือกรูปแบบก่อนส่งขึ้นชีต (มีสี / ค่าล้วน) */
@@ -246,15 +262,33 @@ export default function DataScreen() {
         <Txt size={12} weight="bold" color={t.faint}>Google Sheets (ทางเดียว)</Txt>
 
         {!sheetsUrl ? (
+          // ยังไม่เชื่อมต่อ — เลือกจากรายการ URL ที่บันทึกไว้ได้ทันที หรือไปตั้งค่าใหม่
           <>
             <Row
               icon="cloud"
               label="ส่งขึ้น Google Sheets"
-              sub="ยังไม่เชื่อมต่อ — ติดตั้งครั้งเดียว ใช้ได้ตลอด"
+              sub={sheetsUrls.length ? `ยังไม่เชื่อมต่อ — มี ${sheetsUrls.length} URL บันทึกไว้ แตะเพื่อเชื่อมต่อ` : 'ยังไม่เชื่อมต่อ — ติดตั้งครั้งเดียว ใช้ได้ตลอด'}
               last
-              onPress={() => router.push('/settings/sheets-setup')}
+              onPress={sheetsUrls.length ? undefined : () => router.push('/settings/sheets-setup')}
             />
-            <Btn icon="arrowR" label="วิธีติดตั้ง & เชื่อมต่อ (ทีละขั้น)" onPress={() => router.push('/settings/sheets-setup')} />
+            {sheetsUrls.length ? (
+              <>
+                <View style={{ gap: 6 }}>
+                  <Txt size={11} weight="bold" color={t.faint}>URL ที่บันทึกไว้ ({sheetsUrls.length}/5)</Txt>
+                  {sheetsUrls.map((u) => (
+                    <UrlItem key={u} url={u} actionLabel="เชื่อมต่อ" onAction={() => connectUrl(u)} onRemove={() => deleteUrl(u)} />
+                  ))}
+                </View>
+                <Btn
+                  kind="ghost"
+                  icon="arrowR"
+                  label="ตั้งค่าใหม่ / เพิ่ม URL อื่น (ทีละขั้น)"
+                  onPress={() => router.push('/settings/sheets-setup')}
+                />
+              </>
+            ) : (
+              <Btn icon="arrowR" label="วิธีติดตั้ง & เชื่อมต่อ (ทีละขั้น)" onPress={() => router.push('/settings/sheets-setup')} />
+            )}
           </>
         ) : (
           <>
@@ -266,22 +300,7 @@ export default function DataScreen() {
               right={<Chip small icon="edit" label="แก้ URL" onPress={() => router.push('/settings/sheets-setup')} />}
             />
 
-            <View style={{ flexDirection: 'row', gap: 18 }}>
-              <Btn
-                style={{ flex: 1 }}
-                label={sending === 'month' ? 'กำลังส่ง…' : 'ส่งเดือนนี้'}
-                disabled={sending !== null}
-                onPress={() => setSheetsPick('month')}
-              />
-              <Btn
-                style={{ flex: 1 }}
-                kind="ghost"
-                label={sending === 'all' ? 'กำลังส่ง…' : 'ส่งทั้งหมด'}
-                disabled={sending !== null}
-                onPress={() => setSheetsPick('all')}
-              />
-            </View>
-
+            {/* แสดงทีละบล็อก: เลือกรูปแบบส่ง → ยืนยันยกเลิก → ปุ่มปกติ (ไม่ซ้อนกันให้รก) */}
             {sheetsPick ? (
               <View style={{ gap: 8 }}>
                 <Txt size={14} weight="bold">
@@ -297,27 +316,59 @@ export default function DataScreen() {
                   <Btn style={{ flex: 1 }} kind="ghost" label="แบบเดิม" onPress={() => pickAndSend(false)} />
                 </View>
               </View>
-            ) : null}
-
-            {confirmDisconnect ? (
+            ) : confirmDisconnect ? (
               <View style={{ gap: 8 }}>
                 <Txt size={12} color={t.sub}>
-                  ยกเลิกการเชื่อมต่อ? URL จะถูกลบออกจากแอปและกลับสู่สถานะยังไม่เชื่อมต่อ — ข้อมูลที่ส่งไปแล้วในชีตไม่ถูกลบ
-                  และเชื่อมต่อใหม่ได้ตลอดด้วย URL เดิม
+                  ยกเลิกการเชื่อมต่อ? — ข้อมูลในชีตไม่ถูกลบ และ URL ยังอยู่ในรายการที่บันทึกไว้
+                  เลือกเชื่อมต่อใหม่ได้ตลอด
                 </Txt>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <Btn style={{ flex: 1 }} kind="ghost" label="ไม่ยกเลิก" onPress={() => setConfirmDisconnect(false)} />
                   <Btn style={{ flex: 1 }} kind="danger" label="ยืนยันยกเลิก" onPress={disconnectSheets} />
                 </View>
               </View>
+            ) : showSwitch ? (
+              <View style={{ gap: 6 }}>
+                <Txt size={11} weight="bold" color={t.faint}>สลับไปใช้ URL อื่น</Txt>
+                {savedOthers.map((u) => (
+                  <UrlItem key={u} url={u} actionLabel="ใช้" onAction={() => { connectUrl(u); setShowSwitch(false); }} onRemove={() => deleteUrl(u)} />
+                ))}
+                <Btn kind="ghost" label="ปิด" onPress={() => setShowSwitch(false)} />
+              </View>
             ) : (
-              <Btn
-                kind="ghost"
-                icon="x"
-                label="ยกเลิกการเชื่อมต่อ"
-                disabled={sending !== null}
-                onPress={() => setConfirmDisconnect(true)}
-              />
+              <>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Btn
+                    style={{ flex: 1 }}
+                    label={sending === 'month' ? 'กำลังส่ง…' : 'ส่งเดือนนี้'}
+                    disabled={sending !== null}
+                    onPress={() => setSheetsPick('month')}
+                  />
+                  <Btn
+                    style={{ flex: 1 }}
+                    kind="ghost"
+                    label={sending === 'all' ? 'กำลังส่ง…' : 'ส่งทั้งหมด'}
+                    disabled={sending !== null}
+                    onPress={() => setSheetsPick('all')}
+                  />
+                </View>
+                {savedOthers.length ? (
+                  <Btn
+                    kind="ghost"
+                    icon="cloud"
+                    label={`สลับ URL อื่น (${savedOthers.length})`}
+                    disabled={sending !== null}
+                    onPress={() => setShowSwitch(true)}
+                  />
+                ) : null}
+                <Btn
+                  kind="ghost"
+                  icon="x"
+                  label="ยกเลิกการเชื่อมต่อ"
+                  disabled={sending !== null}
+                  onPress={() => setConfirmDisconnect(true)}
+                />
+              </>
             )}
           </>
         )}
@@ -333,6 +384,37 @@ export default function DataScreen() {
 /** ตัดข้อความยาวเกิน max ตัวอักษร แล้วปิดท้ายด้วย … */
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s;
+}
+
+/** แถว URL ในรายการที่บันทึกไว้ — โชว์ URL ย่อ + ปุ่มเชื่อมต่อ/ใช้ + ปุ่มลบ */
+function UrlItem({ url, actionLabel, onAction, onRemove }: { url: string; actionLabel: string; onAction: () => void; onRemove: () => void }) {
+  const t = useTokens();
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: t.card2,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: t.line,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+      }}>
+      <Icon name="cloud" size={15} color={t.faint} />
+      <Txt size={11} num color={t.sub} numberOfLines={1} style={{ flex: 1 }}>
+        {truncate(url.replace('https://script.google.com/macros/s/', '…/'), 24)}
+      </Txt>
+      <Chip small icon="check" label={actionLabel} onPress={onAction} />
+      <Pressable
+        onPress={onRemove}
+        hitSlop={6}
+        style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: t.chip }}>
+        <Icon name="trash" size={14} color={DANGER} />
+      </Pressable>
+    </View>
+  );
 }
 
 /** CSV สัปดาห์ปัจจุบัน: แถว = ช่วงเวลา 30 นาที (06:00–30:00 ครบ 24 ชม.), คอลัมน์ = จันทร์–อาทิตย์ */

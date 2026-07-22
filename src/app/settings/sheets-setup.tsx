@@ -30,9 +30,11 @@ export default function SheetsSetupScreen() {
   const router = useRouter();
   const showToast = useUI((s) => s.showToast);
   const sheetsUrl = useSettings((s) => s.sheetsUrl);
+  const sheetsUrls = useSettings((s) => s.sheetsUrls);
   const setSheetsUrl = useSettings((s) => s.setSheetsUrl);
 
-  const [urlDraft, setUrlDraft] = useState(sheetsUrl);
+  // เติม URL ปัจจุบัน หรือ URL ล่าสุดในรายการที่บันทึกไว้ (จำไว้แม้ยกเลิกการเชื่อมต่อไปแล้ว)
+  const [urlDraft, setUrlDraft] = useState(sheetsUrl || sheetsUrls[0] || '');
   const [copied, setCopied] = useState(false);
 
   const copyCode = async () => {
