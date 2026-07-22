@@ -116,10 +116,12 @@ export default function DataScreen() {
 
   const [ttOpen, setTtOpen] = useState(false);
   const [ttScope, setTtScope] = useState<'month' | 'pick' | 'all'>('month');
+  const [ttFormat, setTtFormat] = useState<'xls' | 'csv'>('xls');
   const [pickedMonths, setPickedMonths] = useState<string[]>([]);
 
   const openExport = () => {
     setTtScope('month');
+    setTtFormat('xls');
     setPickedMonths([]);
     setTtOpen(true);
   };
@@ -281,23 +283,45 @@ export default function DataScreen() {
             </Txt>
           )}
 
-          <Txt size={11} color={t.faint}>
-            มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ · CSV: ข้อความล้วน นำกลับเข้าแอปได้
-          </Txt>
+          {/* เลือกรูปแบบไฟล์ */}
+          <View style={{ gap: 6 }}>
+            <Txt size={11} color={t.faint}>รูปแบบไฟล์</Txt>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {([['xls', 'มีสี (.xls)'], ['csv', 'CSV']] as const).map(([k, lb]) => {
+                const on = ttFormat === k;
+                return (
+                  <Pressable key={k} onPress={() => setTtFormat(k)} style={{ flex: 1 }}>
+                    <View
+                      style={{
+                        paddingVertical: 8,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        alignItems: 'center',
+                        borderColor: on ? ACCENT : t.line,
+                        backgroundColor: on ? t.chip : 'transparent',
+                      }}>
+                      <Txt size={12} weight="bold" color={on ? ACCENT : t.sub}>{lb}</Txt>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Txt size={11} color={t.faint}>
+              {ttFormat === 'xls'
+                ? 'มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ — เปิดใน Excel/Sheets ได้เลย'
+                : 'CSV: ข้อความล้วน นำกลับเข้าแอปนี้ได้'}
+            </Txt>
+          </View>
+
+          {/* ปุ่มส่งออก */}
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setTtOpen(false)} />
             <Btn
-              style={{ flex: 1 }}
-              label="มีสี (.xls)"
+              style={{ flex: 2 }}
+              icon="share"
+              label="ส่งออก"
               disabled={ttScope === 'pick' && !pickedMonths.length}
-              onPress={() => doExportTT('xls')}
-            />
-            <Btn
-              style={{ flex: 1 }}
-              kind="ghost"
-              label="CSV"
-              disabled={ttScope === 'pick' && !pickedMonths.length}
-              onPress={() => doExportTT('csv')}
+              onPress={() => doExportTT(ttFormat)}
             />
           </View>
         </Card>
