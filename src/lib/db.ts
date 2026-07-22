@@ -243,6 +243,23 @@ export async function saveSetting(key: string, value: string): Promise<void> {
   );
 }
 
+/** เพิ่มกิจกรรมหลายรายการใน transaction เดียว (นำเข้า Time Table CSV) — ไม่ผูก contact */
+export async function insertActivities(list: Omit<Activity, 'id'>[]): Promise<void> {
+  const d = getDb();
+  await d.withExclusiveTransactionAsync(async (txn) => {
+    for (const a of list) {
+      await txn.runAsync(
+        `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
+           repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
+        a.repeat, a.daysMask, a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore,
+        a.detachedFrom, a.status,
+      );
+    }
+  });
+}
+
 // ---------- จัดการข้อมูลรายช่วง (settings/manage) ----------
 
 /**

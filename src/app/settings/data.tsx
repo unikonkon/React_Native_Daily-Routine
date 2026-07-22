@@ -3,14 +3,15 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View } from 'react-native';
 
 import { CAT_BY_ID } from '@/constants/theme';
 import { Screen } from '@/components/screen';
 import { Btn, Card, Row, Txt, useTokens } from '@/components/ui';
 import { WD_TH_FULL, addDays, fmtMin, mondayOf, todayISO } from '@/lib/dates';
-import { dumpAll, restoreAll, type BackupData } from '@/lib/db';
+import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
+import { buildTimeTableCsv, parseTimeTableCsv, type TimeTableImport } from '@/lib/timetable';
 import { getDay, useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useUI } from '@/stores/ui';
@@ -19,6 +20,23 @@ export default function DataScreen() {
   const t = useTokens();
   const showToast = useUI((s) => s.showToast);
   const [pendingImport, setPendingImport] = useState<BackupData | null>(null);
+  const [pendingCsv, setPendingCsv] = useState<TimeTableImport | null>(null);
+  /** กันเปิด document picker ซ้อน (native อนุญาตทีละตัว — เรียกซ้ำจะ throw) */
+  const picking = useRef(false);
+
+  const pickDocument = async (type: string[]) => {
+    if (picking.current) return null;
+    picking.current = true;
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type, copyToCacheDirectory: true });
+      return res.canceled ? null : res.assets[0];
+    } catch {
+      showToast('เปิดตัวเลือกไฟล์ไม่สำเร็จ — ลองใหม่อีกครั้ง');
+      return null;
+    } finally {
+      picking.current = false;
+    }
+  };
 
   const shareFile = async (name: string, content: string, mimeType: string) => {
     const file = new File(Paths.cache, name);
@@ -46,11 +64,45 @@ export default function DataScreen() {
     }
   };
 
-  const pickImport = async () => {
-    const res = await DocumentPicker.getDocumentAsync({ type: ['application/json'], copyToCacheDirectory: true });
-    if (res.canceled) return;
+  // Time Table CSV (ฟอร์แมต "Time Table จอย" — grid เดือน) — lib/timetable.ts
+  const exportTimeTable = async () => {
     try {
-      const text = await new File(res.assets[0].uri).text();
+      const anchor = todayISO();
+      await shareFile(`timetable-${anchor.slice(0, 7)}.csv`, buildTimeTableCsv(getDay, anchor), 'text/csv');
+    } catch {
+      showToast('ส่งออก Time Table ไม่สำเร็จ');
+    }
+  };
+
+  const pickCsvImport = async () => {
+    const asset = await pickDocument(['text/csv', 'text/comma-separated-values', 'text/plain']);
+    if (!asset) return;
+    try {
+      const text = await new File(asset.uri).text();
+      setPendingCsv(parseTimeTableCsv(text));
+    } catch {
+      showToast('อ่านไฟล์ไม่ได้ — ต้องเป็น CSV ฟอร์แมต Time Table (มีหัว MONTH และแถว Time)');
+    }
+  };
+
+  const doCsvImport = async (mode: 'merge' | 'replace') => {
+    if (!pendingCsv) return;
+    try {
+      if (mode === 'replace') await purgeRange(pendingCsv.from, pendingCsv.to);
+      await insertActivities(pendingCsv.list);
+      await useActivities.getState().boot();
+      setPendingCsv(null);
+      showToast(`นำเข้า ${pendingCsv.list.length} รายการแล้ว ✓`);
+    } catch {
+      showToast('นำเข้าไม่สำเร็จ');
+    }
+  };
+
+  const pickImport = async () => {
+    const asset = await pickDocument(['application/json']);
+    if (!asset) return;
+    try {
+      const text = await new File(asset.uri).text();
       const data = JSON.parse(text) as BackupData;
       if (data.version !== 1 || !Array.isArray(data.activities)) throw new Error('bad format');
       setPendingImport(data);
@@ -74,6 +126,30 @@ export default function DataScreen() {
   return (
     <Screen title="ข้อมูล" subtitle="Export · Import · Google Sheets" back>
       <Card>
+        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>Time Table (CSV)</Txt>
+        <Row icon="grid" label="ส่งออก Time Table" sub="ตารางทั้งเดือนนี้ — ฟอร์แมต Time Table จอย" onPress={exportTimeTable} />
+        <Row icon="repeat" label="นำเข้า Time Table" sub="ไฟล์ CSV แบบ grid เดือน (MONTH m/yyyy)" onPress={pickCsvImport} last />
+      </Card>
+
+      {pendingCsv ? (
+        <Card tone="card2" style={{ gap: 10 }}>
+          <Txt size={14} weight="bold">
+            พบ Time Table {pendingCsv.monthLabel}: {pendingCsv.list.length} รายการ
+          </Txt>
+          <Txt size={12} color={t.sub}>
+            ช่วง {pendingCsv.from} – {pendingCsv.to} · หมวดถูกเดาจากชื่อกิจกรรม แก้ทีหลังได้{'\n'}
+            “แทนที่ช่วงนี้” จะลบข้อมูลเดิมเฉพาะช่วงวันดังกล่าวก่อนนำเข้า
+          </Txt>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setPendingCsv(null)} />
+            <Btn style={{ flex: 1 }} label="เพิ่มรวม" onPress={() => doCsvImport('merge')} />
+            <Btn style={{ flex: 1 }} kind="danger" label="แทนที่ช่วงนี้" onPress={() => doCsvImport('replace')} />
+          </View>
+        </Card>
+      ) : null}
+
+      <Card>
+        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>สำรอง & กู้คืน</Txt>
         <Row icon="share" label="ส่งออก CSV" sub="ตารางสัปดาห์นี้ (ฟอร์แมต Excel เดิม)" onPress={exportCsv} />
         <Row icon="download" label="สำรองข้อมูล (JSON)" sub="ทุกตาราง — เก็บไว้กู้คืน/ย้ายเครื่อง" onPress={exportJson} />
         <Row icon="restore" label="กู้คืน / นำเข้า (JSON)" sub="เลือกไฟล์ที่สำรองไว้" onPress={pickImport} last />
@@ -84,7 +160,7 @@ export default function DataScreen() {
           <Txt size={14} weight="bold">
             พบข้อมูล: กิจกรรม {pendingImport.activities.length} · รายชื่อ {pendingImport.contacts.length}
           </Txt>
-          <Txt size={12} color={t.sub}>เลือกวิธีนำเข้า — "แทนที่" จะลบข้อมูลปัจจุบันทั้งหมดก่อน</Txt>
+          <Txt size={12} color={t.sub}>เลือกวิธีนำเข้า — “แทนที่” จะลบข้อมูลปัจจุบันทั้งหมดก่อน</Txt>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setPendingImport(null)} />
             <Btn style={{ flex: 1 }} label="รวม (merge)" onPress={() => doImport('merge')} />
