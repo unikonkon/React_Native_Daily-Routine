@@ -208,21 +208,21 @@ export function parseTimeTableCsv(text: string): TimeTableImport {
   };
 }
 
-/** สร้าง Time Table CSV ทั้งเดือนของ anchor (ฟอร์แมตเดียวกับไฟล์นำเข้า — round-trip ได้) */
-export function buildTimeTableCsv(read: (date: string) => DayItem[], anchor: string): string {
+/** ตาราง grid ทั้งเดือนของ anchor เป็นแถวเซลล์ (ใช้ทั้งส่งออก CSV และส่งขึ้น Google Sheets) */
+export function buildTimeTableRows(read: (date: string) => DayItem[], anchor: string): string[][] {
   const a = fromISO(anchor);
   const y = a.getFullYear();
   const m = a.getMonth(); // 0-based
   const nDays = new Date(y, m + 1, 0).getDate();
   const dates = Array.from({ length: nDays }, (_, i) => toISO(new Date(y, m, i + 1)));
   const perDay = dates.map((d) => read(d).filter((it) => it.ostatus !== 'rescheduled'));
-  const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
 
   const EN_DAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const head = [`MONTH ${m + 1}/${y}`, ...dates.map((_, i) => (i % 7 === 0 ? `WEEK ${i / 7 + 1}` : ''))];
-  const dayNames = ['Date', ...dates.map((d) => EN_DAY[fromISO(d).getDay()])];
-  const dayNums = ['Time', ...dates.map((_, i) => `${i + 1}`)];
-  const lines = [head, dayNames, dayNums].map((r) => r.map(esc).join(','));
+  const rows: string[][] = [
+    [`MONTH ${m + 1}/${y}`, ...dates.map((_, i) => (i % 7 === 0 ? `WEEK ${i / 7 + 1}` : ''))],
+    ['Date', ...dates.map((d) => EN_DAY[fromISO(d).getDay()])],
+    ['Time', ...dates.map((_, i) => `${i + 1}`)],
+  ];
 
   // ช่องละ 30 นาที 06:00–30:00 — กิจกรรมยาวถูกเขียนซ้ำทุกช่องที่คลุม (parser ฝั่งนำเข้ารวมกลับเป็นก้อนเดียว)
   for (let t = 360; t < DAY_END; t += 30) {
@@ -231,7 +231,14 @@ export function buildTimeTableCsv(read: (date: string) => DayItem[], anchor: str
       const here = items.filter((it) => it.startMin < t + 30 && it.endMin > t);
       row.push(here.map((it) => it.title).join(' | '));
     }
-    lines.push(row.map(esc).join(','));
+    rows.push(row);
   }
+  return rows;
+}
+
+/** สร้าง Time Table CSV ทั้งเดือนของ anchor (ฟอร์แมตเดียวกับไฟล์นำเข้า — round-trip ได้) */
+export function buildTimeTableCsv(read: (date: string) => DayItem[], anchor: string): string {
+  const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+  const lines = buildTimeTableRows(read, anchor).map((r) => r.map(esc).join(','));
   return '﻿' + lines.join('\n'); // BOM ให้ Excel เปิดภาษาไทยถูก
 }

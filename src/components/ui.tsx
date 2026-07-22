@@ -71,7 +71,7 @@ export function Chip({ label, active, onPress, color, small, icon }: ChipProps) 
         alignItems: 'center',
         gap: 5,
         backgroundColor: bg,
-        borderRadius: 99,
+        borderRadius: 10,
         paddingHorizontal: small ? 10 : 14,
         paddingVertical: small ? 5 : 8,
       }}>

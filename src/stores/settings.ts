@@ -9,12 +9,15 @@ interface SettingsState {
   morning: boolean;
   /** quick-pick chips ต่อหมวด — เริ่มจาก QUICK_PICKS แก้ไขได้ใน settings/categories */
   quickPicks: Record<CatId, string[]>;
+  /** URL ของ Google Apps Script Web App สำหรับส่งขึ้น Sheets ('' = ยังไม่เชื่อมต่อ) */
+  sheetsUrl: string;
   boot: () => Promise<void>;
   setTheme: (t: ThemeName) => void;
   toggleTheme: () => void;
   setNotifMaster: (v: boolean) => void;
   setMorning: (v: boolean) => void;
   setQuickPicks: (cat: CatId, list: string[]) => void;
+  setSheetsUrl: (url: string) => void;
 }
 
 /** อ่านค่า quick_picks ที่บันทึกไว้ — หมวดไหนไม่มี/ผิดรูปใช้ค่าเริ่มต้น */
@@ -38,6 +41,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
   notifMaster: true,
   morning: true,
   quickPicks: QUICK_PICKS,
+  sheetsUrl: '',
 
   boot: async () => {
     const s = await db.loadSettings();
@@ -46,6 +50,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
       notifMaster: s.notif_master !== '0',
       morning: s.morning_summary !== '0',
       quickPicks: parseQuickPicks(s.quick_picks),
+      sheetsUrl: s.sheets_url ?? '',
     });
   },
 
@@ -66,5 +71,9 @@ export const useSettings = create<SettingsState>((set, get) => ({
     const quickPicks = { ...get().quickPicks, [cat]: list };
     set({ quickPicks });
     db.saveSetting('quick_picks', JSON.stringify(quickPicks));
+  },
+  setSheetsUrl: (sheetsUrl) => {
+    set({ sheetsUrl });
+    db.saveSetting('sheets_url', sheetsUrl);
   },
 }));

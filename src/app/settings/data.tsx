@@ -1,28 +1,63 @@
-// 6.5 ข้อมูล — Export CSV / สำรอง-กู้คืน JSON / Google Sheets (ทางเดียว — เฟสถัดไป)
+// 6.5 ข้อมูล — Export CSV / สำรอง-กู้คืน JSON / ส่งขึ้น Google Sheets (ทางเดียว ผ่าน Apps Script)
 // ใช้ expo-file-system API ใหม่ (File/Paths) + expo-sharing + expo-document-picker
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
+import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useRef, useState } from 'react';
 import { View } from 'react-native';
 
-import { CAT_BY_ID } from '@/constants/theme';
 import { Screen } from '@/components/screen';
-import { Btn, Card, Row, Txt, useTokens } from '@/components/ui';
+import { Btn, Card, Chip, Row, Txt, useTokens } from '@/components/ui';
+import { CAT_BY_ID } from '@/constants/theme';
 import { WD_TH_FULL, addDays, fmtMin, mondayOf, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
+import { buildSheetTabs, pushToSheets, type SheetsRange } from '@/lib/sheets';
 import { buildTimeTableCsv, parseTimeTableCsv, type TimeTableImport } from '@/lib/timetable';
 import { getDay, useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
+import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
 export default function DataScreen() {
   const t = useTokens();
+  const router = useRouter();
   const showToast = useUI((s) => s.showToast);
   const [pendingImport, setPendingImport] = useState<BackupData | null>(null);
   const [pendingCsv, setPendingCsv] = useState<TimeTableImport | null>(null);
   /** กันเปิด document picker ซ้อน (native อนุญาตทีละตัว — เรียกซ้ำจะ throw) */
   const picking = useRef(false);
+
+  // Google Sheets (Apps Script Web App URL — ตั้งค่า/แก้ไขที่หน้า settings/sheets-setup)
+  const sheetsUrl = useSettings((s) => s.sheetsUrl);
+  const setSheetsUrl = useSettings((s) => s.setSheetsUrl);
+  const [sending, setSending] = useState<SheetsRange | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+
+  const disconnectSheets = () => {
+    setSheetsUrl(''); // ล้างค่าใน settings (SQLite) — กลับสู่สถานะยังไม่เชื่อมต่อ
+    setConfirmDisconnect(false);
+    showToast('ยกเลิกการเชื่อมต่อ Google Sheets แล้ว ✓');
+  };
+
+  const sendToSheets = async (range: SheetsRange) => {
+    if (sending) return;
+    setSending(range);
+    try {
+      const { acts, occ } = useActivities.getState();
+      const tabs = buildSheetTabs(getDay, acts, occ, range);
+      if (!tabs.length) {
+        showToast('ไม่มีข้อมูลให้ส่ง');
+        return;
+      }
+      await pushToSheets(sheetsUrl, tabs);
+      showToast(`ส่งขึ้น Sheets แล้ว ✓ (${tabs.length} แท็บ)`);
+    } catch (err) {
+      showToast(`ส่งไม่สำเร็จ — ${err instanceof Error ? err.message : 'ลองใหม่อีกครั้ง'}`);
+    } finally {
+      setSending(null);
+    }
+  };
 
   const pickDocument = async (type: string[]) => {
     if (picking.current) return null;
@@ -169,26 +204,80 @@ export default function DataScreen() {
         </Card>
       ) : null}
 
-      <Card>
-        <Row
-          icon="cloud"
-          label="ส่งขึ้น Google Sheets"
-          sub="ทางเดียว · ยังไม่เชื่อมต่อ"
-          last
-          right={
-            <Btn
-              label="เชื่อมต่อ"
-              onPress={() => showToast('Google Sheets ต้องใช้ development build — เฟสถัดไป')}
+      <Card style={{ gap: 13 }}>
+        <Txt size={12} weight="bold" color={t.faint}>Google Sheets (ทางเดียว)</Txt>
+
+        {!sheetsUrl ? (
+          <>
+            <Row
+              icon="cloud"
+              label="ส่งขึ้น Google Sheets"
+              sub="ยังไม่เชื่อมต่อ — ติดตั้งครั้งเดียว ใช้ได้ตลอด"
+              last
+              onPress={() => router.push('/settings/sheets-setup')}
             />
-          }
-        />
+            <Btn icon="arrowR" label="วิธีติดตั้ง & เชื่อมต่อ (ทีละขั้น)" onPress={() => router.push('/settings/sheets-setup')} />
+          </>
+        ) : (
+          <>
+            <Row
+              icon="cloud"
+              label="เชื่อมต่อแล้ว"
+              sub={truncate(sheetsUrl.replace('https://script.google.com/', '…/'), 20)}
+              last
+              right={<Chip small icon="edit" label="แก้ URL" onPress={() => router.push('/settings/sheets-setup')} />}
+            />
+
+            <View style={{ flexDirection: 'row', gap: 18 }}>
+              <Btn
+                style={{ flex: 1 }}
+                label={sending === 'month' ? 'กำลังส่ง…' : 'ส่งเดือนนี้'}
+                disabled={sending !== null}
+                onPress={() => sendToSheets('month')}
+              />
+              <Btn
+                style={{ flex: 1 }}
+                kind="ghost"
+                label={sending === 'all' ? 'กำลังส่ง…' : 'ส่งทั้งหมด'}
+                disabled={sending !== null}
+                onPress={() => sendToSheets('all')}
+              />
+            </View>
+
+            {confirmDisconnect ? (
+              <View style={{ gap: 8 }}>
+                <Txt size={12} color={t.sub}>
+                  ยกเลิกการเชื่อมต่อ? URL จะถูกลบออกจากแอปและกลับสู่สถานะยังไม่เชื่อมต่อ — ข้อมูลที่ส่งไปแล้วในชีตไม่ถูกลบ
+                  และเชื่อมต่อใหม่ได้ตลอดด้วย URL เดิม
+                </Txt>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Btn style={{ flex: 1 }} kind="ghost" label="ไม่ยกเลิก" onPress={() => setConfirmDisconnect(false)} />
+                  <Btn style={{ flex: 1 }} kind="danger" label="ยืนยันยกเลิก" onPress={disconnectSheets} />
+                </View>
+              </View>
+            ) : (
+              <Btn
+                kind="ghost"
+                icon="x"
+                label="ยกเลิกการเชื่อมต่อ"
+                disabled={sending !== null}
+                onPress={() => setConfirmDisconnect(true)}
+              />
+            )}
+          </>
+        )}
       </Card>
 
       <Txt size={11} color={t.faint} style={{ textAlign: 'center' }}>
-        การส่งขึ้น Google Sheets เป็นการส่งออกทางเดียว (แอป → Sheets) ตาม APP_STRUCTURE.md §6.5
+        ส่งขึ้น Google Sheets ทางเดียว (แอป → Sheets): grid Time Table รายเดือน + แท็บรายการกิจกรรม
       </Txt>
     </Screen>
   );
+}
+
+/** ตัดข้อความยาวเกิน max ตัวอักษร แล้วปิดท้ายด้วย … */
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
 /** CSV สัปดาห์ปัจจุบัน: แถว = ช่วงเวลา 30 นาที (06:00–30:00 ครบ 24 ชม.), คอลัมน์ = จันทร์–อาทิตย์ */
