@@ -14,6 +14,7 @@ import { WD_TH_FULL, addDays, fmtMin, mondayOf, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
 import { buildSheetTabs, pushToSheets, type SheetsRange } from '@/lib/sheets';
 import { buildTimeTableCsv, parseTimeTableCsv, type TimeTableImport } from '@/lib/timetable';
+import { buildTimeTableXls, buildWeekXls } from '@/lib/xls';
 import { getDay, useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useSettings } from '@/stores/settings';
@@ -82,13 +83,47 @@ export default function DataScreen() {
     else showToast('เครื่องนี้แชร์ไฟล์ไม่ได้');
   };
 
-  const exportCsv = async () => {
+  /** ตัวส่งออกที่กำลังรอเลือกฟอร์แมต: สัปดาห์ หรือ Time Table เดือน */
+  const [exportPick, setExportPick] = useState<'week' | 'timetable' | null>(null);
+
+  /** ส่งออกตามฟอร์แมตที่เลือก — 'xls' = มีสี/จัดรูปแบบ (HTML table เปิดใน Excel), 'csv' = แบบเดิม */
+  const doExport = async (format: 'xls' | 'csv') => {
+    const pick = exportPick;
+    setExportPick(null);
+    if (!pick) return;
     try {
-      await shareFile(`routine-${todayISO()}.csv`, buildWeekCsv(), 'text/csv');
+      const anchor = todayISO();
+      if (pick === 'week') {
+        if (format === 'xls') await shareFile(`routine-${anchor}.xls`, buildWeekXls(getDay), 'application/vnd.ms-excel');
+        else await shareFile(`routine-${anchor}.csv`, buildWeekCsv(), 'text/csv');
+      } else {
+        const ym = anchor.slice(0, 7);
+        if (format === 'xls') await shareFile(`timetable-${ym}.xls`, buildTimeTableXls(getDay, anchor), 'application/vnd.ms-excel');
+        else await shareFile(`timetable-${ym}.csv`, buildTimeTableCsv(getDay, anchor), 'text/csv');
+      }
     } catch {
-      showToast('ส่งออก CSV ไม่สำเร็จ');
+      showToast('ส่งออกไม่สำเร็จ');
     }
   };
+
+  /** การ์ดเลือกฟอร์แมตส่งออก — มีสี (.xls) เป็นตัวเลือกแรก */
+  const exportPickCard = (kind: 'week' | 'timetable') =>
+    exportPick === kind ? (
+      <Card tone="card2" style={{ gap: 10 }}>
+        <Txt size={14} weight="bold">
+          {kind === 'week' ? 'ส่งออกตารางสัปดาห์นี้' : 'ส่งออก Time Table เดือนนี้'} — เลือกรูปแบบไฟล์
+        </Txt>
+        <Txt size={12} color={t.sub}>
+          มีสี (.xls): พื้นสีตามหมวด ตัวหนา ✓/✗ ตามสถานะ — เปิดใน Excel/Google Sheets ได้เลย{'\n'}
+          แบบเดิม (.csv): ข้อความล้วน เหมาะกับนำเข้าโปรแกรมอื่น{kind === 'timetable' ? ' และนำกลับเข้าแอปนี้' : ''}
+        </Txt>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setExportPick(null)} />
+          <Btn style={{ flex: 1 }} label="มีสี (.xls)" onPress={() => doExport('xls')} />
+          <Btn style={{ flex: 1 }} kind="ghost" label="แบบเดิม (.csv)" onPress={() => doExport('csv')} />
+        </View>
+      </Card>
+    ) : null;
 
   const exportJson = async () => {
     try {
@@ -96,16 +131,6 @@ export default function DataScreen() {
       await shareFile(`routine-backup-${todayISO()}.json`, JSON.stringify(data, null, 1), 'application/json');
     } catch {
       showToast('สำรองข้อมูลไม่สำเร็จ');
-    }
-  };
-
-  // Time Table CSV (ฟอร์แมต "Time Table จอย" — grid เดือน) — lib/timetable.ts
-  const exportTimeTable = async () => {
-    try {
-      const anchor = todayISO();
-      await shareFile(`timetable-${anchor.slice(0, 7)}.csv`, buildTimeTableCsv(getDay, anchor), 'text/csv');
-    } catch {
-      showToast('ส่งออก Time Table ไม่สำเร็จ');
     }
   };
 
@@ -161,10 +186,12 @@ export default function DataScreen() {
   return (
     <Screen title="ข้อมูล" subtitle="Export · Import · Google Sheets" back>
       <Card>
-        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>Time Table (CSV)</Txt>
-        <Row icon="grid" label="ส่งออก Time Table" sub="ตารางทั้งเดือนนี้ — ฟอร์แมต Time Table จอย" onPress={exportTimeTable} />
+        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>Time Table</Txt>
+        <Row icon="grid" label="ส่งออก Time Table" sub="ตารางทั้งเดือนนี้ — เลือกได้: มีสี (.xls) / CSV เดิม" onPress={() => setExportPick('timetable')} />
         <Row icon="repeat" label="นำเข้า Time Table" sub="ไฟล์ CSV แบบ grid เดือน (MONTH m/yyyy)" onPress={pickCsvImport} last />
       </Card>
+
+      {exportPickCard('timetable')}
 
       {pendingCsv ? (
         <Card tone="card2" style={{ gap: 10 }}>
@@ -185,10 +212,12 @@ export default function DataScreen() {
 
       <Card>
         <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>สำรอง & กู้คืน</Txt>
-        <Row icon="share" label="ส่งออก CSV" sub="ตารางสัปดาห์นี้ (ฟอร์แมต Excel เดิม)" onPress={exportCsv} />
+        <Row icon="share" label="ส่งออกตารางสัปดาห์" sub="สัปดาห์นี้ — เลือกได้: มีสี (.xls) / CSV เดิม" onPress={() => setExportPick('week')} />
         <Row icon="download" label="สำรองข้อมูล (JSON)" sub="ทุกตาราง — เก็บไว้กู้คืน/ย้ายเครื่อง" onPress={exportJson} />
         <Row icon="restore" label="กู้คืน / นำเข้า (JSON)" sub="เลือกไฟล์ที่สำรองไว้" onPress={pickImport} last />
       </Card>
+
+      {exportPickCard('week')}
 
       {pendingImport ? (
         <Card tone="card2" style={{ gap: 10 }}>
