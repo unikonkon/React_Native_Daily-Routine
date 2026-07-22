@@ -10,13 +10,14 @@ import { MonthYearPicker } from '@/components/month-year-picker';
 import { Screen } from '@/components/screen';
 import { TimeRangeModal } from '@/components/time-range-modal';
 import { Btn, Card, Chip, ChipRow, Toggle, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CATS, DAY_END, DAY_START, FONT, GREEN, PRI, QUICK_PICKS, SNAP, type CatId } from '@/constants/theme';
+import { ACCENT, CATS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, addDays, beYear, fmtMin, fromISO, hoursText, thaiDate } from '@/lib/dates';
 import { conflictsOn, freeSlots, maskFromDates } from '@/lib/engine';
 import { HORIZON_DAYS, type Horizon, type RepeatRule } from '@/lib/types';
 import { getDay, useActivities, useDayReader } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
+import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
 const REPEATS: { key: RepeatRule; label: string }[] = [
@@ -104,6 +105,7 @@ function DetailsSection() {
   const showToast = useUI((s) => s.showToast);
   const contacts = useContacts((s) => s.list);
   const upsertContact = useContacts((s) => s.upsert);
+  const quickPicks = useSettings((s) => s.quickPicks);
   const [newName, setNewName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
 
@@ -164,7 +166,7 @@ function DetailsSection() {
               style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 12, color: t.ink, fontFamily: FONT.uiMed, fontSize: 15 }}
             />
             <ChipRow>
-              {QUICK_PICKS[d.cat].map((q) => (
+              {quickPicks[d.cat].map((q) => (
                 <Chip key={q} small label={q} active={d.title === q} onPress={() => d.set({ title: q })} />
               ))}
             </ChipRow>
