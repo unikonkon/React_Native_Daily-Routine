@@ -5,7 +5,7 @@
 import { ACCENT, CAT_BY_ID, DANGER, DAY_END, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, WD_TH_FULL, beYear, fmtMin, fromISO, toISO, todayISO, wdMon } from '@/lib/dates';
 import type { Activity, DayItem, OccMap, OccStatus } from '@/lib/types';
-import { buildTimeTableRows } from '@/lib/timetable';
+import { buildTimeTableRows, listDataMonths } from '@/lib/timetable';
 import { mix } from '@/lib/xls';
 
 export type SheetsRange = 'month' | 'all';
@@ -67,31 +67,7 @@ const STATUS_TH: Record<OccStatus, string> = {
 
 /** เดือนทั้งหมดที่ต้องส่ง: 'month' = เดือนปัจจุบัน, 'all' = ตั้งแต่เดือนแรกถึงเดือนสุดท้ายที่มีข้อมูล */
 function monthAnchors(acts: Activity[], occ: OccMap, range: SheetsRange): string[] {
-  if (range === 'month') return [todayISO()];
-  let min = todayISO();
-  let max = todayISO();
-  const widen = (d: string) => {
-    if (d < min) min = d;
-    if (d > max) max = d;
-  };
-  for (const a of acts) {
-    widen(a.startDate);
-    if (a.endDate) widen(a.endDate);
-  }
-  Object.keys(occ).forEach(widen);
-
-  const a = fromISO(min);
-  const b = fromISO(max);
-  const out: string[] = [];
-  for (let y = a.getFullYear(), m = a.getMonth(); y < b.getFullYear() || (y === b.getFullYear() && m <= b.getMonth()); ) {
-    out.push(toISO(new Date(y, m, 1)));
-    m++;
-    if (m > 11) {
-      m = 0;
-      y++;
-    }
-  }
-  return out;
+  return range === 'month' ? [todayISO()] : listDataMonths(acts, occ);
 }
 
 /**

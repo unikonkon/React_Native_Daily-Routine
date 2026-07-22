@@ -4,18 +4,18 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { Btn, Card, Chip, Row, Txt, useTokens } from '@/components/ui';
-import { CAT_BY_ID, DANGER } from '@/constants/theme';
-import { WD_TH_FULL, addDays, fmtMin, mondayOf, todayISO } from '@/lib/dates';
+import { ACCENT, DANGER } from '@/constants/theme';
+import { MONTH_TH, beYear, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
 import { buildSheetTabs, pushToSheets, type SheetsRange } from '@/lib/sheets';
-import { buildTimeTableCsv, parseTimeTableCsv, type TimeTableImport } from '@/lib/timetable';
-import { buildTimeTableXls, buildWeekXls } from '@/lib/xls';
+import { buildTimeTableCsvMulti, listDataMonths, parseTimeTableCsv, type TimeTableImport } from '@/lib/timetable';
+import { buildTimeTableXlsMulti } from '@/lib/xls';
 import { getDay, useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useSettings } from '@/stores/settings';
@@ -108,47 +108,49 @@ export default function DataScreen() {
     else showToast('เครื่องนี้แชร์ไฟล์ไม่ได้');
   };
 
-  /** ตัวส่งออกที่กำลังรอเลือกฟอร์แมต: สัปดาห์ หรือ Time Table เดือน */
-  const [exportPick, setExportPick] = useState<'week' | 'timetable' | null>(null);
+  // ---------- ส่งออก Time Table (รวมเป็นการทำงานเดียว: เลือกขอบเขต เดือนนี้ / เลือกเดือน / ทั้งหมด) ----------
+  const acts = useActivities((s) => s.acts);
+  const occ = useActivities((s) => s.occ);
+  /** เดือนที่มีข้อมูล (first-of-month ISO) — สำหรับให้ติ๊กเลือกในโหมด "เลือกเดือน" */
+  const dataMonths = useMemo(() => listDataMonths(acts, occ), [acts, occ]);
 
-  /** ส่งออกตามฟอร์แมตที่เลือก — 'xls' = มีสี/จัดรูปแบบ (HTML table เปิดใน Excel), 'csv' = แบบเดิม */
-  const doExport = async (format: 'xls' | 'csv') => {
-    const pick = exportPick;
-    setExportPick(null);
-    if (!pick) return;
+  const [ttOpen, setTtOpen] = useState(false);
+  const [ttScope, setTtScope] = useState<'month' | 'pick' | 'all'>('month');
+  const [pickedMonths, setPickedMonths] = useState<string[]>([]);
+
+  const openExport = () => {
+    setTtScope('month');
+    setPickedMonths([]);
+    setTtOpen(true);
+  };
+
+  const toggleMonth = (anchor: string) =>
+    setPickedMonths((cur) => (cur.includes(anchor) ? cur.filter((x) => x !== anchor) : [...cur, anchor]));
+
+  /** เดือนที่จะส่งออกตามขอบเขตที่เลือก (เรียงเวลา) */
+  const exportAnchors = (): string[] =>
+    (ttScope === 'month' ? [thisMonthAnchor()] : ttScope === 'all' ? dataMonths : [...pickedMonths]).sort();
+
+  /** ส่งออก Time Table หลายเดือนในไฟล์เดียว — 'xls' = มีสี/จัดรูปแบบ, 'csv' = ข้อความล้วน (นำกลับเข้าแอปได้) */
+  const doExportTT = async (format: 'xls' | 'csv') => {
+    const anchors = exportAnchors();
+    if (!anchors.length) {
+      showToast('ยังไม่ได้เลือกเดือน');
+      return;
+    }
+    setTtOpen(false);
     try {
-      const anchor = todayISO();
-      if (pick === 'week') {
-        if (format === 'xls') await shareFile(`routine-${anchor}.xls`, buildWeekXls(getDay), 'application/vnd.ms-excel');
-        else await shareFile(`routine-${anchor}.csv`, buildWeekCsv(), 'text/csv');
-      } else {
-        const ym = anchor.slice(0, 7);
-        if (format === 'xls') await shareFile(`timetable-${ym}.xls`, buildTimeTableXls(getDay, anchor), 'application/vnd.ms-excel');
-        else await shareFile(`timetable-${ym}.csv`, buildTimeTableCsv(getDay, anchor), 'text/csv');
-      }
+      const tag =
+        anchors.length === 1
+          ? anchors[0].slice(0, 7)
+          : `${anchors[0].slice(0, 7)}_ถึง_${anchors[anchors.length - 1].slice(0, 7)}`;
+      if (format === 'xls') await shareFile(`timetable-${tag}.xls`, buildTimeTableXlsMulti(getDay, anchors), 'application/vnd.ms-excel');
+      else await shareFile(`timetable-${tag}.csv`, buildTimeTableCsvMulti(getDay, anchors), 'text/csv');
     } catch {
       showToast('ส่งออกไม่สำเร็จ');
     }
   };
 
-  /** การ์ดเลือกฟอร์แมตส่งออก — มีสี (.xls) เป็นตัวเลือกแรก */
-  const exportPickCard = (kind: 'week' | 'timetable') =>
-    exportPick === kind ? (
-      <Card tone="card2" style={{ gap: 10 }}>
-        <Txt size={14} weight="bold">
-          {kind === 'week' ? 'ส่งออกตารางสัปดาห์นี้' : 'ส่งออก Time Table เดือนนี้'} — เลือกรูปแบบไฟล์
-        </Txt>
-        <Txt size={12} color={t.sub}>
-          มีสี (.xls): พื้นสีตามหมวด ตัวหนา ✓/✗ ตามสถานะ — เปิดใน Excel/Google Sheets ได้เลย{'\n'}
-          แบบเดิม (.csv): ข้อความล้วน เหมาะกับนำเข้าโปรแกรมอื่น{kind === 'timetable' ? ' และนำกลับเข้าแอปนี้' : ''}
-        </Txt>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setExportPick(null)} />
-          <Btn style={{ flex: 1 }} label="มีสี (.xls)" onPress={() => doExport('xls')} />
-          <Btn style={{ flex: 1 }} kind="ghost" label="แบบเดิม (.csv)" onPress={() => doExport('csv')} />
-        </View>
-      </Card>
-    ) : null;
 
   const exportJson = async () => {
     try {
@@ -211,12 +213,95 @@ export default function DataScreen() {
   return (
     <Screen title="ข้อมูล" subtitle="Export · Import · Google Sheets" back>
       <Card>
-        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>Time Table</Txt>
-        <Row icon="grid" label="ส่งออก Time Table" sub="ตารางทั้งเดือนนี้ — เลือกได้: มีสี (.xls) / CSV เดิม" onPress={() => setExportPick('timetable')} />
-        <Row icon="repeat" label="นำเข้า Time Table" sub="ไฟล์ CSV แบบ grid เดือน (MONTH m/yyyy)" onPress={pickCsvImport} last />
+        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>Time Table — ส่งออก / นำเข้า</Txt>
+        <Row icon="grid" label="ส่งออก Time Table" sub="เลือกช่วง: เดือนนี้ / เลือกเดือน / ทั้งหมด — มีสี (.xls) หรือ CSV" onPress={openExport} />
+        <Row icon="repeat" label="นำเข้า Time Table" sub="ไฟล์ CSV แบบ grid — รองรับหลายเดือนในไฟล์เดียว" onPress={pickCsvImport} last />
       </Card>
 
-      {exportPickCard('timetable')}
+      {ttOpen ? (
+        <Card tone="card2" style={{ gap: 12 }}>
+          <Txt size={14} weight="bold">ส่งออก Time Table — เลือกช่วงข้อมูล</Txt>
+
+          {/* ขอบเขต 3 แบบ */}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {([['month', 'เดือนนี้'], ['pick', 'เลือกเดือน'], ['all', 'ทั้งหมด']] as const).map(([k, lb]) => {
+              const on = ttScope === k;
+              return (
+                <Pressable key={k} onPress={() => setTtScope(k)} style={{ flex: 1 }}>
+                  <View
+                    style={{
+                      paddingVertical: 8,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      alignItems: 'center',
+                      borderColor: on ? ACCENT : t.line,
+                      backgroundColor: on ? t.chip : 'transparent',
+                    }}>
+                    <Txt size={12} weight="bold" color={on ? ACCENT : t.sub}>{lb}</Txt>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* รายละเอียดขอบเขต / ตัวเลือกเดือน */}
+          {ttScope === 'pick' ? (
+            <View style={{ gap: 6 }}>
+              <Txt size={11} color={t.faint}>ติ๊กเดือนที่จะส่งออก — เลือกได้ ({pickedMonths.length} เดือน)</Txt>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {dataMonths.map((mo) => {
+                  const on = pickedMonths.includes(mo);
+                  return (
+                    <Pressable key={mo} onPress={() => toggleMonth(mo)}>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: on ? ACCENT : t.line,
+                          backgroundColor: on ? t.chip : 'transparent',
+                        }}>
+                        <Icon name={on ? 'check' : 'plus'} size={13} color={on ? ACCENT : t.faint} />
+                        <Txt size={12} color={on ? ACCENT : t.sub}>{ttMonthLabel(mo)}</Txt>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : (
+            <Txt size={12} color={t.sub}>
+              {ttScope === 'month'
+                ? `ส่งออกเฉพาะเดือนนี้ (${ttMonthLabel(thisMonthAnchor())})`
+                : `ส่งออกทุกเดือนที่มีข้อมูล — ${dataMonths.length} เดือน (${ttMonthLabel(dataMonths[0])} – ${ttMonthLabel(dataMonths[dataMonths.length - 1])})`}
+            </Txt>
+          )}
+
+          <Txt size={11} color={t.faint}>
+            มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ · CSV: ข้อความล้วน นำกลับเข้าแอปได้
+          </Txt>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setTtOpen(false)} />
+            <Btn
+              style={{ flex: 1 }}
+              label="มีสี (.xls)"
+              disabled={ttScope === 'pick' && !pickedMonths.length}
+              onPress={() => doExportTT('xls')}
+            />
+            <Btn
+              style={{ flex: 1 }}
+              kind="ghost"
+              label="CSV"
+              disabled={ttScope === 'pick' && !pickedMonths.length}
+              onPress={() => doExportTT('csv')}
+            />
+          </View>
+        </Card>
+      ) : null}
 
       {pendingCsv ? (
         <Card tone="card2" style={{ gap: 10 }}>
@@ -236,13 +321,10 @@ export default function DataScreen() {
       ) : null}
 
       <Card>
-        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>สำรอง & กู้คืน</Txt>
-        <Row icon="share" label="ส่งออกตารางสัปดาห์" sub="สัปดาห์นี้ — เลือกได้: มีสี (.xls) / CSV เดิม" onPress={() => setExportPick('week')} />
-        <Row icon="download" label="สำรองข้อมูล (JSON)" sub="ทุกตาราง — เก็บไว้กู้คืน/ย้ายเครื่อง" onPress={exportJson} />
+        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>สำรอง & กู้คืน(แบบ Json)</Txt>
+        <Row icon="download" label="สำรองข้อมูล (JSON)" sub="ครบทุกตาราง (รวมรายชื่อ/สถานะ) — เก็บไว้กู้คืน/ย้ายเครื่อง" onPress={exportJson} />
         <Row icon="restore" label="กู้คืน / นำเข้า (JSON)" sub="เลือกไฟล์ที่สำรองไว้" onPress={pickImport} last />
       </Card>
-
-      {exportPickCard('week')}
 
       {pendingImport ? (
         <Card tone="card2" style={{ gap: 10 }}>
@@ -386,6 +468,17 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
+/** first-of-month ISO ของเดือนปัจจุบัน (anchor สำหรับ Time Table) */
+function thisMonthAnchor(): string {
+  return todayISO().slice(0, 7) + '-01';
+}
+
+/** anchor 'YYYY-MM-01' → "ก.ค. 2569" */
+function ttMonthLabel(anchor: string): string {
+  const [y, m] = anchor.split('-').map(Number);
+  return `${MONTH_TH[m - 1]} ${beYear(y)}`;
+}
+
 /** แถว URL ในรายการที่บันทึกไว้ — โชว์ URL ย่อ + ปุ่มเชื่อมต่อ/ใช้ + ปุ่มลบ */
 function UrlItem({ url, actionLabel, onAction, onRemove }: { url: string; actionLabel: string; onAction: () => void; onRemove: () => void }) {
   const t = useTokens();
@@ -415,23 +508,4 @@ function UrlItem({ url, actionLabel, onAction, onRemove }: { url: string; action
       </Pressable>
     </View>
   );
-}
-
-/** CSV สัปดาห์ปัจจุบัน: แถว = ช่วงเวลา 30 นาที (06:00–30:00 ครบ 24 ชม.), คอลัมน์ = จันทร์–อาทิตย์ */
-function buildWeekCsv(): string {
-  const monday = mondayOf(todayISO());
-  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
-  const itemsPerDay = days.map((d) => getDay(d));
-  const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
-
-  const lines = [['เวลา', ...days.map((d, i) => `${WD_TH_FULL[i]} ${d}`)].map(esc).join(',')];
-  for (let m = 360; m < 1800; m += 30) {
-    const row = [fmtMin(m)];
-    for (const items of itemsPerDay) {
-      const here = items.filter((it) => it.startMin < m + 30 && it.endMin > m);
-      row.push(here.map((it) => `${CAT_BY_ID[it.cat].short}: ${it.title}`).join(' | '));
-    }
-    lines.push(row.map(esc).join(','));
-  }
-  return '﻿' + lines.join('\n'); // BOM ให้ Excel เปิดภาษาไทยถูก
 }

@@ -4,8 +4,8 @@
 // จึงตีความ: กิจกรรมยาวถึงช่องเวลาถัดไป และรวมช่องติดกันที่ชื่อเดียวกันเป็นก้อนเดียว
 
 import { DAY_END, type CatId } from '@/constants/theme';
-import { MONTH_TH, beYear, fmtMin, fromISO, toISO } from '@/lib/dates';
-import type { Activity, DayItem } from '@/lib/types';
+import { MONTH_TH, beYear, fmtMin, fromISO, toISO, todayISO } from '@/lib/dates';
+import type { Activity, DayItem, OccMap } from '@/lib/types';
 
 export interface TimeTableImport {
   /** เช่น "เม.ย. 2568" */
@@ -87,10 +87,11 @@ function guessCat(title: string): CatId {
   return 'me';
 }
 
-/** แปลงไฟล์ Time Table CSV เป็นรายการกิจกรรมครั้งเดียว (repeat none) — โยน Error เมื่อไม่ใช่ฟอร์แมตนี้ */
-export function parseTimeTableCsv(text: string): TimeTableImport {
-  const rows = parseCsv(text);
-
+/**
+ * parse บล็อกเดือนเดียว (rows = ตั้งแต่แถว MONTH ถึงก่อนแถว MONTH ถัดไป) เป็นรายการกิจกรรมครั้งเดียว (repeat none)
+ * คืน null เมื่อโครงไม่ครบ (ให้ตัว multi ข้ามบล็อกเสีย ไม่ล้มทั้งไฟล์)
+ */
+function parseMonthBlock(rows: string[][]): TimeTableImport | null {
   // หัวไฟล์ MONTH m/yyyy (รับทั้ง ค.ศ. และ พ.ศ.)
   let month = 0;
   let year = 0;
@@ -102,12 +103,12 @@ export function parseTimeTableCsv(text: string): TimeTableImport {
       break;
     }
   }
-  if (!month || month > 12) throw new Error('ไม่พบหัว MONTH m/yyyy');
+  if (!month || month > 12) return null;
   if (year < 100) year += 2000;
   if (year > 2400) year -= 543;
 
   const timeRowIdx = rows.findIndex((r) => (r[0] ?? '').trim().toLowerCase() === 'time');
-  if (timeRowIdx < 0) throw new Error('ไม่พบแถว Time');
+  if (timeRowIdx < 0) return null;
 
   // คอลัมน์ → วันที่ (เลขวันลดลง = ข้ามเข้าเดือนถัดไป)
   const dayRow = rows[timeRowIdx];
@@ -132,7 +133,7 @@ export function parseTimeTableCsv(text: string): TimeTableImport {
     colDate[c] = toISO(new Date(cy, cm - 1, n));
   }
   const dates = colDate.filter((d): d is string => d != null);
-  if (!dates.length) throw new Error('ไม่พบคอลัมน์วันที่');
+  if (!dates.length) return null;
 
   // แถวเวลา: เก็บเฉพาะแถวที่ป้ายเวลาอ่านออก (แถวท้ายไฟล์ที่เป็นโน้ต/คำอธิบายจะถูกข้ามเอง)
   const timed: { start: number; end: number | null; cells: string[] }[] = [];
@@ -140,7 +141,7 @@ export function parseTimeTableCsv(text: string): TimeTableImport {
     const p = parseTimeLabel(r[0] ?? '');
     if (p && p.start < DAY_END) timed.push({ ...p, cells: r });
   }
-  if (!timed.length) throw new Error('ไม่พบแถวช่องเวลา');
+  if (!timed.length) return null;
 
   // ช่องเวลาจบที่ช่องถัดไป (ยกเว้นป้ายแบบช่วง "6-7" ที่ระบุจบเอง)
   const starts = [...new Set(timed.map((x) => x.start))].sort((a, b) => a - b);
@@ -198,7 +199,7 @@ export function parseTimeTableCsv(text: string): TimeTableImport {
       });
     }
   }
-  if (!list.length) throw new Error('ไม่พบกิจกรรมในไฟล์');
+  if (!list.length) return null;
 
   return {
     monthLabel: `${MONTH_TH[month - 1]} ${beYear(year)}`,
@@ -206,6 +207,61 @@ export function parseTimeTableCsv(text: string): TimeTableImport {
     to: dates.reduce((a, b) => (a > b ? a : b)),
     list,
   };
+}
+
+/**
+ * แปลงไฟล์ Time Table CSV เป็นรายการกิจกรรม — รองรับหลายบล็อก MONTH ในไฟล์เดียว (รวมทุกเดือนเข้าด้วยกัน)
+ * ขอบเขตที่นำเข้าถูกกำหนดจากไฟล์เอง — โยน Error เมื่อไม่ใช่ฟอร์แมตนี้
+ */
+export function parseTimeTableCsv(text: string): TimeTableImport {
+  const rows = parseCsv(text);
+  const heads = rows
+    .map((r, i) => (/MONTH\s*\d{1,2}\s*\/\s*\d{2,4}/i.test(r[0] ?? '') ? i : -1))
+    .filter((i) => i >= 0);
+  if (!heads.length) throw new Error('ไม่พบหัว MONTH m/yyyy');
+
+  const parsed = heads
+    .map((start, k) => parseMonthBlock(rows.slice(start, heads[k + 1] ?? rows.length)))
+    .filter((p): p is TimeTableImport => p != null);
+  if (!parsed.length) throw new Error('ไม่พบกิจกรรมในไฟล์');
+  if (parsed.length === 1) return parsed[0];
+
+  const list = parsed.flatMap((p) => p.list);
+  const from = parsed.map((p) => p.from).reduce((a, b) => (a < b ? a : b));
+  const to = parsed.map((p) => p.to).reduce((a, b) => (a > b ? a : b));
+  return {
+    monthLabel: `${parsed.length} เดือน (${parsed[0].monthLabel} – ${parsed[parsed.length - 1].monthLabel})`,
+    from,
+    to,
+    list,
+  };
+}
+
+/** รายชื่อเดือนที่มีข้อมูล (first-of-month ISO) ตั้งแต่เดือนแรกถึงเดือนสุดท้ายที่มีกิจกรรม/สถานะ (รวมเดือนปัจจุบันเสมอ) */
+export function listDataMonths(acts: Activity[], occ: OccMap): string[] {
+  let min = todayISO();
+  let max = todayISO();
+  const widen = (d: string) => {
+    if (d < min) min = d;
+    if (d > max) max = d;
+  };
+  for (const a of acts) {
+    widen(a.startDate);
+    if (a.endDate) widen(a.endDate);
+  }
+  Object.keys(occ).forEach(widen);
+
+  const a = fromISO(min);
+  const b = fromISO(max);
+  const out: string[] = [];
+  for (let y = a.getFullYear(), m = a.getMonth(); y < b.getFullYear() || (y === b.getFullYear() && m <= b.getMonth()); ) {
+    out.push(toISO(new Date(y, m, 1)));
+    if (++m > 11) {
+      m = 0;
+      y++;
+    }
+  }
+  return out;
 }
 
 /** ตาราง grid ทั้งเดือนของ anchor เป็นแถวเซลล์ (ใช้ทั้งส่งออก CSV และส่งขึ้น Google Sheets) */
@@ -238,7 +294,12 @@ export function buildTimeTableRows(read: (date: string) => DayItem[], anchor: st
 
 /** สร้าง Time Table CSV ทั้งเดือนของ anchor (ฟอร์แมตเดียวกับไฟล์นำเข้า — round-trip ได้) */
 export function buildTimeTableCsv(read: (date: string) => DayItem[], anchor: string): string {
+  return buildTimeTableCsvMulti(read, [anchor]);
+}
+
+/** Time Table CSV หลายเดือนในไฟล์เดียว — ต่อบล็อก MONTH ของแต่ละ anchor คั่นด้วยบรรทัดว่าง (parser อ่านกลับได้) */
+export function buildTimeTableCsvMulti(read: (date: string) => DayItem[], anchors: string[]): string {
   const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
-  const lines = buildTimeTableRows(read, anchor).map((r) => r.map(esc).join(','));
-  return '﻿' + lines.join('\n'); // BOM ให้ Excel เปิดภาษาไทยถูก
+  const blocks = anchors.map((anchor) => buildTimeTableRows(read, anchor).map((r) => r.map(esc).join(',')).join('\n'));
+  return '﻿' + blocks.join('\n\n'); // BOM ให้ Excel เปิดภาษาไทยถูก
 }
