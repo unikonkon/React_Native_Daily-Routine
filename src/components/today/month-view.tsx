@@ -1,12 +1,14 @@
-// มุมมองเดือน (ลุค mockup) — ชื่อเดือนตัวใหญ่ + หัววัน (จันทร์นำ) + ตาราง 7×6 เซลล์สูง
+// มุมมองเดือน (ลุค mockup) — ชื่อเดือนตัวใหญ่ + หัววัน (จันทร์นำ) + ตาราง 7×6
 // เลขวันในวงกลม (วันนี้=วงกลม accent, วันเลือก=วงแหวน) + จุดสีหมวดกิจกรรมใต้เลข
-import React from 'react';
+// แตะวัน → เลือก + แสดงรายการสรุปด้านล่าง · แตะซ้ำ → เข้ามุมมองวันของวันนั้น
+import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { Icon } from '@/components/icon';
 import { DrillBar, ViewSwitcher, type View3 } from '@/components/today/parts';
-import { Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID } from '@/constants/theme';
-import { MONTH_TH_FULL, WD_TH, addDays, beYear, fromISO, mondayOf, toISO, todayISO } from '@/lib/dates';
+import { PriBadge, Txt, useTokens } from '@/components/ui';
+import { ACCENT, CATS, CAT_BY_ID, GREEN } from '@/constants/theme';
+import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
 import { useDayReader } from '@/stores/activities';
 
 interface MonthViewProps {
@@ -31,9 +33,18 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
   const start = mondayOf(first);
   const rows = Array.from({ length: 6 }, (_, r) => Array.from({ length: 7 }, (_, c) => addDays(start, r * 7 + c)));
 
+  // วันที่ถูกเลือกเพื่อดูรายการ (แตะครั้งแรก) — แตะซ้ำวันเดิมจึงเข้ามุมมองวัน
+  const [picked, setPicked] = useState<string | null>(selected);
+  const onCellPress = (d: string) => {
+    if (picked === d) onPressDay(d);
+    else setPicked(d);
+  };
+
+  const pickedInMonth = picked != null && picked.slice(0, 7) === ymKey;
+  const dayItems = pickedInMonth ? [...getDay(picked!)].sort((a, b) => a.startMin - b.startMin) : [];
+
   return (
     <View style={{ flex: 1 }}>
-
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingBottom: 8, gap: 8 }}>
         <Txt size={24} weight="bold" style={{ flex: 1 }}>
           {MONTH_TH_FULL[month]}
@@ -58,34 +69,35 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
             {week.map((d, c) => {
               const inMonth = d.slice(0, 7) === ymKey;
               const isToday = d === today;
-              const isSel = d === selected && inMonth;
+              const isSel = d === picked && inMonth;
               const cats = inMonth ? [...new Set(getDay(d).map((i) => i.cat))].slice(0, 4) : [];
               return (
                 <Pressable
                   key={d}
                   disabled={!inMonth}
-                  onPress={() => onPressDay(d)}
+                  onPress={() => onCellPress(d)}
                   style={{
                     flex: 1,
-                    minHeight: 82,
-                    paddingTop: 7,
+                    minHeight: 66,
+                    paddingTop: 6,
                     alignItems: 'center',
                     gap: 5,
                     borderBottomWidth: StyleSheet.hairlineWidth,
                     borderBottomColor: t.line,
                     borderRightWidth: c === 6 ? 0 : StyleSheet.hairlineWidth,
                     borderRightColor: t.line,
+                    backgroundColor: isSel && !isToday ? t.chip : 'transparent',
                   }}>
                   <View
                     style={{
-                      width: 27,
-                      height: 27,
+                      width: 32,
+                      height: 32,
                       borderRadius: 14,
                       alignItems: 'center',
                       justifyContent: 'center',
                       backgroundColor: isToday ? ACCENT : 'transparent',
                       borderWidth: isSel && !isToday ? 1.5 : 0,
-                      borderColor: t.ink,
+                      borderColor: ACCENT,
                     }}>
                     <Txt size={15} num weight={isToday || isSel ? 'bold' : 'reg'} color={isToday ? '#FFFFFF' : inMonth ? t.ink : t.faint}>
                       {fromISO(d).getDate()}
@@ -101,6 +113,73 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
             })}
           </View>
         ))}
+
+        {/* คำอธิบายจุดสีหมวด (legend) */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 6, paddingHorizontal: 18, paddingTop: 12 }}>
+          {CATS.map((cat) => (
+            <View key={cat.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: cat.color }} />
+              <Txt size={11} color={t.sub}>
+                {cat.short}
+              </Txt>
+            </View>
+          ))}
+        </View>
+
+        {/* รายการสรุปของวันที่เลือก */}
+        {pickedInMonth ? (
+          <View style={{ marginHorizontal: 18, marginTop: 12, backgroundColor: t.card, borderRadius: 14, borderWidth: 1, borderColor: t.line, padding: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: dayItems.length ? 8 : 0 }}>
+              <Txt size={15} weight="bold" style={{ flex: 1 }}>
+                {thaiDate(picked!)}
+              </Txt>
+              <Pressable onPress={() => onPressDay(picked!)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <Txt size={12} weight="med" color={ACCENT}>
+                  เปิดมุมมองวัน
+                </Txt>
+                <Icon name="chevR" size={15} color={ACCENT} />
+              </Pressable>
+            </View>
+
+            {dayItems.length === 0 ? (
+              <Txt size={13} color={t.faint} style={{ paddingVertical: 4 }}>
+                ไม่มีรายการในวันนี้
+              </Txt>
+            ) : (
+              dayItems.map((it, i) => {
+                const cat = CAT_BY_ID[it.cat];
+                const done = it.ostatus === 'done';
+                return (
+                  <View
+                    key={`${it.id}:${it.date}`}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 10,
+                      paddingVertical: 9,
+                      borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
+                      borderTopColor: t.line,
+                      opacity: it.ostatus === 'rescheduled' ? 0.5 : 1,
+                    }}>
+                    <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: cat.color }} />
+                    {it.cat === 'case' ? <PriBadge id={it.priority} /> : null}
+                    <Txt size={14} weight="med" numberOfLines={1} color={done ? t.faint : t.ink} style={{ flex: 1, textDecorationLine: done ? 'line-through' : 'none' }}>
+                      {it.title}
+                    </Txt>
+                    {done ? <Icon name="check" size={14} color={GREEN} /> : null}
+                    <Txt size={12} num color={t.sub}>
+                      {fmtRange(it.startMin, it.endMin)}
+                    </Txt>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        ) : (
+          <Txt size={13} color={t.faint} style={{ textAlign: 'center', paddingTop: 16, paddingHorizontal: 18 }}>
+            แตะวันเพื่อดูรายการ · แตะซ้ำเพื่อเปิดมุมมองวัน
+          </Txt>
+        )}
       </ScrollView>
     </View>
   );
