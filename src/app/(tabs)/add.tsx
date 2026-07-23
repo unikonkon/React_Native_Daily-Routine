@@ -258,7 +258,7 @@ function DetailsSection() {
             <Txt size={13} weight="med" color={t.sub}>ระดับความสำคัญ</Txt>
             <ChipRow>
               {PRI.map((p) => (
-                <Chip key={p.id} small label={p.id} color={p.color} active={d.priority === p.id} onPress={() => d.set({ priority: p.id })} />
+                <Chip key={p.id} small label={`${p.id} · ${p.label}`} color={p.color} active={d.priority === p.id} onPress={() => d.set({ priority: p.id })} />
               ))}
             </ChipRow>
 

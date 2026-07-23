@@ -181,7 +181,7 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
 // หัวคอลัมน์แบบปัดได้ (paging) — แต่ละหน้า = 7 วันของสัปดาห์นั้น (ตรงแนวกับคอลัมน์ไทม์ไลน์ด้านล่าง)
 // ปัดจบ → เปลี่ยน monday (ไทม์ไลน์อัปเดตทันที) · แตะวัน → เข้ามุมมองวัน
 // ชั่วโมงว่างแบบกระชับ (สำหรับหัวคอลัมน์แคบ) — 90→"1.5ชม", 120→"2ชม"
-const hCompact = (min: number) => `${Number((min / 60).toFixed(1))}ชม`;
+const hCompact = (min: number) => `${Number((min / 60).toFixed(1))} ชม`;
 
 function WeekHeaderStrip({ monday, onChangeMonday, onPressDay, freeMode }: { monday: string; onChangeMonday: (m: string) => void; onPressDay: (iso: string) => void; freeMode?: boolean }) {
   const t = useTokens();
@@ -250,7 +250,7 @@ function WeekHeaderStrip({ monday, onChangeMonday, onPressDay, freeMode }: { mon
                       </Txt>
                     </View>
                     {freeMode ? (
-                      <Txt size={8.5} num weight="bold" color={fm > 0 ? GREEN : t.faint}>
+                      <Txt size={11} num weight="bold" color={fm > 0 ? GREEN : t.faint}>
                         {fm > 0 ? hCompact(fm) : '—'}
                       </Txt>
                     ) : null}

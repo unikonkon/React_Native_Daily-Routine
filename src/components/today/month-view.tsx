@@ -85,6 +85,8 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
               const isToday = d === today;
               const isSel = d === picked && inMonth;
               const cats = inMonth ? [...new Set(getDay(d).map((i) => i.cat))].slice(0, 4) : [];
+              // โหมดวันที่ว่าง — แสดงจำนวนชั่วโมงที่ว่างแทนจุดสีหมวด
+              const cellFreeMin = inMonth && freeMode ? freeMinutes(daytimeFreeSlots(getDay(d))) : 0;
               return (
                 <Pressable
                   key={d}
@@ -117,11 +119,21 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                       {fromISO(d).getDate()}
                     </Txt>
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 3, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 36, minHeight: 6 }}>
-                    {cats.map((cid) => (
-                      <View key={cid} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: CAT_BY_ID[cid].color }} />
-                    ))}
-                  </View>
+                  {freeMode ? (
+                    <View style={{ minHeight: 6, justifyContent: 'center' }}>
+                      {inMonth && cellFreeMin > 0 ? (
+                        <Txt size={11} num weight="med" color={GREEN}>
+                          {hoursText(cellFreeMin)}
+                        </Txt>
+                      ) : null}
+                    </View>
+                  ) : (
+                    <View style={{ flexDirection: 'row', gap: 3, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 36, minHeight: 6 }}>
+                      {cats.map((cid) => (
+                        <View key={cid} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: CAT_BY_ID[cid].color }} />
+                      ))}
+                    </View>
+                  )}
                 </Pressable>
               );
             })}
