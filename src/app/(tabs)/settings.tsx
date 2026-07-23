@@ -1,18 +1,21 @@
 // แท็บ 4 — ตั้งค่า: การ์ดสถิติ + เมนู (APP_STRUCTURE.md §6)
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { Screen } from '@/components/screen';
-import { Card, Row, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
+import { Btn, Card, Row, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CATS, GREEN } from '@/constants/theme';
-import { nowMin } from '@/lib/dates';
+import { beYear, nowMin, todayISO } from '@/lib/dates';
+import { restoreAll } from '@/lib/db';
 import { computeStats } from '@/lib/engine';
+import { buildMockYear } from '@/lib/mock';
 import { requestResync } from '@/lib/notifications';
 import { useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useSettings } from '@/stores/settings';
+import { useUI } from '@/stores/ui';
 
 export default function SettingsScreen() {
   const t = useTokens();
@@ -25,6 +28,27 @@ export default function SettingsScreen() {
   const maxH = Math.max(...Object.values(stats.hoursByCat), 1);
 
   const syncNotif = (master: boolean, morning: boolean) => requestResync(acts, occ, master, morning);
+
+  // สร้างข้อมูลตัวอย่าง 1 ปี (แทนที่ข้อมูลเดิมทั้งหมด) — ใช้ทดสอบสถิติ/จัดการข้อมูล/Export
+  const showToast = useUI((s) => s.showToast);
+  const year = Number(todayISO().slice(0, 4));
+  const [confirmSeed, setConfirmSeed] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+
+  const seedNow = async () => {
+    setSeeding(true);
+    try {
+      const data = buildMockYear(year);
+      await restoreAll(data, 'replace');
+      await Promise.all([useActivities.getState().boot(), useContacts.getState().boot()]);
+      setConfirmSeed(false);
+      showToast(`สร้างข้อมูลตัวอย่างปี ${beYear(year)} แล้ว ✓ (${data.activities.length} กิจกรรม · ${data.contacts.length} รายชื่อ)`);
+    } catch {
+      showToast('สร้างข้อมูลตัวอย่างไม่สำเร็จ');
+    } finally {
+      setSeeding(false);
+    }
+  };
 
   return (
     <Screen title="ตั้งค่า" subtitle="สถิติ & ค่าระบบ">
@@ -103,6 +127,32 @@ export default function SettingsScreen() {
         <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>ข้อมูล</Txt>
         <Row icon="share" label="Export / Import / Google Sheets" sub="CSV · JSON · ส่งขึ้น Sheets ทางเดียว" onPress={() => router.push('/settings/data')} last />
       </Card>
+
+      {/* ข้อมูลตัวอย่าง (Demo) */}
+      <Card>
+        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>ข้อมูลตัวอย่าง (Demo)</Txt>
+        <Row
+          icon="calendar"
+          label="สร้างข้อมูลตัวอย่าง 1 ปี"
+          sub={`งานประจำ + นัดคุยเคส + กิจกรรม ทั้งปี ${beYear(year)} — แทนที่ข้อมูลเดิม`}
+          onPress={() => setConfirmSeed(true)}
+          last
+        />
+      </Card>
+
+      {confirmSeed ? (
+        <Card tone="card2" style={{ gap: 10 }}>
+          <Txt size={14} weight="bold">สร้างข้อมูลตัวอย่างทั้งปี?</Txt>
+          <Txt size={12} color={t.sub}>
+            จะลบข้อมูลปัจจุบันทั้งหมด (กิจกรรม/สถานะ/รายชื่อ) แล้วแทนที่ด้วยตารางจำลอง 1 ปี{'\n'}
+            เหมาะสำหรับทดสอบสถิติ · จัดการข้อมูล · Export / Import
+          </Txt>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" disabled={seeding} onPress={() => setConfirmSeed(false)} />
+            <Btn style={{ flex: 1 }} kind="danger" label={seeding ? 'กำลังสร้าง…' : 'สร้าง (แทนที่)'} disabled={seeding} onPress={seedNow} />
+          </View>
+        </Card>
+      ) : null}
 
       <Txt size={11} color={t.faint} style={{ textAlign: 'center', marginTop: 4 }}>
         ตารางชีวิตจอย · v2 · Offline-first
