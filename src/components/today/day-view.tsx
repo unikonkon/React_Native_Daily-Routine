@@ -1,7 +1,7 @@
 // มุมมองวัน (ลุค mockup) — แถบสัปดาห์ + ป้ายวัน + ไทม์ไลน์ 06:00–30:00 ครบ 24 ชม.
 // แถวชั่วโมง + บล็อกกิจกรรมขอบซ้ายสี + เส้น "ตอนนี้" มีป้ายเวลา + auto-scroll ไปเวลาปัจจุบัน
 import React, { useEffect, useMemo, useRef } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { DrillBack, ViewSwitcher, type View3 } from '@/components/today/parts';
@@ -9,8 +9,8 @@ import { PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtMin, fmtRange, fromISO, mondayOf, nowMin, thaiDate, todayISO } from '@/lib/dates';
 import { assignLanes } from '@/lib/engine';
-import { useDay } from '@/stores/activities';
 import type { DayItem } from '@/lib/types';
+import { useDay } from '@/stores/activities';
 
 const PX = 1; // 1px/นาที = 60px/ชม. (สเปเชียลใกล้ mockup)
 const GUTTER = 52;
@@ -27,10 +27,7 @@ interface DayViewProps {
 
 export function TodayDayView({ focus, onChangeFocus, onBack, onPressItem, bottomPad = 140, view, onChangeView }: DayViewProps) {
   const t = useTokens();
-  const today = todayISO();
   const items = useDay(focus);
-  const monday = mondayOf(focus);
-  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
 
   const fd = fromISO(focus);
   const backLabel = `${MONTH_TH_FULL[fd.getMonth()]} ${beYear(fd.getFullYear())}`; // ระดับเดือนที่ถอยขึ้นไป
@@ -43,33 +40,107 @@ export function TodayDayView({ focus, onChangeFocus, onBack, onPressItem, bottom
         <ViewSwitcher value={view} onChange={onChangeView} />
       </View>
 
-      {/* แถบสัปดาห์ (จันทร์นำ) */}
-      <View style={{ flexDirection: 'row', paddingHorizontal: 10, paddingTop: 4, paddingBottom: 8, borderBottomWidth: 0.5, borderBottomColor: t.line }}>
-        {days.map((d, i) => {
-          const isFocus = d === focus;
-          const isToday = d === today;
-          const fill = isFocus ? (isToday ? ACCENT : t.ink) : 'transparent';
-          const numColor = isFocus ? (isToday ? '#FFFFFF' : t.bg) : isToday ? ACCENT : t.ink;
-          return (
-            <Pressable key={d} onPress={() => onChangeFocus(d)} style={{ flex: 1, alignItems: 'center', gap: 5, paddingVertical: 2 }}>
-              <Txt size={11} weight="med" color={i === 6 ? ACCENT : t.faint}>
-                {WD_TH[i]}
-              </Txt>
-              <View style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: fill }}>
-                <Txt size={16} num weight={isFocus || isToday ? 'bold' : 'reg'} color={numColor}>
-                  {fromISO(d).getDate()}
-                </Txt>
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
+      {/* แถบสัปดาห์ (จันทร์นำ) — ปัดซ้าย/ขวาเพื่อเลื่อนสัปดาห์ย้อนหลัง/อนาคต */}
+      <WeekStrip focus={focus} onChangeFocus={onChangeFocus} />
 
       <Txt size={14} weight="med" color={t.sub} style={{ textAlign: 'center', paddingVertical: 9 }}>
         {thaiDate(focus)}
       </Txt>
 
       <DayTimeline date={focus} items={items} onPressItem={onPressItem} bottomPad={bottomPad} />
+    </View>
+  );
+}
+
+// แถบสัปดาห์แบบปัดได้ (paging) — FlatList แนวนอน virtualized เลื่อนได้ ±~9 ปี
+// ปัดไปสัปดาห์ใหม่ → focus ขยับไป "วันเดียวกันของสัปดาห์" (timeline ด้านล่างอัปเดตทันที)
+const WEEK_SPAN = 500; // จำนวนสัปดาห์แต่ละฝั่งจากสัปดาห์ปัจจุบัน
+const WEEK_COUNT = WEEK_SPAN * 2 + 1;
+
+function WeekStrip({ focus, onChangeFocus }: { focus: string; onChangeFocus: (iso: string) => void }) {
+  const t = useTokens();
+  const today = todayISO();
+  const { width } = useWindowDimensions();
+  const listRef = useRef<FlatList<string>>(null);
+
+  // สัปดาห์อ้างอิงคงที่ (สัปดาห์ของวันนี้) — index จึงไม่ขยับตอน focus เปลี่ยน
+  const anchorMonday = useMemo(() => mondayOf(todayISO()), []);
+  const weeks = useMemo(
+    () => Array.from({ length: WEEK_COUNT }, (_, i) => addDays(anchorMonday, (i - WEEK_SPAN) * 7)),
+    [anchorMonday],
+  );
+
+  const focusMonday = mondayOf(focus);
+  const curIndex = useMemo(() => weeks.indexOf(focusMonday), [weeks, focusMonday]);
+  const focusWd = useMemo(() => {
+    for (let i = 0; i < 7; i++) if (addDays(focusMonday, i) === focus) return i;
+    return 0;
+  }, [focus, focusMonday]);
+
+  // index ของสัปดาห์ที่กำลังโชว์ (กันลูประหว่าง scroll ↔ focus)
+  const shownIndex = useRef(curIndex);
+
+  // focus เปลี่ยนไปคนละสัปดาห์จากภายนอก (แตะวันนี้/เดือน) → เลื่อน strip ตาม
+  useEffect(() => {
+    if (curIndex >= 0 && curIndex !== shownIndex.current) {
+      shownIndex.current = curIndex;
+      listRef.current?.scrollToIndex({ index: curIndex, animated: false });
+    }
+  }, [curIndex]);
+
+  const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const idx = Math.round(e.nativeEvent.contentOffset.x / width);
+    if (idx === shownIndex.current) return;
+    shownIndex.current = idx;
+    const m = weeks[idx];
+    if (m) onChangeFocus(addDays(m, focusWd));
+  };
+
+  return (
+    <View style={{ paddingTop: 4, paddingBottom: 8, borderBottomWidth: 0.5, borderBottomColor: t.line }}>
+      <FlatList
+        ref={listRef}
+        data={weeks}
+        extraData={focus}
+        keyExtractor={(m) => m}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        initialScrollIndex={curIndex >= 0 ? curIndex : WEEK_SPAN}
+        getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
+        onScrollToIndexFailed={({ index }) => {
+          listRef.current?.scrollToOffset({ offset: index * width, animated: false });
+        }}
+        onMomentumScrollEnd={onMomentumEnd}
+        windowSize={3}
+        initialNumToRender={1}
+        maxToRenderPerBatch={3}
+        renderItem={({ item: wkMonday }) => {
+          const days = Array.from({ length: 7 }, (_, i) => addDays(wkMonday, i));
+          return (
+            <View style={{ width, flexDirection: 'row', paddingHorizontal: 10 }}>
+              {days.map((d, i) => {
+                const isFocus = d === focus;
+                const isToday = d === today;
+                const fill = isFocus ? (isToday ? ACCENT : t.ink) : 'transparent';
+                const numColor = isFocus ? (isToday ? '#FFFFFF' : t.bg) : isToday ? ACCENT : t.ink;
+                return (
+                  <Pressable key={d} onPress={() => onChangeFocus(d)} style={{ flex: 1, alignItems: 'center', gap: 5, paddingVertical: 2 }}>
+                    <Txt size={11} weight="med" color={i === 6 ? ACCENT : t.faint}>
+                      {WD_TH[i]}
+                    </Txt>
+                    <View style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: fill }}>
+                      <Txt size={16} num weight={isFocus || isToday ? 'bold' : 'reg'} color={numColor}>
+                        {fromISO(d).getDate()}
+                      </Txt>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          );
+        }}
+      />
     </View>
   );
 }
