@@ -78,6 +78,15 @@ export function freeSlots(items: DayItem[], minDur: number = MIN_FREE_GAP): Free
   return slots;
 }
 
+/** ช่วงว่างเฉพาะกลางวัน — ตัดที่ 24:00 (ไม่นับ 00:00–06:00 = เวลานอน) สำหรับโหมด "วันที่ว่าง" */
+export const FREE_WINDOW_END = 1440; // 24:00 (นาทีในหน้าต่าง 06:00–30:00)
+export function daytimeFreeSlots(items: DayItem[], minDur: number = MIN_FREE_GAP): FreeSlot[] {
+  return freeSlots(items, minDur)
+    .map((s) => ({ start: s.start, end: Math.min(s.end, FREE_WINDOW_END) }))
+    .filter((s) => s.end - s.start >= minDur);
+}
+
+
 export const freeMinutes = (slots: FreeSlot[]) => slots.reduce((s, x) => s + (x.end - x.start), 0);
 
 export const overlaps = (a1: number, a2: number, b1: number, b2: number) => a1 < b2 && b1 < a2;

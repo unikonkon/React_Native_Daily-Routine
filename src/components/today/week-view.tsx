@@ -8,7 +8,7 @@ import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, CATS, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { addDays, fmtMin, fromISO, mondayOf, nowMin, todayISO, WD_TH } from '@/lib/dates';
-import { assignLanes, freeSlots } from '@/lib/engine';
+import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
 import { useDayReader } from '@/stores/activities';
 
@@ -49,7 +49,7 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
   return (
     <View style={{ flex: 1 }}>
       {/* หัวคอลัมน์ (จันทร์นำ) — ปัดซ้าย/ขวาเพื่อเลื่อนสัปดาห์ย้อนหลัง/อนาคต */}
-      <WeekHeaderStrip monday={monday} onChangeMonday={onChangeMonday} onPressDay={onPressDay} />
+      <WeekHeaderStrip monday={monday} onChangeMonday={onChangeMonday} onPressDay={onPressDay} freeMode={freeMode} />
 
       {/* เวที (definite height ผ่าน flex) — วางเส้นชั่วโมง + คอลัมน์ทับกันด้วย % */}
       <View style={{ flex: 1, marginHorizontal: HPAD, paddingBottom: bottomPad }}>
@@ -111,9 +111,9 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
                     );
                   })}
 
-                  {/* ช่วงเวลาว่าง (โหมดวันที่ว่าง) — แตะเพื่อเปิดฟอร์มเพิ่มพร้อมช่วงเวลา */}
+                  {/* ช่วงเวลาว่าง (โหมดวันที่ว่าง) — แตะเพื่อเปิดฟอร์มเพิ่มพร้อมช่วงเวลา (ไม่นับ 00:00–06:00) */}
                   {freeMode
-                    ? freeSlots(items).map((s) => {
+                    ? daytimeFreeSlots(items).map((s) => {
                         const top = pct(s.start);
                         const sh = Math.max(pct(s.end) - top, 1.8);
                         return (
@@ -180,8 +180,12 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
 
 // หัวคอลัมน์แบบปัดได้ (paging) — แต่ละหน้า = 7 วันของสัปดาห์นั้น (ตรงแนวกับคอลัมน์ไทม์ไลน์ด้านล่าง)
 // ปัดจบ → เปลี่ยน monday (ไทม์ไลน์อัปเดตทันที) · แตะวัน → เข้ามุมมองวัน
-function WeekHeaderStrip({ monday, onChangeMonday, onPressDay }: { monday: string; onChangeMonday: (m: string) => void; onPressDay: (iso: string) => void }) {
+// ชั่วโมงว่างแบบกระชับ (สำหรับหัวคอลัมน์แคบ) — 90→"1.5ชม", 120→"2ชม"
+const hCompact = (min: number) => `${Number((min / 60).toFixed(1))}ชม`;
+
+function WeekHeaderStrip({ monday, onChangeMonday, onPressDay, freeMode }: { monday: string; onChangeMonday: (m: string) => void; onPressDay: (iso: string) => void; freeMode?: boolean }) {
   const t = useTokens();
+  const getDay = useDayReader();
   const today = todayISO();
   const { width } = useWindowDimensions();
   const listRef = useRef<FlatList<string>>(null);
@@ -234,6 +238,7 @@ function WeekHeaderStrip({ monday, onChangeMonday, onPressDay }: { monday: strin
             <View style={{ width, flexDirection: 'row', paddingLeft: HPAD + GUTTER, paddingRight: HPAD }}>
               {wdays.map((d, i) => {
                 const isToday = d === today;
+                const fm = freeMode ? freeMinutes(daytimeFreeSlots(getDay(d))) : 0; // เวลาว่างรวมของวันนั้น
                 return (
                   <Pressable key={d} onPress={() => onPressDay(d)} style={{ flex: 1, alignItems: 'center', gap: 2 }}>
                     <Txt size={10.5} weight="med" color={i === 6 ? ACCENT : t.faint}>
@@ -244,6 +249,11 @@ function WeekHeaderStrip({ monday, onChangeMonday, onPressDay }: { monday: strin
                         {fromISO(d).getDate()}
                       </Txt>
                     </View>
+                    {freeMode ? (
+                      <Txt size={8.5} num weight="bold" color={fm > 0 ? GREEN : t.faint}>
+                        {fm > 0 ? hCompact(fm) : '—'}
+                      </Txt>
+                    ) : null}
                   </Pressable>
                 );
               })}

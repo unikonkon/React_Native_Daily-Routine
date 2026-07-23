@@ -9,7 +9,7 @@ import { DrillBar, ViewSwitcher, type View3 } from '@/components/today/parts';
 import { PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CATS, CAT_BY_ID, GREEN } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
-import { freeSlots } from '@/lib/engine';
+import { daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import { useDayReader } from '@/stores/activities';
 
 interface MonthViewProps {
@@ -46,7 +46,8 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
 
   const pickedInMonth = picked != null && picked.slice(0, 7) === ymKey;
   const dayItems = pickedInMonth ? [...getDay(picked!)].sort((a, b) => a.startMin - b.startMin) : [];
-  const freeList = pickedInMonth && freeMode ? freeSlots(getDay(picked!)) : [];
+  const freeList = pickedInMonth && freeMode ? daytimeFreeSlots(getDay(picked!)) : [];
+  const freeMin = freeMinutes(freeList); // เวลาว่างรวมของวันที่เลือก (06:00–24:00)
 
   // โหมดวันที่ว่าง — รวมกิจกรรม + ช่วงว่าง แล้วเรียงตามเวลาเริ่ม (ช่วงว่างเด่น, กิจกรรมเป็นบริบท)
   const merged = freeMode
@@ -149,7 +150,7 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                 </Txt>
                 {freeMode ? (
                   <Txt size={12} weight="med" color={GREEN}>
-                    ช่วงเวลาว่าง · แตะเพื่อเพิ่ม
+                    ว่างรวม {hoursText(freeMin)} · แตะเพื่อเพิ่ม
                   </Txt>
                 ) : null}
               </View>

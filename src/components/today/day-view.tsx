@@ -8,7 +8,7 @@ import { DrillBack, ViewSwitcher, type View3 } from '@/components/today/parts';
 import { PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtMin, fmtRange, fromISO, hoursText, mondayOf, nowMin, thaiDate, todayISO } from '@/lib/dates';
-import { assignLanes, freeSlots } from '@/lib/engine';
+import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
 import { useDay } from '@/stores/activities';
 
@@ -34,6 +34,7 @@ export function TodayDayView({ focus, onChangeFocus, onBack, onPressItem, bottom
 
   const fd = fromISO(focus);
   const backLabel = `${MONTH_TH_FULL[fd.getMonth()]} ${beYear(fd.getFullYear())}`; // ระดับเดือนที่ถอยขึ้นไป
+  const freeMin = freeMode ? freeMinutes(daytimeFreeSlots(items)) : 0; // เวลาว่างรวมของวันนี้ (06:00–24:00)
 
   return (
     <View style={{ flex: 1 }}>
@@ -47,7 +48,7 @@ export function TodayDayView({ focus, onChangeFocus, onBack, onPressItem, bottom
       <WeekStrip focus={focus} onChangeFocus={onChangeFocus} />
 
       <Txt size={14} weight="med" color={freeMode ? GREEN : t.sub} style={{ textAlign: 'center', paddingVertical: 9 }}>
-        {freeMode ? `${thaiDate(focus)} · แตะช่วงว่างเพื่อเพิ่ม` : thaiDate(focus)}
+        {freeMode ? `${thaiDate(focus)} · ว่างรวม ${hoursText(freeMin)}` : thaiDate(focus)}
       </Txt>
 
       <DayTimeline date={focus} items={items} onPressItem={onPressItem} bottomPad={bottomPad} freeMode={freeMode} onPressSlot={onPressSlot} />
@@ -167,7 +168,7 @@ function DayTimeline({
   const scRef = useRef<ScrollView>(null);
   const height = (DAY_END - DAY_START) * PX;
   const lanes = useMemo(() => assignLanes(items), [items]);
-  const slots = useMemo(() => (freeMode ? freeSlots(items) : []), [freeMode, items]);
+  const slots = useMemo(() => (freeMode ? daytimeFreeSlots(items) : []), [freeMode, items]);
 
   // เส้น "ตอนนี้": ช่วง 00:00–06:00 ถือเป็นท้ายหน้าต่างของเมื่อวาน (แสดงที่ now+1440)
   const now = nowMin();
