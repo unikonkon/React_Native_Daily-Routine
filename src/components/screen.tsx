@@ -1,9 +1,10 @@
 // โครงหน้าจอทุกแท็บ: header + เนื้อหา
-// หน้าแท็บ → header แสดง "แถบแท็บ" (pill icon+label) แทนหัวข้อ + ปุ่มสลับธีม
+// หน้าแท็บ → header แสดง "แถบแท็บ" (active = pill ส้ม icon+label, อื่น = ไอคอนล้วน) แทนหัวข้อ + ปุ่มสลับธีม
 // หน้าย่อย (back) → header แบบเดิม: ปุ่มย้อนกลับ + หัวข้อ 30px + ปุ่มสลับธีม
 import { usePathname, useRouter } from 'expo-router';
 import React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
+import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
@@ -46,38 +47,51 @@ function ThemeToggle() {
   );
 }
 
-/** แถบแท็บ pill แนวนอน (icon + label) — active เป็นพื้นสีส้ม ACCENT */
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/** สปริงสำหรับเลื่อน/ขยาย pill ตอนเปลี่ยนแท็บ */
+const PILL_SPRING = LinearTransition.springify().damping(20).stiffness(200).mass(0.3);
+
+/**
+ * แถบแท็บมินิมอล — แท็บที่ active ขยายเป็น pill สีส้ม (icon + label)
+ * แท็บอื่นเหลือแค่ไอคอน · เปลี่ยนแท็บแล้ว pill เลื่อน+ขยายแบบสปริง (Reanimated layout animation)
+ */
 function TabStrip() {
   const t = useTokens();
   const router = useRouter();
   const pathname = usePathname();
   const activeName = TABS.find((tab) => tab.href === pathname)?.name ?? 'index';
   return (
-    <View style={{ flex: 1, flexDirection: 'row', backgroundColor: t.chip, borderRadius: 99, padding: 3 }}>
+    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       {TABS.map((tab) => {
         const active = tab.name === activeName;
-        const fg = active ? '#FFFFFF' : t.sub;
         return (
-          <Pressable
+          <AnimatedPressable
             key={tab.name}
+            layout={PILL_SPRING}
             onPress={() => {
               if (!active) router.navigate(tab.href);
             }}
             style={{
-              flex: 1,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 5,
-              paddingVertical: 8,
+              gap: 6,
+              height: 40,
+              width: active ? undefined : 40,
+              paddingHorizontal: active ? 15 : 0,
               borderRadius: 99,
               backgroundColor: active ? ACCENT : 'transparent',
             }}>
-            <Icon name={tab.icon} size={15} color={fg} />
-            <Txt size={12.5} weight={active ? 'bold' : 'med'} color={fg}>
-              {tab.label}
-            </Txt>
-          </Pressable>
+            <Icon name={tab.icon} size={22} color={active ? '#FFFFFF' : t.sub} />
+            {active ? (
+              <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(100)}>
+                <Txt size={13.5} weight="bold" color="#FFFFFF">
+                  {tab.label}
+                </Txt>
+              </Animated.View>
+            ) : null}
+          </AnimatedPressable>
         );
       })}
     </View>
