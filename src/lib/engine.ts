@@ -219,3 +219,73 @@ export function computeStats(acts: Activity[], occ: OccMap, now: number): Stats 
 
   return { rate: scheduled ? done / scheduled : 0, doneWeek: done, streak, hoursByCat };
 }
+
+// ---------- สถิติแบบเลือกช่วง (หน้าสถิติ §6.1) ----------
+
+export interface RangeStats {
+  scheduled: number; // รายการที่ถึงกำหนดแล้วในช่วง (ไม่รวมอนาคต/rescheduled)
+  done: number;
+  rate: number; // done / scheduled
+  doneHours: number; // ชั่วโมงที่ลงมือทำเสร็จรวม
+  hoursByCat: Record<string, number>;
+  rescheduled: number; // จำนวนครั้งที่เลื่อนนัดในช่วง
+  freeAvgMin: number; // เวลาว่างกลางวันเฉลี่ยต่อวัน (นาที)
+  countedDays: number; // จำนวนวันที่นับจริง (ตัวหารของค่าเฉลี่ย/สปาร์กไลน์)
+  caseByPriority: Record<string, number>;
+  caseItems: DayItem[]; // เคส (cat='case') ที่ถึงกำหนดในช่วง เรียงตามวัน+เวลา — สำหรับดูรายละเอียด
+}
+
+/**
+ * สรุปสถิติของช่วง [from, to] — อ่านจาก series+occ ที่โหลดไว้แล้ว (pure)
+ * ไม่นับวันอนาคต: ตัวหาร/ตัวนับคิดถึงแค่ min(to, วันนี้) และของวันนี้เฉพาะรายการที่ถึงเวลาแล้ว (startMin ≤ now)
+ */
+export function rangeStats(acts: Activity[], occ: OccMap, from: string, to: string, now: number): RangeStats {
+  const today = todayISO();
+  const last = to < today ? to : today; // ไม่รวมอนาคตในการคิดสถิติ
+  const hoursByCat: Record<string, number> = {};
+  const caseByPriority: Record<string, number> = {};
+  const caseItems: DayItem[] = [];
+  let scheduled = 0;
+  let done = 0;
+  let doneHours = 0;
+  let rescheduled = 0;
+  let freeTotal = 0;
+  let countedDays = 0;
+
+  for (let d = from; d <= last; d = addDays(d, 1)) {
+    countedDays++;
+    const items = dayItems(acts, occ, d);
+    freeTotal += freeMinutes(daytimeFreeSlots(items));
+    for (const it of items) {
+      if (it.ostatus === 'rescheduled') {
+        rescheduled++;
+        continue;
+      }
+      if (d === today && it.startMin > now) continue; // วันนี้: ยังไม่ถึงเวลา → ไม่นับ
+      scheduled++;
+      if (it.cat === 'case') {
+        caseItems.push(it);
+        if (it.priority) caseByPriority[it.priority] = (caseByPriority[it.priority] ?? 0) + 1;
+      }
+      if (it.ostatus === 'done') {
+        done++;
+        const h = (it.endMin - it.startMin) / 60;
+        doneHours += h;
+        hoursByCat[it.cat] = (hoursByCat[it.cat] ?? 0) + h;
+      }
+    }
+  }
+
+  return {
+    scheduled,
+    done,
+    rate: scheduled ? done / scheduled : 0,
+    doneHours,
+    hoursByCat,
+    rescheduled,
+    freeAvgMin: countedDays ? freeTotal / countedDays : 0,
+    countedDays,
+    caseByPriority,
+    caseItems,
+  };
+}
