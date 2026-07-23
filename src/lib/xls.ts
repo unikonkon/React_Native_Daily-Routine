@@ -90,11 +90,6 @@ function monthTable(read: Read, anchor: string): string {
   return gridTable(`Time Table ${MONTH_TH_FULL[m]} ${beYear(y)}`, dates, heads, read);
 }
 
-/** Time Table ทั้งเดือนของ anchor แบบมีสี — คู่กับ buildTimeTableCsv */
-export function buildTimeTableXls(read: Read, anchor: string): string {
-  return buildTimeTableXlsMulti(read, [anchor]);
-}
-
 /** Time Table หลายเดือนในไฟล์ .xls เดียว แบบมีสี — คู่กับ buildTimeTableCsvMulti */
 export function buildTimeTableXlsMulti(read: Read, anchors: string[]): string {
   return htmlDoc(anchors.map((anchor) => monthTable(read, anchor)));

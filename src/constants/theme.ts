@@ -39,7 +39,6 @@ export const PALETTES: Record<ThemeName, Palette> = { light, dark };
 
 export const GREEN = '#4C9A6A'; // done / เวลาว่าง
 export const DANGER = '#C0392B'; // ลบ / skipped
-export const RESC = '#D2603A'; // rescheduled
 
 export const FONT = {
   ui: 'Anuphan_400Regular',
@@ -51,7 +50,7 @@ export const FONT = {
 
 export type CatId = 'routine' | 'work' | 'ex' | 'case' | 'learn' | 'me';
 
-export interface Category {
+interface Category {
   id: CatId;
   name: string;
   short: string;

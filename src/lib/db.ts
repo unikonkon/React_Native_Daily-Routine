@@ -8,7 +8,7 @@ import type { Activity, Contact, OccMap, OccStatus } from '@/lib/types';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
-export function getDb(): SQLite.SQLiteDatabase {
+function getDb(): SQLite.SQLiteDatabase {
   if (!db) {
     db = SQLite.openDatabaseSync('routine.db');
     migrate(db);

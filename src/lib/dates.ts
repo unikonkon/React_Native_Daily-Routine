@@ -64,11 +64,6 @@ export function addDays(iso: string, n: number): string {
   return toISO(d);
 }
 
-/** จำนวนวันจาก a → b (ติดลบได้เมื่อ b มาก่อน a) */
-export function daysBetween(a: string, b: string): number {
-  return Math.round((+fromISO(b) - +fromISO(a)) / 86400000);
-}
-
 /** weekday แบบจันทร์เริ่ม: 0=จ … 6=อา */
 export function wdMon(iso: string): number {
   return (fromISO(iso).getDay() + 6) % 7;
@@ -92,12 +87,6 @@ export const VIEW_MAX_Y = 2035;
 export function thaiDate(iso: string): string {
   const d = fromISO(iso);
   return `${WD_TH_FULL[wdMon(iso)]} ${d.getDate()} ${MONTH_TH[d.getMonth()]} ${beYear(d.getFullYear())}`;
-}
-
-/** "วันพุธที่ 8 กรกฎาคม 2569" — หัวข้อรองของแท็บวันนี้ */
-export function thaiDateFull(iso: string): string {
-  const d = fromISO(iso);
-  return `วัน${WD_TH_FULL[wdMon(iso)]}ที่ ${d.getDate()} ${MONTH_TH_FULL[d.getMonth()]} ${beYear(d.getFullYear())}`;
 }
 
 /** "6 ก.ค. – 12 ก.ค. 2569" — หัวแถบมุมมองสัปดาห์ */

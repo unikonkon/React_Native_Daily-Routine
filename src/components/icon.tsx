@@ -36,8 +36,6 @@ const FEATHER: Record<string, React.ComponentProps<typeof Feather>['name']> = {
   grid: 'grid',
 };
 
-export type IconName = keyof typeof FEATHER | 'dumbbell';
-
 export function Icon({ name, size = 20, color }: { name: string; size?: number; color: string }) {
   if (name === 'dumbbell') return <MaterialCommunityIcons name="dumbbell" size={size} color={color} />;
   return <Feather name={FEATHER[name] ?? 'circle'} size={size} color={color} />;

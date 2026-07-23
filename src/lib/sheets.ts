@@ -48,7 +48,7 @@ function doPost(e) {
 }`;
 
 /** แท็บหนึ่งในชีต — style arrays (โหมดมีสี) ขนาดต้องเท่ากับ rows; สคริปต์รุ่นเก่าที่ไม่รู้จักจะข้ามเอง */
-export interface SheetTab {
+interface SheetTab {
   name: string;
   rows: string[][];
   bg?: (string | null)[][];

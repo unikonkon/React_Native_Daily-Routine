@@ -79,7 +79,7 @@ export function freeSlots(items: DayItem[], minDur: number = MIN_FREE_GAP): Free
 }
 
 /** ช่วงว่างเฉพาะกลางวัน — ตัดที่ 24:00 (ไม่นับ 00:00–06:00 = เวลานอน) สำหรับโหมด "วันที่ว่าง" */
-export const FREE_WINDOW_END = 1440; // 24:00 (นาทีในหน้าต่าง 06:00–30:00)
+const FREE_WINDOW_END = 1440; // 24:00 (นาทีในหน้าต่าง 06:00–30:00)
 export function daytimeFreeSlots(items: DayItem[], minDur: number = MIN_FREE_GAP): FreeSlot[] {
   return freeSlots(items, minDur)
     .map((s) => ({ start: s.start, end: Math.min(s.end, FREE_WINDOW_END) }))
@@ -89,7 +89,7 @@ export function daytimeFreeSlots(items: DayItem[], minDur: number = MIN_FREE_GAP
 
 export const freeMinutes = (slots: FreeSlot[]) => slots.reduce((s, x) => s + (x.end - x.start), 0);
 
-export const overlaps = (a1: number, a2: number, b1: number, b2: number) => a1 < b2 && b1 < a2;
+const overlaps = (a1: number, a2: number, b1: number, b2: number) => a1 < b2 && b1 < a2;
 
 /** รายการเดิมที่ชนช่วงเวลา s–e ของวันนั้น */
 export function conflictsOn(items: DayItem[], s: number, e: number): DayItem[] {
@@ -173,22 +173,9 @@ export function rescRangeDates(range: RescRange): { from: string; to: string } {
   return { from, to: addDays(from, 6) };
 }
 
-/** 6 อันดับแรกตามคะแนน (ใช้ที่อื่นที่ต้องการแค่ตัวเลือกย่อ) */
-export function rescheduleCandidates(
-  acts: Activity[],
-  occ: OccMap,
-  item: DayItem,
-  range: RescRange,
-): RescCandidate[] {
-  const { from, to } = rescRangeDates(range);
-  return rescheduleSlots(acts, occ, item, from, to)
-    .sort((a, b) => b.score - a.score || a.date.localeCompare(b.date))
-    .slice(0, 6);
-}
-
 // ---------- สถิติ (§6.1) ----------
 
-export interface Stats {
+interface Stats {
   rate: number; // 0–1 done/scheduled
   doneWeek: number;
   streak: number;

@@ -26,11 +26,10 @@ interface ScreenProps {
 /** แถบแท็บย้ายขึ้นไปอยู่ใน header แล้ว — ไม่มีแถบล่างอีกต่อไป (คงชื่อไว้เพื่อระยะ padding ล่าง) */
 export const TABBAR_H = 0;
 
-/** 4 แท็บหลัก — ใช้ทั้งใน header (screen.tsx) และ routing (app/(tabs)/_layout.tsx) */
+/** 3 แท็บหลัก — ใช้ทั้งใน header (screen.tsx) และ routing (app/(tabs)/_layout.tsx) */
 export const TABS = [
   { name: 'index', label: 'วันนี้', icon: 'calendar', href: '/' },
   { name: 'add', label: 'เพิ่ม', icon: 'plus', href: '/add' },
-  { name: 'summary', label: 'สรุป', icon: 'bars', href: '/summary' },
   { name: 'settings', label: 'ตั้งค่า', icon: 'sliders', href: '/settings' },
 ] as const;
 

@@ -292,11 +292,6 @@ export function buildTimeTableRows(read: (date: string) => DayItem[], anchor: st
   return rows;
 }
 
-/** สร้าง Time Table CSV ทั้งเดือนของ anchor (ฟอร์แมตเดียวกับไฟล์นำเข้า — round-trip ได้) */
-export function buildTimeTableCsv(read: (date: string) => DayItem[], anchor: string): string {
-  return buildTimeTableCsvMulti(read, [anchor]);
-}
-
 /** Time Table CSV หลายเดือนในไฟล์เดียว — ต่อบล็อก MONTH ของแต่ละ anchor คั่นด้วยบรรทัดว่าง (parser อ่านกลับได้) */
 export function buildTimeTableCsvMulti(read: (date: string) => DayItem[], anchors: string[]): string {
   const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;

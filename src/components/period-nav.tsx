@@ -4,12 +4,10 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
-import { MonthYearPicker } from '@/components/month-year-picker';
 import { Chip, Txt, useTokens } from '@/components/ui';
 import { ACCENT } from '@/constants/theme';
 import {
   MONTH_TH,
-  MONTH_TH_FULL,
   SCHED_MAX_Y,
   SCHED_MIN_Y,
   VIEW_MAX_Y,
@@ -23,7 +21,7 @@ import {
   todayISO,
 } from '@/lib/dates';
 
-export interface YM {
+interface YM {
   y: number;
   m: number; // 0-based
 }
@@ -97,77 +95,6 @@ export function WeekNav({
           onChange(m);
           setOpen(false);
         }}
-      />
-    </>
-  );
-}
-
-/** มุมมองปี: ป้าย "พ.ศ. 2569" + เลื่อนทีละ 1 ปี + ชิป "ปีนี้" — ค่าปกติย้อนถึง พ.ศ. 2563 */
-export function YearNav({
-  year,
-  onChange,
-  minYear = VIEW_MIN_Y,
-  maxYear = VIEW_MAX_Y,
-}: {
-  year: number;
-  onChange: (y: number) => void;
-  minYear?: number;
-  maxYear?: number;
-}) {
-  const t = useTokens();
-  const thisYear = fromISO(todayISO()).getFullYear();
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 8, gap: 4 }}>
-      <Pressable disabled={year <= minYear} onPress={() => onChange(year - 1)} hitSlop={8} style={{ padding: 6, opacity: year <= minYear ? 0.3 : 1 }}>
-        <Icon name="chevL" size={20} color={t.sub} />
-      </Pressable>
-      <View style={{ flex: 1, alignItems: 'center' }}>
-        <Txt size={14} weight="med">พ.ศ. {beYear(year)}</Txt>
-      </View>
-      {year !== thisYear ? <Chip small label="ปีนี้" active color={ACCENT} onPress={() => onChange(thisYear)} /> : null}
-      <Pressable disabled={year >= maxYear} onPress={() => onChange(year + 1)} hitSlop={8} style={{ padding: 6, opacity: year >= maxYear ? 0.3 : 1 }}>
-        <Icon name="chevR" size={20} color={t.sub} />
-      </Pressable>
-    </View>
-  );
-}
-
-/** มุมมองเดือน: ป้าย "กรกฎาคม 2569" (พ.ศ.) + เลื่อนทีละ 1 เดือน — แตะป้ายเปิด popup เลือก เดือน/ปี */
-export function MonthNav({
-  ym,
-  onChange,
-  minYear = VIEW_MIN_Y,
-  maxYear = VIEW_MAX_Y,
-}: {
-  ym: YM;
-  onChange: (ym: YM) => void;
-  minYear?: number;
-  maxYear?: number;
-}) {
-  const [open, setOpen] = useState(false);
-  const shift = (d: number) => {
-    const dt = new Date(ym.y, ym.m + d, 1);
-    onChange({ y: dt.getFullYear(), m: dt.getMonth() });
-  };
-  const now = fromISO(todayISO());
-  const thisMonth = { y: now.getFullYear(), m: now.getMonth() };
-  return (
-    <>
-      <PeriodNav
-        label={`${MONTH_TH_FULL[ym.m]} ${beYear(ym.y)}`}
-        onPrev={() => shift(-1)}
-        onNext={() => shift(1)}
-        onPressLabel={() => setOpen(true)}
-        onToday={ym.y !== thisMonth.y || ym.m !== thisMonth.m ? () => onChange(thisMonth) : undefined}
-      />
-      <MonthYearPicker
-        visible={open}
-        year={ym.y}
-        month={ym.m}
-        minYear={minYear}
-        maxYear={maxYear}
-        onClose={() => setOpen(false)}
-        onPick={(y, m) => onChange({ y, m })}
       />
     </>
   );

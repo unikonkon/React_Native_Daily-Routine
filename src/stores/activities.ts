@@ -11,7 +11,7 @@ import { requestResync } from '@/lib/notifications';
 import type { Activity, DayItem, OccMap, OccStatus } from '@/lib/types';
 import { useSettings } from '@/stores/settings';
 
-export interface RescTarget {
+interface RescTarget {
   date: string;
   start: number;
   end: number;

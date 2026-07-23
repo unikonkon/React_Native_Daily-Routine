@@ -1,4 +1,4 @@
-// Routing 4 แท็บ — แถบแท็บย้ายขึ้นไปอยู่ใน header ของ Screen แล้ว (src/components/screen.tsx)
+// Routing 3 แท็บ — แถบแท็บย้ายขึ้นไปอยู่ใน header ของ Screen แล้ว (src/components/screen.tsx)
 // ที่นี่เหลือแค่ประกาศ route + ซ่อนแถบล่างของ expo-router
 import { Tabs } from 'expo-router';
 
