@@ -66,7 +66,7 @@ export default function TodayScreen() {
           ? ym.y === now.getFullYear() && ym.m === now.getMonth()
           : ym.y === now.getFullYear();
 
-  const bottomPad = TABBAR_H + insets.bottom + 84;
+  const bottomPad = TABBAR_H + insets.bottom + 70;
 
   return (
     <Screen title="วันนี้" scroll={false}>
@@ -89,7 +89,7 @@ export default function TodayScreen() {
       {view === 'week' ? (
         <>
           {/* week ไม่มีแถวหัวที่ว่างพอจะรวมกับป้ายช่วง (ป้ายวันที่ยาว) — วางตัวสลับเป็นแถวชิดขวาด้านบน */}
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 8 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 2 }}>
             <ViewSwitcher value={view} onChange={setView} />
           </View>
           <WeekNav monday={monday} onChange={setMonday} />

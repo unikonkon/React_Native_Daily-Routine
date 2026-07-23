@@ -4,9 +4,10 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindowDimensions, View } from 'react-native';
 
+import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, DAY_END, DAY_START } from '@/constants/theme';
-import { WD_TH, addDays, fmtMin, fromISO, mondayOf, nowMin, todayISO } from '@/lib/dates';
+import { ACCENT, CAT_BY_ID, CATS, DAY_END, DAY_START } from '@/constants/theme';
+import { addDays, fmtMin, fromISO, mondayOf, nowMin, todayISO, WD_TH } from '@/lib/dates';
 import { assignLanes } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
 import { useDayReader } from '@/stores/activities';
@@ -83,6 +84,7 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
                     const h = Math.max(pct(it.endMin) - top, 1.6);
                     const done = it.ostatus === 'done';
                     const dim = it.ostatus === 'rescheduled' ? 0.5 : 1;
+                    const showIcon = it.endMin - it.startMin >= 45 && n <= 2; // โชว์ไอคอนเฉพาะบล็อกที่สูง/กว้างพอ
                     return (
                       <Pressable
                         key={`${it.id}:${it.date}`}
@@ -96,16 +98,20 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
                           minHeight: 5,
                           borderRadius: 3,
                           backgroundColor: cat.color,
-                          opacity: (done ? 0.55 : 0.92) * dim,
-                        }}
-                      />
+                          opacity: (done ? 0.4 : 0.98) * dim,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          overflow: 'hidden',
+                        }}>
+                        {showIcon ? <Icon name={cat.icon} size={11} color="#FFFFFF" /> : null}
+                      </Pressable>
                     );
                   })}
 
                   {/* เส้นตอนนี้ (เฉพาะวันนี้) */}
                   {isToday ? (
-                    <View style={{ position: 'absolute', top: `${pct(nowTop)}%`, left: 0, right: 0, height: 2, backgroundColor: ACCENT }}>
-                      <View style={{ position: 'absolute', left: -3, top: -2, width: 6, height: 6, borderRadius: 3, backgroundColor: ACCENT }} />
+                    <View style={{ position: 'absolute', top: `${pct(nowTop)}%`, left: 0, right: 0, height: 3, backgroundColor: ACCENT }}>
+                      <View style={{ position: 'absolute', left: -3, top: -2, width: 7, height: 7, borderRadius: 3, backgroundColor: ACCENT }} />
                     </View>
                   ) : null}
                 </View>
@@ -113,7 +119,20 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
             })}
           </View>
         </View>
+
+        {/* คำอธิบายไอคอนหมวด (legend) — ถอดความหมายไอคอนในบล็อก */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 4, paddingHorizontal: HPAD + 4, paddingVertical: 8, marginTop: 4 }}>
+          {CATS.map((cat) => (
+            <View key={cat.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Icon name={cat.icon} size={12} color={cat.color} />
+              <Txt size={11} color={t.sub}>
+                {cat.short}
+              </Txt>
+            </View>
+          ))}
+        </View>
       </View>
+
     </View>
   );
 }
