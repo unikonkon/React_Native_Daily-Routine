@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
-import { DrillBack } from '@/components/today/parts';
+import { DrillBack, ViewSwitcher, type View3 } from '@/components/today/parts';
 import { PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtMin, fmtRange, fromISO, mondayOf, nowMin, thaiDate, todayISO } from '@/lib/dates';
@@ -21,9 +21,11 @@ interface DayViewProps {
   onBack: () => void;
   onPressItem: (item: DayItem) => void;
   bottomPad?: number;
+  view: View3;
+  onChangeView: (v: View3) => void;
 }
 
-export function TodayDayView({ focus, onChangeFocus, onBack, onPressItem, bottomPad = 140 }: DayViewProps) {
+export function TodayDayView({ focus, onChangeFocus, onBack, onPressItem, bottomPad = 140, view, onChangeView }: DayViewProps) {
   const t = useTokens();
   const today = todayISO();
   const items = useDay(focus);
@@ -35,8 +37,10 @@ export function TodayDayView({ focus, onChangeFocus, onBack, onPressItem, bottom
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingHorizontal: 18, minHeight: 34, justifyContent: 'center' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, minHeight: 34, gap: 8 }}>
         <DrillBack label={backLabel} onPress={onBack} />
+        <View style={{ flex: 1 }} />
+        <ViewSwitcher value={view} onChange={onChangeView} />
       </View>
 
       {/* แถบสัปดาห์ (จันทร์นำ) */}

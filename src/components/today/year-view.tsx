@@ -3,7 +3,7 @@
 import React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
-import { StepBtn } from '@/components/today/parts';
+import { StepBtn, ViewSwitcher, type View3 } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
 import { ACCENT } from '@/constants/theme';
 import { MONTH_TH_FULL, VIEW_MAX_Y, VIEW_MIN_Y, WD_TH, addDays, beYear, fromISO, mondayOf, toISO, todayISO } from '@/lib/dates';
@@ -14,23 +14,28 @@ interface YearViewProps {
   onNext: () => void;
   onPressMonth: (month: number) => void;
   bottomPad?: number;
+  view: View3;
+  onChangeView: (v: View3) => void;
 }
 
-export function TodayYearView({ year, onPrev, onNext, onPressMonth, bottomPad = 140 }: YearViewProps) {
+export function TodayYearView({ year, onPrev, onNext, onPressMonth, bottomPad = 140, view, onChangeView }: YearViewProps) {
   const now = fromISO(todayISO());
   const curY = now.getFullYear();
   const curM = now.getMonth();
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 2 }}>
-        <Txt size={32} weight="bold" color={ACCENT} style={{ flex: 1 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, gap: 8 }}>
+        <Txt size={24} weight="bold" color={ACCENT}>
           {beYear(year)}
         </Txt>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <StepBtn icon="chevL" onPress={onPrev} disabled={year <= VIEW_MIN_Y} />
           <StepBtn icon="chevR" onPress={onNext} disabled={year >= VIEW_MAX_Y} />
         </View>
+
+        <View style={{ flex: 1 }} />
+        <ViewSwitcher value={view} onChange={onChangeView} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: bottomPad }}>

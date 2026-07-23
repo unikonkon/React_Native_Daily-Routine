@@ -3,7 +3,7 @@
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { DrillBar } from '@/components/today/parts';
+import { DrillBar, ViewSwitcher, type View3 } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fromISO, mondayOf, toISO, todayISO } from '@/lib/dates';
@@ -18,9 +18,11 @@ interface MonthViewProps {
   onNext: () => void;
   onPressDay: (iso: string) => void;
   bottomPad?: number;
+  view: View3;
+  onChangeView: (v: View3) => void;
 }
 
-export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, onPressDay, bottomPad = 140 }: MonthViewProps) {
+export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, onPressDay, bottomPad = 140, view, onChangeView }: MonthViewProps) {
   const t = useTokens();
   const getDay = useDayReader();
   const today = todayISO();
@@ -31,11 +33,15 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
 
   return (
     <View style={{ flex: 1 }}>
-      <DrillBar backLabel={`พ.ศ. ${beYear(year)}`} onBack={onBack} onPrev={onPrev} onNext={onNext} />
 
-      <Txt size={28} weight="bold" style={{ paddingHorizontal: 18, paddingTop: 2, paddingBottom: 8 }}>
-        {MONTH_TH_FULL[month]}
-      </Txt>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingBottom: 8, gap: 8 }}>
+        <Txt size={24} weight="bold" style={{ flex: 1 }}>
+          {MONTH_TH_FULL[month]}
+        </Txt>
+        <ViewSwitcher value={view} onChange={onChangeView} />
+      </View>
+
+      <DrillBar backLabel={`พ.ศ. ${beYear(year)}`} onBack={onBack} onPrev={onPrev} onNext={onNext} />
 
       {/* หัววัน (จันทร์นำ, อาทิตย์เป็นสี accent) */}
       <View style={{ flexDirection: 'row', paddingHorizontal: 8, paddingBottom: 6, borderBottomWidth: 0.5, borderBottomColor: t.line }}>

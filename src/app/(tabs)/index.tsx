@@ -9,14 +9,12 @@ import { Screen, TABBAR_H } from '@/components/screen';
 import { TodayDayView } from '@/components/today/day-view';
 import { TodayFabBar } from '@/components/today/fab-bar';
 import { TodayMonthView } from '@/components/today/month-view';
+import { ViewSwitcher, type View3 } from '@/components/today/parts';
 import { TodayYearView } from '@/components/today/year-view';
-import { Segmented } from '@/components/ui';
 import { WeekGrid } from '@/components/week-grid';
 import { fromISO, mondayOf, todayISO } from '@/lib/dates';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
-
-type View3 = 'day' | 'week' | 'month' | 'year';
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -71,19 +69,6 @@ export default function TodayScreen() {
 
   return (
     <Screen title="วันนี้" scroll={false}>
-      <View style={{ paddingHorizontal: 18, marginBottom: 10 }}>
-        <Segmented
-          options={[
-            { key: 'day', label: 'วัน' },
-            { key: 'week', label: 'สัปดาห์' },
-            { key: 'month', label: 'เดือน' },
-            { key: 'year', label: 'ปี' },
-          ]}
-          value={view}
-          onChange={setView}
-        />
-      </View>
-
       {view === 'day' ? (
         <TodayDayView
           focus={focus}
@@ -95,11 +80,17 @@ export default function TodayScreen() {
           }}
           onPressItem={(it) => openSheet(it.id, it.date)}
           bottomPad={bottomPad}
+          view={view}
+          onChangeView={setView}
         />
       ) : null}
 
       {view === 'week' ? (
         <>
+          {/* week ไม่มีแถวหัวที่ว่างพอจะรวมกับป้ายช่วง (ป้ายวันที่ยาว) — วางตัวสลับเป็นแถวชิดขวาด้านบน */}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 8 }}>
+            <ViewSwitcher value={view} onChange={setView} />
+          </View>
           <WeekNav monday={monday} onChange={setMonday} />
           <WeekGrid monday={monday} onPressDay={goDay} />
         </>
@@ -115,6 +106,8 @@ export default function TodayScreen() {
           onNext={() => shiftMonth(1)}
           onPressDay={goDay}
           bottomPad={bottomPad}
+          view={view}
+          onChangeView={setView}
         />
       ) : null}
 
@@ -128,6 +121,8 @@ export default function TodayScreen() {
             setView('month');
           }}
           bottomPad={bottomPad}
+          view={view}
+          onChangeView={setView}
         />
       ) : null}
 
