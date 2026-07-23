@@ -51,10 +51,10 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
       {/* เวที (definite height ผ่าน flex) — วางเส้นชั่วโมง + คอลัมน์ทับกันด้วย % */}
       <View style={{ flex: 1, marginHorizontal: HPAD, paddingBottom: bottomPad }}>
         <View style={{ flex: 1, position: 'relative' }}>
-          {/* เส้นชั่วโมง + ป้ายเวลา */}
+          {/* เส้นชั่วโมง + ป้ายเวลา — height 14 + marginTop -7 ให้เส้นตกที่ตำแหน่งเวลาพอดี (ตรงกับบล็อก) */}
           {hours.map((m) => (
-            <View key={m} style={{ position: 'absolute', top: `${pct(m)}%`, left: 0, right: 0, flexDirection: 'row', alignItems: 'center' }}>
-              <Txt size={9} num color={t.faint} style={{ width: GUTTER, textAlign: 'right', paddingRight: 5, marginTop: -6 }}>
+            <View key={m} style={{ position: 'absolute', top: `${pct(m)}%`, left: 0, right: 0, height: 14, marginTop: -7, flexDirection: 'row', alignItems: 'center' }}>
+              <Txt size={9} num color={t.faint} style={{ width: GUTTER, textAlign: 'right', paddingRight: 5 }}>
                 {fmtMin(m)}
               </Txt>
               <View style={{ flex: 1, height: 1, backgroundColor: t.line }} />
