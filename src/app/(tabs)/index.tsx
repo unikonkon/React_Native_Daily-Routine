@@ -10,8 +10,8 @@ import { TodayDayView } from '@/components/today/day-view';
 import { TodayFabBar } from '@/components/today/fab-bar';
 import { TodayMonthView } from '@/components/today/month-view';
 import { ViewSwitcher, type View3 } from '@/components/today/parts';
+import { TodayWeekView } from '@/components/today/week-view';
 import { TodayYearView } from '@/components/today/year-view';
-import { WeekGrid } from '@/components/week-grid';
 import { fromISO, mondayOf, todayISO } from '@/lib/dates';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
@@ -93,7 +93,7 @@ export default function TodayScreen() {
             <ViewSwitcher value={view} onChange={setView} />
           </View>
           <WeekNav monday={monday} onChange={setMonday} />
-          <WeekGrid monday={monday} onPressDay={goDay} />
+          <TodayWeekView monday={monday} onChangeMonday={setMonday} onPressItem={(it) => openSheet(it.id, it.date)} onPressDay={goDay} bottomPad={bottomPad} />
         </>
       ) : null}
 
