@@ -8,7 +8,8 @@ import { Icon } from '@/components/icon';
 import { DrillBar, ViewSwitcher, type View3 } from '@/components/today/parts';
 import { PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CATS, CAT_BY_ID, GREEN } from '@/constants/theme';
-import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
+import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
+import { freeSlots } from '@/lib/engine';
 import { useDayReader } from '@/stores/activities';
 
 interface MonthViewProps {
@@ -22,9 +23,12 @@ interface MonthViewProps {
   bottomPad?: number;
   view: View3;
   onChangeView: (v: View3) => void;
+  /** โหมด "วันที่ว่าง" — การ์ดสรุปแสดงช่วงเวลาว่าง แตะเพื่อเพิ่มกิจกรรม */
+  freeMode?: boolean;
+  onPressSlot?: (date: string, start: number, end: number) => void;
 }
 
-export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, onPressDay, bottomPad = 140, view, onChangeView }: MonthViewProps) {
+export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, onPressDay, bottomPad = 140, view, onChangeView, freeMode = false, onPressSlot }: MonthViewProps) {
   const t = useTokens();
   const getDay = useDayReader();
   const today = todayISO();
@@ -42,6 +46,15 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
 
   const pickedInMonth = picked != null && picked.slice(0, 7) === ymKey;
   const dayItems = pickedInMonth ? [...getDay(picked!)].sort((a, b) => a.startMin - b.startMin) : [];
+  const freeList = pickedInMonth && freeMode ? freeSlots(getDay(picked!)) : [];
+
+  // โหมดวันที่ว่าง — รวมกิจกรรม + ช่วงว่าง แล้วเรียงตามเวลาเริ่ม (ช่วงว่างเด่น, กิจกรรมเป็นบริบท)
+  const merged = freeMode
+    ? [
+        ...dayItems.map((it) => ({ kind: 'item' as const, start: it.startMin, it })),
+        ...freeList.map((s) => ({ kind: 'slot' as const, start: s.start, s })),
+      ].sort((a, b) => a.start - b.start)
+    : [];
 
   return (
     <View style={{ flex: 1 }}>
@@ -129,10 +142,17 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
         {/* รายการสรุปของวันที่เลือก */}
         {pickedInMonth ? (
           <View style={{ marginHorizontal: 18, marginTop: 12, backgroundColor: t.card, borderRadius: 14, borderWidth: 1, borderColor: t.line, padding: 14 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: dayItems.length ? 8 : 0 }}>
-              <Txt size={15} weight="bold" style={{ flex: 1 }}>
-                {thaiDate(picked!)}
-              </Txt>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: (freeMode ? freeList.length : dayItems.length) ? 8 : 0 }}>
+              <View style={{ flex: 1 }}>
+                <Txt size={15} weight="bold">
+                  {thaiDate(picked!)}
+                </Txt>
+                {freeMode ? (
+                  <Txt size={12} weight="med" color={GREEN}>
+                    ช่วงเวลาว่าง · แตะเพื่อเพิ่ม
+                  </Txt>
+                ) : null}
+              </View>
               <Pressable onPress={() => onPressDay(picked!)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                 <Txt size={12} weight="med" color={ACCENT}>
                   เปิดมุมมองวัน
@@ -141,7 +161,55 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
               </Pressable>
             </View>
 
-            {dayItems.length === 0 ? (
+            {freeMode ? (
+              merged.length === 0 ? (
+                <Txt size={13} color={t.faint} style={{ paddingVertical: 4 }}>
+                  ไม่มีรายการในวันนี้
+                </Txt>
+              ) : (
+                <View style={{ gap: 6 }}>
+                  {merged.map((row) =>
+                    row.kind === 'slot' ? (
+                      // ช่วงว่าง — เด่น: กล่องพื้นเขียว + ปุ่มเพิ่ม (แตะ → ฟอร์มเพิ่มพร้อมช่วงเวลา)
+                      <Pressable
+                        key={`slot:${row.start}`}
+                        onPress={() => onPressSlot?.(picked!, row.s.start, row.s.end)}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 10, backgroundColor: GREEN + '14', borderWidth: 1, borderColor: GREEN + '55' }}>
+                        <View style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center' }}>
+                          <Icon name="plus" size={15} color="#FFFFFF" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Txt size={14} weight="bold" color={GREEN}>
+                            ว่าง {hoursText(row.s.end - row.s.start)}
+                          </Txt>
+                          <Txt size={11} num color={t.sub}>
+                            {fmtRange(row.s.start, row.s.end)}
+                          </Txt>
+                        </View>
+                        <Txt size={12} weight="bold" color={GREEN}>
+                          เพิ่ม
+                        </Txt>
+                      </Pressable>
+                    ) : (
+                      // กิจกรรมเดิม — บริบท (จางลงเล็กน้อยให้ช่วงว่างเด่นกว่า)
+                      <View
+                        key={`${row.it.id}:${row.it.date}`}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4, paddingHorizontal: 2, opacity: row.it.ostatus === 'rescheduled' ? 0.5 : 0.85 }}>
+                        <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: CAT_BY_ID[row.it.cat].color }} />
+                        {row.it.cat === 'case' ? <PriBadge id={row.it.priority} /> : null}
+                        <Txt size={14} weight="med" numberOfLines={1} color={row.it.ostatus === 'done' ? t.faint : t.ink} style={{ flex: 1, textDecorationLine: row.it.ostatus === 'done' ? 'line-through' : 'none' }}>
+                          {row.it.title}
+                        </Txt>
+                        {row.it.ostatus === 'done' ? <Icon name="check" size={14} color={GREEN} /> : null}
+                        <Txt size={12} num color={t.sub}>
+                          {fmtRange(row.it.startMin, row.it.endMin)}
+                        </Txt>
+                      </View>
+                    ),
+                  )}
+                </View>
+              )
+            ) : dayItems.length === 0 ? (
               <Txt size={13} color={t.faint} style={{ paddingVertical: 4 }}>
                 ไม่มีรายการในวันนี้
               </Txt>

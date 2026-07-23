@@ -9,8 +9,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
-import { ACCENT } from '@/constants/theme';
+import { ACCENT, GREEN } from '@/constants/theme';
 import { useSettings } from '@/stores/settings';
+import { useUI } from '@/stores/ui';
 
 interface ScreenProps {
   title: string;
@@ -43,6 +44,29 @@ function ThemeToggle() {
       onPress={toggleTheme}
       style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: t.card, borderWidth: 1, borderColor: t.line, alignItems: 'center', justifyContent: 'center' }}>
       <Icon name={theme === 'light' ? 'moon' : 'sun'} size={18} color={t.sub} />
+    </Pressable>
+  );
+}
+
+/** ปุ่มสลับโหมด "วันที่ว่าง" ↔ "ไม่นับวันที่ว่าง" — active = ดึงช่วงเวลาว่างออกมาให้แตะเพิ่มกิจกรรม */
+function DayliyUseToggle() {
+  const t = useTokens();
+  const freeMode = useUI((s) => s.freeMode);
+  const toggleFreeMode = useUI((s) => s.toggleFreeMode);
+  return (
+    <Pressable
+      onPress={toggleFreeMode}
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        backgroundColor: freeMode ? GREEN : t.card,
+        borderWidth: 1,
+        borderColor: freeMode ? GREEN : t.line,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+      <Icon name="clock" size={18} color={freeMode ? '#FFFFFF' : t.sub} />
     </Pressable>
   );
 }
@@ -102,6 +126,7 @@ export function Screen({ title, subtitle, children, scroll = true, back }: Scree
   const t = useTokens();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const pathname = usePathname();
 
   const header = back ? (
     // หน้าย่อย — header เดิม: ปุ่มย้อนกลับ + หัวข้อ 30px + ปุ่มสลับธีม
@@ -128,6 +153,7 @@ export function Screen({ title, subtitle, children, scroll = true, back }: Scree
     <View style={{ paddingHorizontal: 18, paddingTop: 8, paddingBottom: 10, gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <TabStrip />
+        {pathname === '/' ? <DayliyUseToggle /> : null}
         <ThemeToggle />
       </View>
       {subtitle ? (

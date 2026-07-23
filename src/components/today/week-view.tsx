@@ -6,9 +6,9 @@ import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindow
 
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, CATS, DAY_END, DAY_START } from '@/constants/theme';
+import { ACCENT, CAT_BY_ID, CATS, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { addDays, fmtMin, fromISO, mondayOf, nowMin, todayISO, WD_TH } from '@/lib/dates';
-import { assignLanes } from '@/lib/engine';
+import { assignLanes, freeSlots } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
 import { useDayReader } from '@/stores/activities';
 
@@ -27,9 +27,12 @@ interface WeekViewProps {
   onPressItem: (item: DayItem) => void;
   onPressDay: (iso: string) => void;
   bottomPad?: number;
+  /** โหมด "วันที่ว่าง" — ดึงช่วงเวลาว่างออกมาให้แตะเพิ่มกิจกรรม (กิจกรรมเดิมจาง) */
+  freeMode?: boolean;
+  onPressSlot?: (date: string, start: number, end: number) => void;
 }
 
-export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay, bottomPad = 120 }: WeekViewProps) {
+export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay, bottomPad = 120, freeMode = false, onPressSlot }: WeekViewProps) {
   const t = useTokens();
   const getDay = useDayReader();
   const today = todayISO();
@@ -98,7 +101,7 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
                           minHeight: 5,
                           borderRadius: 3,
                           backgroundColor: cat.color,
-                          opacity: (done ? 0.4 : 0.98) * dim,
+                          opacity: (done ? 0.4 : 0.98) * dim * (freeMode ? 0.3 : 1),
                           alignItems: 'center',
                           justifyContent: 'center',
                           overflow: 'hidden',
@@ -107,6 +110,36 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
                       </Pressable>
                     );
                   })}
+
+                  {/* ช่วงเวลาว่าง (โหมดวันที่ว่าง) — แตะเพื่อเปิดฟอร์มเพิ่มพร้อมช่วงเวลา */}
+                  {freeMode
+                    ? freeSlots(items).map((s) => {
+                        const top = pct(s.start);
+                        const sh = Math.max(pct(s.end) - top, 1.8);
+                        return (
+                          <Pressable
+                            key={`slot:${s.start}`}
+                            onPress={() => onPressSlot?.(d, s.start, s.end)}
+                            style={{
+                              position: 'absolute',
+                              top: `${top}%`,
+                              height: `${sh}%`,
+                              left: '3%',
+                              right: '3%',
+                              minHeight: 6,
+                              borderRadius: 3,
+                              borderWidth: 1,
+                              borderColor: GREEN,
+                              backgroundColor: GREEN + '26',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              overflow: 'hidden',
+                            }}>
+                            {s.end - s.start >= 60 ? <Icon name="plus" size={11} color={GREEN} /> : null}
+                          </Pressable>
+                        );
+                      })
+                    : null}
 
                   {/* เส้นตอนนี้ (เฉพาะวันนี้) */}
                   {isToday ? (
@@ -122,6 +155,14 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
 
         {/* คำอธิบายไอคอนหมวด (legend) — ถอดความหมายไอคอนในบล็อก */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 4, paddingHorizontal: HPAD + 4, paddingVertical: 8, marginTop: 4 }}>
+          {freeMode ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={{ width: 12, height: 12, borderRadius: 3, borderWidth: 1, borderColor: GREEN, backgroundColor: GREEN + '26' }} />
+              <Txt size={11} weight="med" color={GREEN}>
+                แตะช่วงว่างเพื่อเพิ่ม
+              </Txt>
+            </View>
+          ) : null}
           {CATS.map((cat) => (
             <View key={cat.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Icon name={cat.icon} size={12} color={cat.color} />

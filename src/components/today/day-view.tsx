@@ -7,8 +7,8 @@ import { Icon } from '@/components/icon';
 import { DrillBack, ViewSwitcher, type View3 } from '@/components/today/parts';
 import { PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
-import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtMin, fmtRange, fromISO, mondayOf, nowMin, thaiDate, todayISO } from '@/lib/dates';
-import { assignLanes } from '@/lib/engine';
+import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtMin, fmtRange, fromISO, hoursText, mondayOf, nowMin, thaiDate, todayISO } from '@/lib/dates';
+import { assignLanes, freeSlots } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
 import { useDay } from '@/stores/activities';
 
@@ -23,9 +23,12 @@ interface DayViewProps {
   bottomPad?: number;
   view: View3;
   onChangeView: (v: View3) => void;
+  /** โหมด "วันที่ว่าง" — ดึงช่วงเวลาว่างออกมาให้แตะเพิ่มกิจกรรม (กิจกรรมเดิมจาง) */
+  freeMode?: boolean;
+  onPressSlot?: (date: string, start: number, end: number) => void;
 }
 
-export function TodayDayView({ focus, onChangeFocus, onBack, onPressItem, bottomPad = 140, view, onChangeView }: DayViewProps) {
+export function TodayDayView({ focus, onChangeFocus, onBack, onPressItem, bottomPad = 140, view, onChangeView, freeMode = false, onPressSlot }: DayViewProps) {
   const t = useTokens();
   const items = useDay(focus);
 
@@ -43,11 +46,11 @@ export function TodayDayView({ focus, onChangeFocus, onBack, onPressItem, bottom
       {/* แถบสัปดาห์ (จันทร์นำ) — ปัดซ้าย/ขวาเพื่อเลื่อนสัปดาห์ย้อนหลัง/อนาคต */}
       <WeekStrip focus={focus} onChangeFocus={onChangeFocus} />
 
-      <Txt size={14} weight="med" color={t.sub} style={{ textAlign: 'center', paddingVertical: 9 }}>
-        {thaiDate(focus)}
+      <Txt size={14} weight="med" color={freeMode ? GREEN : t.sub} style={{ textAlign: 'center', paddingVertical: 9 }}>
+        {freeMode ? `${thaiDate(focus)} · แตะช่วงว่างเพื่อเพิ่ม` : thaiDate(focus)}
       </Txt>
 
-      <DayTimeline date={focus} items={items} onPressItem={onPressItem} bottomPad={bottomPad} />
+      <DayTimeline date={focus} items={items} onPressItem={onPressItem} bottomPad={bottomPad} freeMode={freeMode} onPressSlot={onPressSlot} />
     </View>
   );
 }
@@ -145,11 +148,26 @@ function WeekStrip({ focus, onChangeFocus }: { focus: string; onChangeFocus: (is
   );
 }
 
-function DayTimeline({ date, items, onPressItem, bottomPad }: { date: string; items: DayItem[]; onPressItem: (i: DayItem) => void; bottomPad: number }) {
+function DayTimeline({
+  date,
+  items,
+  onPressItem,
+  bottomPad,
+  freeMode,
+  onPressSlot,
+}: {
+  date: string;
+  items: DayItem[];
+  onPressItem: (i: DayItem) => void;
+  bottomPad: number;
+  freeMode?: boolean;
+  onPressSlot?: (date: string, start: number, end: number) => void;
+}) {
   const t = useTokens();
   const scRef = useRef<ScrollView>(null);
   const height = (DAY_END - DAY_START) * PX;
   const lanes = useMemo(() => assignLanes(items), [items]);
+  const slots = useMemo(() => (freeMode ? freeSlots(items) : []), [freeMode, items]);
 
   // เส้น "ตอนนี้": ช่วง 00:00–06:00 ถือเป็นท้ายหน้าต่างของเมื่อวาน (แสดงที่ now+1440)
   const now = nowMin();
@@ -191,7 +209,7 @@ function DayTimeline({ date, items, onPressItem, bottomPad }: { date: string; it
             <Pressable
               key={`${it.id}:${it.date}`}
               onPress={() => onPressItem(it)}
-              style={{ position: 'absolute', top, left: GUTTER + 6, right: 0, height: h, opacity: dim }}>
+              style={{ position: 'absolute', top, left: GUTTER + 6, right: 0, height: h, opacity: (freeMode ? 0.3 : 1) * dim }}>
               <View
                 style={{
                   position: 'absolute',
@@ -220,6 +238,43 @@ function DayTimeline({ date, items, onPressItem, bottomPad }: { date: string; it
                   </Txt>
                 ) : null}
               </View>
+            </Pressable>
+          );
+        })}
+
+        {/* ช่วงเวลาว่าง (โหมดวันที่ว่าง) — แตะเพื่อเปิดฟอร์มเพิ่มพร้อมช่วงเวลา */}
+        {slots.map((s) => {
+          const top = (s.start - DAY_START) * PX;
+          const h = Math.max((s.end - s.start) * PX - 4, 30);
+          return (
+            <Pressable
+              key={`slot:${s.start}`}
+              onPress={() => onPressSlot?.(date, s.start, s.end)}
+              style={{
+                position: 'absolute',
+                top,
+                left: GUTTER + 6,
+                right: 0,
+                height: h,
+                backgroundColor: GREEN + '1f',
+                borderWidth: 1,
+                borderColor: GREEN + '80',
+                borderRadius: 9,
+                paddingHorizontal: 9,
+                justifyContent: 'center',
+                gap: 2,
+              }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Icon name="plus" size={13} color={GREEN} />
+                <Txt size={13} weight="bold" color={GREEN}>
+                  ว่าง
+                </Txt>
+              </View>
+              {h > 40 ? (
+                <Txt size={11} num color={GREEN}>
+                  {fmtRange(s.start, s.end)} · {hoursText(s.end - s.start)}
+                </Txt>
+              ) : null}
             </Pressable>
           );
         })}

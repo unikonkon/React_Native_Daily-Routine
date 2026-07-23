@@ -20,6 +20,7 @@ export default function TodayScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const openSheet = useUI((s) => s.openSheet);
+  const freeMode = useUI((s) => s.freeMode);
 
   const [view, setView] = useState<View3>('day');
   const [focus, setFocus] = useState(todayISO());
@@ -42,6 +43,13 @@ export default function TodayScreen() {
   const goDay = (iso: string) => {
     setFocus(iso);
     setView('day');
+  };
+
+  // แตะช่วงเวลาว่าง (โหมดวันที่ว่าง) → เปิดฟอร์มเพิ่ม พร้อม prefill วันและช่วงเวลา
+  const openSlot = (date: string, start: number, end: number) => {
+    useDraft.getState().reset();
+    useDraft.getState().set({ dates: [date], start, end });
+    router.push('/add');
   };
 
   const shiftMonth = (d: number) => {
@@ -83,6 +91,8 @@ export default function TodayScreen() {
           bottomPad={bottomPad}
           view={view}
           onChangeView={setView}
+          freeMode={freeMode}
+          onPressSlot={openSlot}
         />
       ) : null}
 
@@ -93,7 +103,7 @@ export default function TodayScreen() {
             <ViewSwitcher value={view} onChange={setView} />
           </View>
           <WeekNav monday={monday} onChange={setMonday} />
-          <TodayWeekView monday={monday} onChangeMonday={setMonday} onPressItem={(it) => openSheet(it.id, it.date)} onPressDay={goDay} bottomPad={bottomPad} />
+          <TodayWeekView monday={monday} onChangeMonday={setMonday} onPressItem={(it) => openSheet(it.id, it.date)} onPressDay={goDay} bottomPad={bottomPad} freeMode={freeMode} onPressSlot={openSlot} />
         </>
       ) : null}
 
@@ -109,6 +119,8 @@ export default function TodayScreen() {
           bottomPad={bottomPad}
           view={view}
           onChangeView={setView}
+          freeMode={freeMode}
+          onPressSlot={openSlot}
         />
       ) : null}
 

@@ -10,6 +10,9 @@ interface UIState {
   resc: DayItem | null;
   /** วันที่ให้แท็บวันนี้เปิดโชว์ (ตั้งหลังบันทึกกิจกรรม แล้วแท็บวันนี้ consume ทิ้ง) */
   focusDate: string | null;
+  /** โหมด "วันที่ว่าง" — แท็บวันนี้ดึงช่วงเวลาว่างออกมาให้แตะเพื่อเพิ่มกิจกรรม */
+  freeMode: boolean;
+  toggleFreeMode: () => void;
   showToast: (msg: string) => void;
   openSheet: (id: number, date: string) => void;
   closeSheet: () => void;
@@ -25,7 +28,9 @@ export const useUI = create<UIState>((set) => ({
   sheet: null,
   resc: null,
   focusDate: null,
+  freeMode: false,
 
+  toggleFreeMode: () => set((s) => ({ freeMode: !s.freeMode })),
   showToast: (msg) => {
     set({ toast: msg });
     if (toastTimer) clearTimeout(toastTimer);
