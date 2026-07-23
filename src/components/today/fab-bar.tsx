@@ -35,10 +35,10 @@ export function TodayFabBar({ atToday, bottom, onToday, onCalendar, onAdd }: Fab
       </Pressable>
 
       <View style={[{ flexDirection: 'row', gap: 4, backgroundColor: t.card, borderWidth: 1, borderColor: t.line, borderRadius: 24, padding: 6 }, shadow]}>
-        <Pressable onPress={onCalendar} style={{ width: 40, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }}>
+        <Pressable onPress={onCalendar} style={{ width: 50, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="calendar" size={20} color={t.sub} />
         </Pressable>
-        <Pressable onPress={onAdd} style={{ width: 40, height: 36, borderRadius: 18, backgroundColor: ACCENT, alignItems: 'center', justifyContent: 'center' }}>
+        <Pressable onPress={onAdd} style={{ width: 50, height: 36, borderRadius: 18, backgroundColor: ACCENT, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="plus" size={20} color="#FFFFFF" />
         </Pressable>
       </View>

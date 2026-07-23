@@ -12,6 +12,7 @@ const FEATHER: Record<string, React.ComponentProps<typeof Feather>['name']> = {
   calendar: 'calendar',
   plus: 'plus',
   bars: 'bar-chart-2',
+  bars2: 'bar-chart',
   sliders: 'sliders',
   clock: 'clock',
   bell: 'bell',

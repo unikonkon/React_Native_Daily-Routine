@@ -1,7 +1,7 @@
 // ชิ้นส่วน UI ร่วมของแท็บวันนี้ (ลุค mockup iOS Calendar) — ใช้ธีมเดิมของแอป
 import React from 'react';
 import { Pressable, View } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
+import Animated, { FadeInLeft } from 'react-native-reanimated';
 
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
@@ -11,18 +11,20 @@ export type View3 = 'day' | 'week' | 'month' | 'year';
 
 const VIEW_TABS: { key: View3; label: string; icon: string }[] = [
   { key: 'day', label: 'วัน', icon: 'sun' },
-  { key: 'week', label: 'สัปดาห์', icon: 'bars' },
+  { key: 'week', label: 'สัปดาห์', icon: 'bars2' },
   { key: 'month', label: 'เดือน', icon: 'calendar' },
   { key: 'year', label: 'ปี', icon: 'grid' },
 ];
 
-const SWITCH_SPRING = LinearTransition.springify().damping(20).stiffness(200).mass(0.4);
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+// ตัวสลับอยู่ "ในแต่ละมุมมอง" — สลับมุมมองแล้ว view ถูก unmount ทั้งจอ
+// → LinearTransition (layout spring) เล่นไม่ได้ (pill เกิดใหม่ในตำแหน่งสุดท้ายเลย)
+// จึงใช้ entering ที่เล่นตอน mount จริง ให้ pill/label สปริงเข้ามานุ่ม ๆ แทน (ไม่ใส่ exiting กัน view เก่าค้างตอน unmount)
+const LABEL_ENTER = FadeInLeft.springify().damping(15).stiffness(150).mass(0.45);
 
 /**
  * ตัวสลับมุมมอง วัน/สัปดาห์/เดือน/ปี แบบ Active-pill (Tint)
  * ไม่เลือก = ไอคอนล้วน · active = pill พื้นส้มจาง ~15% + ไอคอน/ตัวอักษรส้ม
- * ใช้ร่วมในหัวของทุกมุมมอง (ประหยัดที่) — label ของ active ค่อยๆ fade เข้า
+ * active เข้าจอด้วยสปริง: pill เฟด-สเกลเข้า + label สไลด์ออกจากไอคอน
  */
 export function ViewSwitcher({ value, onChange }: { value: View3; onChange: (v: View3) => void }) {
   const t = useTokens();
@@ -32,9 +34,8 @@ export function ViewSwitcher({ value, onChange }: { value: View3; onChange: (v: 
         const active = tab.key === value;
         const fg = active ? ACCENT : t.sub;
         return (
-          <AnimatedPressable
+          <Pressable
             key={tab.key}
-            layout={SWITCH_SPRING}
             hitSlop={4}
             onPress={() => {
               if (!active) onChange(tab.key);
@@ -52,13 +53,13 @@ export function ViewSwitcher({ value, onChange }: { value: View3; onChange: (v: 
             }}>
             <Icon name={tab.icon} size={19} color={fg} />
             {active ? (
-              <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(100)}>
+              <Animated.View key={tab.key} entering={LABEL_ENTER} style={{ overflow: 'hidden' }}>
                 <Txt size={13} weight="bold" color={ACCENT}>
                   {tab.label}
                 </Txt>
               </Animated.View>
             ) : null}
-          </AnimatedPressable>
+          </Pressable>
         );
       })}
     </View>

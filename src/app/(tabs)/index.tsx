@@ -49,12 +49,13 @@ export default function TodayScreen() {
     setYm({ y: dt.getFullYear(), m: dt.getMonth() });
   };
 
-  // "วันนี้" — รีเซ็ตทุก state กลับมาที่วันนี้ (คงมุมมองเดิม)
+  // "วันนี้" — รีเซ็ตทุก state กลับมาที่วันนี้ + สลับมามุมมองวันเสมอ
   const now = fromISO(todayISO());
   const goToday = () => {
     setFocus(todayISO());
     setMonday(mondayOf(todayISO()));
     setYm({ y: now.getFullYear(), m: now.getMonth() });
+    setView('day');
   };
   const atToday =
     view === 'day'
