@@ -58,7 +58,7 @@ export default function ContactsScreen() {
   };
 
   return (
-    <Screen title="สมุดรายชื่อ" subtitle={`${list.length} รายชื่อ`} back scrollRef={scrollRef}>
+    <Screen title="สมุดรายชื่อ" subtitle={`${list.length} รายชื่อ`} back backFab scrollRef={scrollRef}>
       {editing ? (
         <Card style={{ gap: 10 }}>
           <Txt size={14} weight="bold">{editing.id ? 'แก้ไขรายชื่อ' : 'เพิ่มรายชื่อใหม่'}</Txt>

@@ -7,6 +7,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BACK_FAB_SPACE, BackFab } from '@/components/back-fab';
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
 import { ACCENT, GREEN } from '@/constants/theme';
@@ -21,6 +22,8 @@ interface ScreenProps {
   scroll?: boolean;
   /** แสดงปุ่มย้อนกลับ + หัวข้อ (หน้า settings ย่อย) แทนแถบแท็บ */
   back?: boolean;
+  /** เพิ่มปุ่ม "กลับ" ลอยล่าง (fabbar) ให้หน้านี้ — ใช้กับหน้าที่มักถูกเปิดต่อจากที่อื่น เช่น สมุดรายชื่อ · ฟอร์มเพิ่ม/แก้ไข */
+  backFab?: boolean;
   /** ref ไปยัง ScrollView ภายใน — ให้หน้าเลื่อนเนื้อหาเองได้ (เช่น เลื่อนขึ้นไปฟอร์มแก้ไข) */
   scrollRef?: React.Ref<ScrollView>;
 }
@@ -136,17 +139,26 @@ function TabStrip() {
   );
 }
 
-export function Screen({ title, subtitle, children, scroll = true, back, scrollRef }: ScreenProps) {
+export function Screen({ title, subtitle, children, scroll = true, back, backFab, scrollRef }: ScreenProps) {
   const t = useTokens();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
 
+  // ออกจากหน้าย่อยด้วยปุ่มระบบ/ปัดจอ (ไม่ได้ผ่านปุ่มในแอป) — คืนแผ่นที่พักไว้ให้ด้วยตอนหน้านี้ถูกปิด
+  React.useEffect(() => {
+    if (!back) return;
+    return () => useUI.getState().restoreSheet();
+  }, [back]);
+
   const header = back ? (
     // หน้าย่อย — header เดิม: ปุ่มย้อนกลับ + หัวข้อ 30px + ปุ่มสลับธีม
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingTop: 8, paddingBottom: 10, gap: 10 }}>
       <Pressable
-        onPress={() => router.back()}
+        onPress={() => {
+          router.back();
+          useUI.getState().restoreSheet(); // กลับจากหน้าที่กระโดดมาจากแผ่นรายละเอียด → เปิดแผ่นคืน
+        }}
         style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: t.card, borderWidth: 1, borderColor: t.line, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="chevL" size={20} color={t.sub} />
       </Pressable>
@@ -184,13 +196,19 @@ export function Screen({ title, subtitle, children, scroll = true, back, scrollR
       {scroll ? (
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: TABBAR_H + insets.bottom + 24, gap: 14 }}
+          contentContainerStyle={{
+            paddingHorizontal: 18,
+            paddingBottom: TABBAR_H + insets.bottom + 24 + (backFab ? BACK_FAB_SPACE : 0), // เผื่อที่ให้ปุ่มกลับลอยล่าง
+            gap: 14,
+          }}
           showsVerticalScrollIndicator={false}>
           {children}
         </ScrollView>
       ) : (
         <View style={{ flex: 1 }}>{children}</View>
       )}
+      {/* fabbar ลอยล่าง กลับ — เฉพาะหน้าที่ขอ (backFab): สมุดรายชื่อ · ฟอร์มเพิ่ม/แก้ไข */}
+      {backFab ? <BackFab /> : null}
     </View>
   );
 }

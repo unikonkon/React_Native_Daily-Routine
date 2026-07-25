@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/components/icon';
 import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Chip, ChipRow, PriBadge, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, FONT, GREEN, PRI } from '@/constants/theme';
+import { ACCENT, CAT_BY_ID, DANGER, FONT, GREEN, PRI } from '@/constants/theme';
 import { durText, fmtRange, thaiDate } from '@/lib/dates';
 import type { Contact } from '@/lib/types';
 import { useActivities, useDay } from '@/stores/activities';
@@ -49,6 +49,7 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   const item = useDay(date).find((i) => i.id === id);
   const [confirm, setConfirm] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
+  const [adding, setAdding] = useState(false); // เปิดรายการรายชื่อเพื่อเพิ่มเข้าเคสนี้
   const kb = useKeyboardHeight();
 
   // เข้าเร็วและลื่น: Modal ไม่ใส่แอนิเมชันของระบบ (ช้า ~300ms) — สไลด์ขึ้น+จางเข้าเองด้วย native driver สั้น ๆ
@@ -86,11 +87,36 @@ function SheetBody({ id, date }: { id: number; date: string }) {
     setEditContact(to);
   };
 
+  /** เพิ่มรายชื่อเข้าเคสนี้ (ทั้งชุดถ้าเป็นกิจกรรมทำซ้ำ) — คนที่อยู่แล้วไม่เพิ่มซ้ำ */
+  const addContact = (c: Contact) => {
+    const a = acts.find((x) => x.id === item.id);
+    if (!a) return showToast('ไม่พบกิจกรรมนี้');
+    setAdding(false);
+    if (a.contactIds.includes(c.id)) return showToast(`${c.name} อยู่ในเคสนี้อยู่แล้ว`);
+    update({ ...a, contactIds: [...a.contactIds, c.id] });
+    showToast(`เพิ่ม ${c.name} เข้าเคสแล้ว ✓`);
+  };
+
+  /** ถอดรายชื่อออกจากเคสนี้ (ทั้งชุดถ้าเป็นกิจกรรมทำซ้ำ) — ตัวรายชื่อในสมุดยังอยู่ครบ */
+  const removeContact = (c: Contact) => {
+    const a = acts.find((x) => x.id === item.id);
+    if (!a) return showToast('ไม่พบกิจกรรมนี้');
+    update({ ...a, contactIds: a.contactIds.filter((cid) => cid !== c.id) });
+    showToast(`ถอด ${c.name} ออกจากเคสแล้ว`);
+  };
+
+  /** ไปหน้าสมุดรายชื่อ — พักแผ่นนี้ไว้ก่อน กด "กลับ" ที่หน้านั้นแล้วแผ่นจะเปิดคืนให้เอง */
+  const openContactBook = () => {
+    useUI.getState().parkSheet();
+    router.push('/settings/contacts');
+  };
+
+  // แก้ไข → พาไปฟอร์ม พร้อมพักแผ่นไว้: กด "กลับ" ที่ฟอร์มแล้วแผ่นของกิจกรรมนี้เปิดคืน (ฟอร์มยังคาแก้ไขไว้เหมือนเดิม)
   const onEdit = () => {
     const a = acts.find((x) => x.id === item.id);
     if (a) {
       useDraft.getState().loadActivity(a);
-      closeSheet();
+      useUI.getState().parkSheet();
       router.push('/add');
     }
   };
@@ -120,7 +146,15 @@ function SheetBody({ id, date }: { id: number; date: string }) {
         }}>
         <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: t.line2, alignSelf: 'center' }} />
 
-        {editContact ? (
+        {adding ? (
+          <ContactPicker
+            title="เพิ่มรายชื่อเข้าเคส"
+            selectedIds={item.contactIds}
+            onPick={addContact}
+            onOpenBook={openContactBook}
+            onCancel={() => setAdding(false)}
+          />
+        ) : editContact ? (
           <ContactEditForm
             key={editContact.id}
             c={editContact}
@@ -165,12 +199,46 @@ function SheetBody({ id, date }: { id: number; date: string }) {
               </Txt>
             </View>
             {caseContacts.length ? (
-              <ScrollView style={{ maxHeight: 260 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                {caseContacts.map((c) => (
-                  <ContactCard key={c.id} c={c} onEdit={setEditContact} showToast={showToast} />
-                ))}
-              </ScrollView>
-            ) : null}
+              <>
+                <ScrollView style={{ maxHeight: 260 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {caseContacts.map((c) => (
+                    <ContactCard key={c.id} c={c} onEdit={setEditContact} onRemove={removeContact} showToast={showToast} />
+                  ))}
+                </ScrollView>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                  <Pressable onPress={() => setAdding(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} hitSlop={6}>
+                    <Icon name="plus" size={14} color={ACCENT} />
+                    <Txt size={12.5} weight="med" color={ACCENT}>เพิ่มรายชื่ออีกคน</Txt>
+                  </Pressable>
+                  <Pressable onPress={openContactBook} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} hitSlop={6}>
+                    <Icon name="user" size={14} color={ACCENT} />
+                    <Txt size={12.5} weight="med" color={ACCENT}>สมุดรายชื่อ</Txt>
+                    <Icon name="chevR" size={13} color={ACCENT} />
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              /* เคสที่ยังไม่มีรายชื่อ — เลือกจากรายการที่มี หรือไปจัดการที่สมุดรายชื่อ */
+              <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: t.line, padding: 12, gap: 10 }}>
+                <Txt size={12.5} color={t.faint}>ยังไม่มีรายชื่อในเคสนี้ — เลือกจากสมุดรายชื่อเพื่อผูกกับนัดนี้</Txt>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Btn
+                    style={{ flex: 1 }}
+                    kind="primary"
+                    renderIcon={(c, s) => <Icon name="plus" size={s} color={c} />}
+                    label="เพิ่มรายชื่อ"
+                    onPress={() => setAdding(true)}
+                  />
+                  <Btn
+                    style={{ flex: 1 }}
+                    kind="ghost"
+                    renderIcon={(c, s) => <Icon name="user" size={s} color={c} />}
+                    label="สมุดรายชื่อ"
+                    onPress={openContactBook}
+                  />
+                </View>
+              </View>
+            )}
           </>
         ) : null}
 
@@ -246,9 +314,23 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   );
 }
 
-/** การ์ดข้อมูลผู้ติดต่อของเคส — แต่ละช่องทาง (โทร/LINE/อีเมล/Zoom/Meet) มี 2 ปุ่ม: คัดลอก + เปิดแอป · แตะดินสอเพื่อแก้ไข */
-function ContactCard({ c, onEdit, showToast }: { c: Contact; onEdit: (c: Contact) => void; showToast: (m: string) => void }) {
+/**
+ * การ์ดข้อมูลผู้ติดต่อของเคส — แต่ละช่องทาง (โทร/LINE/อีเมล/Zoom/Meet) มี 2 ปุ่ม: คัดลอก + เปิดแอป
+ * ดินสอ = แก้ไข/เปลี่ยนรายชื่อ · ถังขยะ = ถอดออกจากเคส (ถามยืนยันในการ์ด — ตัวรายชื่อในสมุดไม่ถูกลบ)
+ */
+function ContactCard({
+  c,
+  onEdit,
+  onRemove,
+  showToast,
+}: {
+  c: Contact;
+  onEdit: (c: Contact) => void;
+  onRemove: (c: Contact) => void;
+  showToast: (m: string) => void;
+}) {
   const t = useTokens();
+  const [confirmDel, setConfirmDel] = useState(false);
 
   const copy = async (label: string, value: string) => {
     await Clipboard.setStringAsync(value);
@@ -284,7 +366,32 @@ function ContactCard({ c, onEdit, showToast }: { c: Contact; onEdit: (c: Contact
           style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
           <SvgIcon name="edit" size={14} color={t.sub} />
         </Pressable>
+        <Pressable
+          onPress={() => setConfirmDel(true)}
+          hitSlop={6}
+          style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: confirmDel ? DANGER + '22' : t.chip, alignItems: 'center', justifyContent: 'center' }}>
+          <SvgIcon name="trash" size={14} color={confirmDel ? DANGER : t.sub} />
+        </Pressable>
       </View>
+
+      {confirmDel ? (
+        <View style={{ gap: 8 }}>
+          <Txt size={12} color={t.sub}>ถอด {c.name} ออกจากเคสนี้? — รายชื่อในสมุดยังอยู่ครบ</Txt>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setConfirmDel(false)} />
+            <Btn
+              style={{ flex: 1 }}
+              kind="danger"
+              renderIcon={(col, s) => <SvgIcon name="trash" size={s} color={col} />}
+              label="ถอดออก"
+              onPress={() => {
+                setConfirmDel(false);
+                onRemove(c);
+              }}
+            />
+          </View>
+        </View>
+      ) : null}
 
       {methods.map((m) => (
         <View key={m.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -358,15 +465,19 @@ function ContactEditForm({
   if (picking)
     return (
       <ContactPicker
-        current={c}
+        title="เลือกรายชื่อ"
+        selectedIds={[c.id]}
         onPick={(next) => {
           setPicking(false);
           if (next.id !== c.id) onSwap(next); // คนใหม่ → พ่อแม่สลับรายชื่อของเคส แล้ว remount ฟอร์มเป็นของคนใหม่
         }}
-        onRename={(name) => {
-          setD({ ...d, name });
-          setPicking(false);
-          showToast('เปลี่ยนชื่อแล้ว — กด "ยืนยัน" เพื่อบันทึก');
+        rename={{
+          current: c,
+          onRename: (name) => {
+            setD({ ...d, name });
+            setPicking(false);
+            showToast('เปลี่ยนชื่อแล้ว — กด "ยืนยัน" เพื่อบันทึก');
+          },
         }}
         onCancel={() => setPicking(false)}
       />
@@ -442,19 +553,26 @@ function ContactEditForm({
 }
 
 /**
- * เลือกรายชื่อ — ลิสต์รายชื่อทั้งหมดในสมุด (ค้นหาชื่อ/เบอร์/LINE ได้)
- *  • แตะรายชื่อ → สลับรายชื่อของเคสนี้เป็นคนนั้น (คนปัจจุบันมีเครื่องหมายถูก)
- *  • พิมพ์ชื่อที่ยังไม่มีในสมุด → ใช้เป็นชื่อใหม่ของคนปัจจุบันได้ (เท่ากับแก้ชื่อแบบเดิม)
+ * เลือกรายชื่อ — ลิสต์รายชื่อทั้งหมดในสมุด (ค้นหาชื่อ/เบอร์/LINE/อีเมลได้) ใช้ 2 งาน:
+ *  • เพิ่มรายชื่อเข้าเคส (จากปุ่มในแผ่นรายละเอียด) — คนที่อยู่ในเคสแล้วจะมีเครื่องหมายถูก
+ *  • เปลี่ยนรายชื่อในฟอร์มแก้ไข — ส่ง rename มาด้วยเพื่อให้พิมพ์ชื่อใหม่แทนคนปัจจุบันได้
  */
 function ContactPicker({
-  current,
+  title,
+  selectedIds,
+  rename,
   onPick,
-  onRename,
+  onOpenBook,
   onCancel,
 }: {
-  current: Contact;
+  title: string;
+  /** id ที่ถือว่า "เลือกอยู่" — ไฮไลต์ + ติ๊กถูกในรายการ */
+  selectedIds: number[];
+  /** โหมดแก้ไขรายชื่อ: พิมพ์ชื่อที่ยังไม่มีในสมุด → ใช้เป็นชื่อใหม่ของคนปัจจุบัน */
+  rename?: { current: Contact; onRename: (name: string) => void };
   onPick: (c: Contact) => void;
-  onRename: (name: string) => void;
+  /** ไปหน้าสมุดรายชื่อ (สร้าง/แก้รายชื่อ) — แสดงเป็นทางออกเมื่อไม่เจอคนที่ต้องการ */
+  onOpenBook?: () => void;
   onCancel: () => void;
 }) {
   const t = useTokens();
@@ -472,8 +590,8 @@ function ContactPicker({
           (c.email ?? '').toLowerCase().includes(k),
       )
     : all;
-  // พิมพ์ชื่อที่ยังไม่มีในสมุด (และไม่ใช่ชื่อเดิม) → เสนอเป็นการเปลี่ยนชื่อคนปัจจุบัน
-  const canRename = !!query && !all.some((c) => c.name.trim().toLowerCase() === k);
+  // พิมพ์ชื่อที่ยังไม่มีในสมุด (และไม่ใช่ชื่อเดิม) → เสนอเป็นการเปลี่ยนชื่อคนปัจจุบัน (เฉพาะโหมดแก้ไข)
+  const canRename = !!rename && !!query && !all.some((c) => c.name.trim().toLowerCase() === k);
 
   return (
     <View style={{ gap: 10 }}>
@@ -484,7 +602,7 @@ function ContactPicker({
           style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="chevL" size={15} color={t.sub} />
         </Pressable>
-        <Txt size={16} weight="bold" style={{ flex: 1 }} numberOfLines={1}>เลือกรายชื่อ</Txt>
+        <Txt size={16} weight="bold" style={{ flex: 1 }} numberOfLines={1}>{title}</Txt>
         <Txt size={12} num color={t.faint}>{all.length} รายชื่อ</Txt>
       </View>
 
@@ -507,16 +625,16 @@ function ContactPicker({
 
       <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
         {shown.map((c) => (
-          <PickRow key={c.id} c={c} active={c.id === current.id} onPress={() => onPick(c)} />
+          <PickRow key={c.id} c={c} active={selectedIds.includes(c.id)} onPress={() => onPick(c)} />
         ))}
         {!shown.length ? (
           <Txt size={12.5} color={t.faint} style={{ paddingVertical: 8 }}>
-            ไม่พบรายชื่อที่ตรงกับคำค้น
+            {all.length ? 'ไม่พบรายชื่อที่ตรงกับคำค้น' : 'ยังไม่มีรายชื่อในสมุด — เพิ่มได้ที่ ตั้งค่า › สมุดรายชื่อ'}
           </Txt>
         ) : null}
-        {canRename ? (
+        {canRename && rename ? (
           <Pressable
-            onPress={() => onRename(query)}
+            onPress={() => rename.onRename(query)}
             style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -530,13 +648,24 @@ function ContactPicker({
             }}>
             <SvgIcon name="edit" size={14} color={ACCENT} />
             <Txt size={13} color={ACCENT} weight="med" style={{ flex: 1 }} numberOfLines={2}>
-              ใช้ “{query}” เป็นชื่อใหม่ของ {current.name}
+              ใช้ “{query}” เป็นชื่อใหม่ของ {rename.current.name}
             </Txt>
           </Pressable>
         ) : null}
       </ScrollView>
 
-      <Btn kind="ghost" label="ยกเลิก" onPress={onCancel} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={onCancel} />
+        {onOpenBook ? (
+          <Btn
+            style={{ flex: 1 }}
+            kind="ghost"
+            renderIcon={(c, s) => <Icon name="user" size={s} color={c} />}
+            label="สมุดรายชื่อ"
+            onPress={onOpenBook}
+          />
+        ) : null}
+      </View>
     </View>
   );
 }

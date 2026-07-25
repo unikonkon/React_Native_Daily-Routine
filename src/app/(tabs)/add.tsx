@@ -52,7 +52,8 @@ export default function AddScreen() {
   return (
     <Screen
       title={d.editId ? 'แก้ไขกิจกรรม' : 'เพิ่มกิจกรรม'}
-      subtitle={!d.cat || !hasTitle ? 'ขั้นที่ 1 จาก 4' : undefined}>
+      subtitle={!d.cat || !hasTitle ? 'ขั้นที่ 1 จาก 4' : undefined}
+      backFab>
       <DetailsSection />
       {d.cat && hasTitle ? <ScheduleSection /> : null}
     </Screen>
@@ -359,6 +360,7 @@ function ScheduleSection() {
       showToast(`เพิ่มแล้ว ${d.dates.length} วัน ✓`);
     }
     d.reset();
+    useUI.getState().closeSheet(); // บันทึกแล้วจบงาน — ทิ้งแผ่นที่พักไว้ ไม่ให้เด้งขึ้นทับหน้าวันนี้
     // ให้แท็บวันนี้เปิดโชว์วันแรกของกิจกรรมที่เพิ่งบันทึก — ผู้ใช้เห็นผลทันทีแม้ลงวันอื่น
     useUI.getState().setFocusDate(startDate);
     router.navigate('/');
