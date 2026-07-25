@@ -29,6 +29,8 @@ interface DraftState {
   setRepeat: (r: RepeatRule) => void;
   setHorizon: (h: Horizon) => void;
   toggleDate: (iso: string) => void;
+  /** ล้างเฉพาะขั้น "วันที่และการทำซ้ำ" — กลับไปวันนี้วันเดียว (ข้อมูลอื่นในฟอร์มคงไว้) */
+  resetDates: () => void;
   reset: () => void;
   loadActivity: (a: Activity) => void;
   loadSlot: (date: string, start: number, end: number) => void;
@@ -47,7 +49,7 @@ const initial = {
   end: 1170, // 19:30
   repeat: 'none' as RepeatRule,
   horizon: '1m' as Horizon,
-  notify: true,
+  notify: false, // ค่าเริ่มต้น: ปิดแจ้งเตือน — เปิดเองเมื่อกิจกรรมนั้นต้องการจริง ๆ
   before: 30,
 };
 
@@ -76,6 +78,8 @@ export const useDraft = create<DraftState>((set, get) => ({
     // แตะแก้ปฏิทินเอง → กลายเป็น "เลือกเอง" (ตาม prototype)
     set({ dates: dates.length ? dates : [todayISO()], repeat: dates.length > 1 ? 'custom' : get().repeat === 'none' ? 'none' : 'custom' });
   },
+
+  resetDates: () => set({ dates: [todayISO()], repeat: initial.repeat, horizon: initial.horizon }),
 
   reset: () => set({ ...initial, dates: [todayISO()] }),
 

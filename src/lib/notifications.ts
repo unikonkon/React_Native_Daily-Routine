@@ -93,7 +93,7 @@ async function resync(acts: Activity[], occ: OccMap, master: boolean, morning: b
       queue.push({
         at,
         title: `${CAT_BY_ID[it.cat].short} · ${it.title}`,
-        body: `เริ่ม ${fmtMin(it.startMin)} (อีก ${it.notifyBefore} นาที)`,
+        body: it.notifyBefore > 0 ? `เริ่ม ${fmtMin(it.startMin)} (อีก ${it.notifyBefore} นาที)` : `ถึงเวลาเริ่มแล้ว · ${fmtMin(it.startMin)}`,
       });
     }
   }

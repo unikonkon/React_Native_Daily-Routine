@@ -11,7 +11,7 @@ import { Screen } from '@/components/screen';
 import { TimeRangeModal } from '@/components/time-range-modal';
 import { Btn, Card, Chip, ChipRow, Toggle, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CATS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
-import { MONTH_TH_FULL, addDays, beYear, fmtMin, fromISO, hoursText, thaiDate } from '@/lib/dates';
+import { MONTH_TH_FULL, addDays, beYear, fmtMin, fromISO, hoursText, thaiDate, todayISO } from '@/lib/dates';
 import { conflictsOn, freeSlots, maskFromDates } from '@/lib/engine';
 import { HORIZON_DAYS, type Horizon, type RepeatRule } from '@/lib/types';
 import { getDay, useActivities, useDayReader } from '@/stores/activities';
@@ -36,6 +36,31 @@ const PERIOD_PRESETS = [
   { label: '17:00', start: 1020 },
   { label: '20:00', start: 1200 },
 ];
+
+// จุดแบ่ง "ช่วงดึก" — 01:00 ของวันถัดไป (นาทีในหน้าต่าง 06:00–30:00)
+const NIGHT_START = 1500;
+
+interface PreviewSlot {
+  start: number;
+  end: number;
+  night: boolean;
+}
+
+/** แยกช่วงว่างที่คร่อม 01:00 ออกเป็น 2 ท่อน — กลางวัน (…–01:00) + ดึก (01:00–06:00) · ท่อนสั้นกว่า 15 นาทีทิ้ง */
+function splitAtNight(slots: { start: number; end: number }[]): PreviewSlot[] {
+  const out: PreviewSlot[] = [];
+  for (const s of slots) {
+    const parts =
+      s.start < NIGHT_START && s.end > NIGHT_START
+        ? [
+            { start: s.start, end: NIGHT_START },
+            { start: NIGHT_START, end: s.end },
+          ]
+        : [s];
+    for (const p of parts) if (p.end - p.start >= SNAP) out.push({ ...p, night: p.start >= NIGHT_START });
+  }
+  return out;
+}
 
 const HORIZONS: { key: Horizon; label: string }[] = [
   { key: '1w', label: '1 สัปดาห์' },
@@ -301,6 +326,8 @@ function ScheduleSection() {
 
   const timeInvalid = d.end <= d.start;
   const duration = d.end - d.start;
+  // ขั้น 2 ถูกแก้จากค่าตั้งต้น (วันนี้วันเดียว ไม่ทำซ้ำ) หรือยัง — ใช้ตัดสินว่าจะโชว์ปุ่มรีเซ็ตวันที่
+  const datesDirty = d.repeat !== 'none' || d.dates.length > 1 || d.dates[0] !== todayISO();
   // ชิปช่วงเวลา active ตามเวลาเริ่มจริง — ครอบคลุมทั้งกดเองและค่าที่มาจากโหมดแก้ไข
   const activePeriod = PERIOD_PRESETS.find((p) => p.start === d.start);
 
@@ -308,7 +335,8 @@ function ScheduleSection() {
   const analysis = useMemo(() => {
     const per = d.dates.slice(0, 5).map((date) => {
       const items = getDay(date).filter((i) => i.id !== d.editId);
-      return { date, items, conflicts: conflictsOn(items, d.start, d.end), slots: freeSlots(items).slice(0, 4) };
+      // ช่วงว่าง — แยกท่อนดึก (01:00–06:00) ออกมาเป็นอีกชิ้น เพื่อไม่ให้ช่วงกลางวันถูกลากยาวข้ามคืน
+      return { date, items, conflicts: conflictsOn(items, d.start, d.end), slots: splitAtNight(freeSlots(items)).slice(0, 6) };
     });
     const conflictDays = d.dates.filter((date) => {
       const items = getDay(date).filter((i) => i.id !== d.editId);
@@ -368,7 +396,24 @@ function ScheduleSection() {
 
   return (
     <>
-      <StepSection n={2} title="วันที่และการทำซ้ำ" done={d.dates.length > 0}>
+      <StepSection
+        n={2}
+        title="วันที่และการทำซ้ำ"
+        done={d.dates.length > 0}
+        right={
+          // มีวันที่ให้ล้างไหม — โผล่เมื่อไม่ใช่ "วันนี้วันเดียว" แล้ว (ล้างเฉพาะขั้นนี้ ไม่แตะหมวด/ชื่อ/เวลา)
+          datesDirty ? (
+            <Chip
+              small
+              icon="restore"
+              label="รีเซ็ตวันที่"
+              onPress={() => {
+                d.resetDates();
+                showToast('รีเซ็ตเป็นวันนี้วันเดียวแล้ว');
+              }}
+            />
+          ) : undefined
+        }>
         {/* ทำซ้ำ + ปฏิทินเลือกวันที่ รวมในการ์ดพื้นหลังเดียว คั่นด้วยเส้นบาง — สรุปจำนวนวันอยู่ท้ายการ์ด */}
         <Card style={{ gap: 10 }}>
           <Txt size={14} color={t.faint} style={{ textAlign: 'center' }}>
@@ -470,7 +515,18 @@ function ScheduleSection() {
 
         {/* พรีวิวรายวัน (≤3 วัน) */}
         {d.dates.length <= 5 ? (
-          analysis.per.map((p) => <DayPreview key={p.date} {...p} newStart={d.start} newEnd={d.end} />)
+          analysis.per.map((p) => (
+            <DayPreview
+              key={p.date}
+              {...p}
+              newStart={d.start}
+              newEnd={d.end}
+              onPickSlot={(s, e) => {
+                d.set({ start: s, end: e });
+                showToast(`ใช้ช่วงว่าง ${fmtMin(s)}–${fmtMin(e)} แล้ว`);
+              }}
+            />
+          ))
         ) : (
           <Txt size={12} color={t.faint} style={{ textAlign: 'center' }}>
             เลือกไว้ {d.dates.length} วัน — พรีวิวรายวันแสดงเมื่อเลือกไม่เกิน 3 วัน
@@ -488,8 +544,9 @@ function ScheduleSection() {
           </View>
           {d.notify ? (
             <ChipRow>
-              {[1, 5, 10, 15, 30, 60, 120].map((m) => (
-                <Chip key={m} small label={`${m} นาที`} active={d.before === m} onPress={() => d.set({ before: m })} />
+              {/* 0 = แจ้งทันทีตอนถึงเวลาเริ่ม */}
+              {[0, 1, 5, 10, 15, 30, 60, 120].map((m) => (
+                <Chip key={m} small label={m === 0 ? 'แจ้งทันที' : `${m} นาที`} active={d.before === m} onPress={() => d.set({ before: m })} />
               ))}
             </ChipRow>
           ) : null}
@@ -527,15 +584,17 @@ interface DayPreviewProps {
   date: string;
   items: ReturnType<typeof getDay>;
   conflicts: ReturnType<typeof getDay>;
-  slots: { start: number; end: number }[];
+  slots: PreviewSlot[];
   newStart: number;
   newEnd: number;
+  /** แตะช่วงว่าง → ยกช่วงเวลานั้นไปใส่ในขั้น "เวลา" */
+  onPickSlot: (start: number, end: number) => void;
 }
 
 // จุดบอกเวลาใต้แถบไทม์ไลน์พรีวิว (หน้าต่างวันคือ 06:00–30:00 ครบ 24 ชม.)
 const PREVIEW_TICKS = [360, 720, 1080, 1440, 1800]; // 06:00 12:00 18:00 24:00 06:00(+1)
 
-function DayPreview({ date, items, conflicts, slots, newStart, newEnd }: DayPreviewProps) {
+function DayPreview({ date, items, conflicts, slots, newStart, newEnd, onPickSlot }: DayPreviewProps) {
   const t = useTokens();
   const span = DAY_END - DAY_START;
   const pct = (m: number) => ((Math.min(Math.max(m, DAY_START), DAY_END) - DAY_START) / span) * 100;
@@ -577,15 +636,36 @@ function DayPreview({ date, items, conflicts, slots, newStart, newEnd }: DayPrev
         </View>
       </View>
       {slots.length ? (
-        <ChipRow>
-          {slots.map((s) => (
-            <View key={s.start} style={{ backgroundColor: GREEN + '22', borderRadius: 99, paddingHorizontal: 8, paddingVertical: 3 }}>
-              <Txt size={11} num color={GREEN}>
-                {fmtMin(s.start)}–{fmtMin(s.end)} ({hoursText(s.end - s.start)})
-              </Txt>
-            </View>
-          ))}
-        </ChipRow>
+        <>
+          <Txt size={11} color={t.faint}>แตะช่วงว่างเพื่อใช้เป็นเวลาเริ่ม–สิ้นสุด</Txt>
+          <ChipRow>
+            {slots.map((s) => {
+              const on = newStart === s.start && newEnd === s.end; // ช่วงที่กำลังใช้อยู่
+              const c = s.night ? t.sub : GREEN; // ท่อนดึก (01:00–06:00) โทนเงียบกว่า
+              return (
+                <Pressable
+                  key={`${s.start}-${s.end}`}
+                  onPress={() => onPickSlot(s.start, s.end)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    backgroundColor: c + (on ? '3a' : '22'),
+                    borderRadius: 99,
+                    borderWidth: 1,
+                    borderColor: on ? c : 'transparent',
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                  }}>
+                  {s.night ? <Icon name="moon" size={11} color={c} /> : null}
+                  <Txt size={11} num weight={on ? 'bold' : 'reg'} color={c}>
+                    {fmtMin(s.start)}–{fmtMin(s.end)} ({hoursText(s.end - s.start)})
+                  </Txt>
+                </Pressable>
+              );
+            })}
+          </ChipRow>
+        </>
       ) : null}
       {conflicts.length ? (
         <Txt size={12} color="#D2603A">ชนกับ: {conflicts.map((c) => c.title).join(', ')}</Txt>
