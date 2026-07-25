@@ -1,23 +1,43 @@
 // หน้าสถิติ — "ใบรายงาน" (Layout B): ฟิลเตอร์แท็บขีดเส้นใต้ + การ์ดรายงานใหญ่ (% เด่น + สปาร์กไลน์ + แถวตัวชี้วัด)
 // เลือกช่วง: สัปดาห์/เดือน (เลื่อนช่วงได้) · ทั้งหมด — ดึงจาก store (series+occ) ผ่าน engine.rangeStats (pure)
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Svg, { Circle, Polygon, Polyline } from 'react-native-svg';
 
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
-import { Card, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CATS, GREEN, PRI, PRI_BY_ID, type PriorityId } from '@/constants/theme';
+import { SvgIcon } from '@/components/svg-icon';
+import { Card, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
+import { ACCENT, CATS, FONT, GREEN, PRI, PRI_BY_ID, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, nowMin, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
 import { computeStats, rangeStats } from '@/lib/engine';
-import type { DayItem } from '@/lib/types';
+import type { Contact, DayItem } from '@/lib/types';
 import { useActivities } from '@/stores/activities';
-import { useContacts } from '@/stores/contacts';
+import { meetLink, useContacts, zoomDeepLink } from '@/stores/contacts';
 import { useUI } from '@/stores/ui';
 
 type Mode = 'week' | 'month' | 'all';
+/** 2 แท็บในการ์ดนัดเคส: ตามระดับความสำคัญ · รายชื่อคน */
+type CaseTab = 'pri' | 'people';
 
 const PER_LABEL: Record<Mode, string> = { week: 'รายวัน', month: 'รายสัปดาห์', all: 'รายเดือน' };
+
+/** ลำดับความสำคัญ (P1 = 0 สำคัญสุด) — ใช้จัดเรียง & เลือกระดับตัวแทนของคนที่มีหลายรายชื่อ */
+const PRI_RANK = Object.fromEntries(PRI.map((p, i) => [p.id, i])) as Record<PriorityId, number>;
+
+/** ชื่อ normalize สำหรับรวมคนซ้ำ — ตัดช่องว่างหัวท้าย/ซ้ำ + ไม่สนตัวพิมพ์ */
+const nameKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/** คน 1 คนในแท็บ "รายชื่อคน" — รวมทุก contact ที่ชื่อเหมือนกันเป็นคนเดียว */
+interface Person {
+  key: string; // ชื่อ normalize แล้ว
+  name: string; // ชื่อที่แสดง
+  pri: PriorityId; // ระดับประจำตัวที่สำคัญสุดในกลุ่ม
+  contacts: Contact[]; // รายชื่อที่ชื่อเหมือนกัน (เรียงระดับสำคัญก่อน)
+  items: DayItem[]; // นัดเคสของคนนี้ในช่วงที่เลือก (เรียงตามวัน)
+  done: number;
+  hours: number; // ชั่วโมงของนัดที่ทำเสร็จ
+}
 
 export default function StatsScreen() {
   const t = useTokens();
@@ -28,14 +48,22 @@ export default function StatsScreen() {
   const [offset, setOffset] = useState(0); // 0 = ปัจจุบัน, +1 = ย้อนหลัง 1 ช่วง (เฉพาะสัปดาห์/เดือน)
   const [openCases, setOpenCases] = useState(false); // เปิดรายการเคสทั้งหมด
   const [priFilter, setPriFilter] = useState<PriorityId | null>(null); // กรองรายการเคสตามระดับที่แตะ
+  const [caseTab, setCaseTab] = useState<CaseTab>('pri'); // แท็บในการ์ดนัดเคส
+  const [personKey, setPersonKey] = useState<string | null>(null); // คนที่เปิดดูรายละเอียด (null = แสดงรายชื่อ)
+  const [peopleQuery, setPeopleQuery] = useState(''); // ค้นหาชื่อคนในแท็บรายชื่อ
   const today = todayISO();
+  const showToast = useUI((s) => s.showToast);
 
   // ชื่อผู้ติดต่อ (id → ชื่อ) สำหรับแสดงในรายละเอียดเคส
-  const contactName = useContacts((s) => s.list);
-  const nameById = useMemo(() => Object.fromEntries(contactName.map((c) => [c.id, c.name])) as Record<number, string>, [contactName]);
+  const contactList = useContacts((s) => s.list);
+  const nameById = useMemo(() => Object.fromEntries(contactList.map((c) => [c.id, c.name])) as Record<number, string>, [contactList]);
 
-  // เปลี่ยนช่วง/มุมมอง → ล้างตัวกรองเคส
-  const resetCaseFilter = () => setPriFilter(null);
+  // เปลี่ยนช่วง/มุมมอง → ล้างตัวกรองเคส + กลับไปหน้ารายชื่อ + ล้างคำค้น (ข้อมูลคนละช่วงกันแล้ว)
+  const resetCaseView = () => {
+    setPriFilter(null);
+    setPersonKey(null);
+    setPeopleQuery('');
+  };
 
   // วันแรกสุดที่มีข้อมูล (ใช้เป็นจุดเริ่มของ "ทั้งหมด")
   const earliest = useMemo(() => {
@@ -117,6 +145,54 @@ export default function StatsScreen() {
   const avgDone = stats.countedDays ? stats.done / stats.countedDays : 0;
   const noData = stats.countedDays === 0;
 
+  /**
+   * แท็บ "รายชื่อคน" — จับนัดเคสในช่วงที่เลือกมาจัดกลุ่มตามคน
+   *  • ชื่อซ้ำ (contact หลาย record ชื่อเดียวกัน) → รวมเป็นคนเดียว, ข้อมูลติดต่อรวมกัน
+   *  • นัดเดียวที่ผูกหลายคน → นับให้ทุกคน แต่คนคนเดียวไม่นับซ้ำในนัดเดียว
+   *  • นัดที่ไม่ได้ผูกรายชื่อ (หรือรายชื่อถูกลบ) → นับไว้เป็น unnamed แสดงเป็นหมายเหตุ
+   */
+  const people = useMemo(() => {
+    const byId = new Map(contactList.map((c) => [c.id, c]));
+    const map = new Map<string, Person>();
+    let unnamed = 0;
+    for (const it of stats.caseItems) {
+      const found = it.contactIds.map((id) => byId.get(id)).filter((c): c is Contact => !!c && !!c.name.trim());
+      if (!found.length) {
+        unnamed++;
+        continue;
+      }
+      const counted = new Set<string>(); // กันนับนัดเดียวซ้ำให้คนเดียวกัน
+      for (const c of found) {
+        const key = nameKey(c.name);
+        const p = map.get(key) ?? { key, name: c.name.trim(), pri: c.priority, contacts: [], items: [], done: 0, hours: 0 };
+        if (!p.contacts.some((x) => x.id === c.id)) p.contacts.push(c);
+        if (PRI_RANK[c.priority] < PRI_RANK[p.pri]) p.pri = c.priority;
+        if (!counted.has(key)) {
+          counted.add(key);
+          p.items.push(it);
+          if (it.ostatus === 'done') {
+            p.done++;
+            p.hours += (it.endMin - it.startMin) / 60;
+          }
+        }
+        map.set(key, p);
+      }
+    }
+    for (const p of map.values()) {
+      p.contacts.sort((a, b) => PRI_RANK[a.priority] - PRI_RANK[b.priority]);
+      p.items.sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin);
+    }
+    // เรียง: นัดมากสุด → ระดับสำคัญ → ชื่อไทย
+    const list = [...map.values()].sort(
+      (a, b) => b.items.length - a.items.length || PRI_RANK[a.pri] - PRI_RANK[b.pri] || a.name.localeCompare(b.name, 'th'),
+    );
+    return { list, unnamed };
+  }, [stats.caseItems, contactList]);
+
+  const q = peopleQuery.trim().toLowerCase();
+  const peopleShown = q ? people.list.filter((p) => p.key.includes(q)) : people.list;
+  const person = personKey ? people.list.find((p) => p.key === personKey) ?? null : null; // หาไม่เจอ (เปลี่ยนช่วง) → กลับไปแสดงรายชื่อ
+
   return (
     <Screen title="สถิติ" subtitle="รายงานสรุปจากที่บันทึกไว้" back>
       {/* ฟิลเตอร์ + เลื่อนช่วง */}
@@ -130,7 +206,7 @@ export default function StatsScreen() {
                 onPress={() => {
                   setMode(k);
                   setOffset(0);
-                  resetCaseFilter();
+                  resetCaseView();
                 }}
                 style={{ paddingVertical: 8, borderBottomWidth: 2, borderBottomColor: on ? ACCENT : 'transparent', marginBottom: -StyleSheet.hairlineWidth }}>
                 <Txt size={14.5} weight={on ? 'bold' : 'med'} color={on ? t.ink : t.sub}>
@@ -142,16 +218,16 @@ export default function StatsScreen() {
         </View>
 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {mode !== 'all' ? <NavBtn icon="chevL" onPress={() => { setOffset(offset + 1); resetCaseFilter(); }} /> : null}
+          {mode !== 'all' ? <NavBtn icon="chevL" onPress={() => { setOffset(offset + 1); resetCaseView(); }} /> : null}
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Txt size={14} weight="bold">{range.label}</Txt>
             {mode !== 'all' && offset !== 0 ? (
-              <Pressable onPress={() => { setOffset(0); resetCaseFilter(); }} hitSlop={6}>
+              <Pressable onPress={() => { setOffset(0); resetCaseView(); }} hitSlop={6}>
                 <Txt size={10} color={ACCENT}>ย้อนหลัง · กลับปัจจุบัน</Txt>
               </Pressable>
             ) : null}
           </View>
-          {mode !== 'all' ? <NavBtn icon="chevR" disabled={!range.canNext} onPress={() => { setOffset(offset - 1); resetCaseFilter(); }} /> : null}
+          {mode !== 'all' ? <NavBtn icon="chevR" disabled={!range.canNext} onPress={() => { setOffset(offset - 1); resetCaseView(); }} /> : null}
         </View>
       </View>
 
@@ -223,74 +299,109 @@ export default function StatsScreen() {
             )}
           </Card>
 
-          {/* นัดเคสตามความสำคัญ — อธิบายว่าแต่ละระดับคือเคสอะไร + แตะเพื่อดูรายละเอียดเคสทั้งหมด */}
+          {/* นัดเคส — 2 แท็บ: ตามความสำคัญ (ระดับ P1–P6) · รายชื่อคน (ชื่อไม่ซ้ำ · ค้นหาได้ · แตะดูรายละเอียด) */}
           {stats.caseItems.length ? (
             <Card style={{ gap: 12 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Txt size={12} weight="bold" color={t.sub}>นัดเคสตามความสำคัญ</Txt>
-                <Txt size={12} num color={t.faint}>{stats.caseItems.length} เคส</Txt>
+                <Txt size={12} weight="bold" color={t.sub}>นัดเคส</Txt>
+                <Txt size={12} num color={t.faint}>{stats.caseItems.length} เคส · {people.list.length} คน</Txt>
               </View>
 
-              {/* แถวอธิบายระดับ: ป้าย + ความหมาย + จำนวน (แตะเพื่อกรองรายการด้านล่าง) */}
-              <View style={{ gap: 2 }}>
-                {priShown.map((p) => {
-                  const on = priFilter === p.id;
-                  return (
-                    <Pressable
-                      key={p.id}
-                      onPress={() => {
-                        setPriFilter(on ? null : p.id);
-                        setOpenCases(true);
-                      }}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 10,
-                        paddingVertical: 7,
-                        paddingHorizontal: 8,
-                        borderRadius: 10,
-                        backgroundColor: on ? p.color + '1F' : 'transparent',
-                      }}>
-                      <View style={{ backgroundColor: p.color, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, minWidth: 28, alignItems: 'center' }}>
-                        <Txt size={11} weight="bold" color="#FFFFFF">{p.id}</Txt>
-                      </View>
-                      <Txt size={13} weight="med" style={{ flex: 1 }} numberOfLines={1}>{p.label}</Txt>
-                      <Txt size={13} num weight="bold" color={t.sub}>{stats.caseByPriority[p.id]}</Txt>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              {/* ปุ่มเปิด/ปิดรายการเคสทั้งหมด */}
-              <Pressable
-                onPress={() => {
-                  const next = !openCases;
-                  setOpenCases(next);
-                  if (!next) resetCaseFilter();
+              <Segmented
+                options={[
+                  { key: 'pri', label: 'ตามความสำคัญ' },
+                  { key: 'people', label: `รายชื่อคน (${people.list.length})`, icon: 'users' },
+                ]}
+                value={caseTab}
+                onChange={(k) => {
+                  setCaseTab(k);
+                  setPersonKey(null);
                 }}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, paddingTop: 10 }}>
-                <Txt size={12.5} weight="med" color={ACCENT} style={{ flex: 1 }}>
-                  {openCases
-                    ? priFilter
-                      ? `กรองเฉพาะ ${priFilter} · แตะเพื่อซ่อน`
-                      : 'ซ่อนรายละเอียดเคส'
-                    : `ดูรายละเอียดเคสทั้งหมด (${stats.caseItems.length})`}
-                </Txt>
-                <Icon name={openCases ? 'chevD' : 'chevR'} size={16} color={ACCENT} />
-              </Pressable>
+              />
 
-              {/* รายการเคส — แตะเปิด bottom sheet รายละเอียดเต็ม */}
-              {openCases ? (
-                casesFiltered.length ? (
-                  <View>
-                    {casesFiltered.map((it, i) => (
-                      <CaseRow key={`${it.id}:${it.date}`} it={it} first={i === 0} nameById={nameById} />
-                    ))}
+              {caseTab === 'pri' ? (
+                <>
+                  {/* แถวอธิบายระดับ: ป้าย + ความหมาย + จำนวน (แตะเพื่อกรองรายการด้านล่าง) */}
+                  <View style={{ gap: 2 }}>
+                    {priShown.map((p) => {
+                      const on = priFilter === p.id;
+                      return (
+                        <Pressable
+                          key={p.id}
+                          onPress={() => {
+                            setPriFilter(on ? null : p.id);
+                            setOpenCases(true);
+                          }}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 10,
+                            paddingVertical: 7,
+                            paddingHorizontal: 8,
+                            borderRadius: 10,
+                            backgroundColor: on ? p.color + '1F' : 'transparent',
+                          }}>
+                          <View style={{ backgroundColor: p.color, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, minWidth: 28, alignItems: 'center' }}>
+                            <Txt size={11} weight="bold" color="#FFFFFF">{p.id}</Txt>
+                          </View>
+                          <Txt size={13} weight="med" style={{ flex: 1 }} numberOfLines={1}>{p.label}</Txt>
+                          <Txt size={13} num weight="bold" color={t.sub}>{stats.caseByPriority[p.id]}</Txt>
+                        </Pressable>
+                      );
+                    })}
                   </View>
-                ) : (
-                  <Txt size={12} color={t.faint} style={{ paddingVertical: 6 }}>ไม่มีเคสระดับนี้ในช่วงที่เลือก</Txt>
-                )
-              ) : null}
+
+                  {/* ปุ่มเปิด/ปิดรายการเคสทั้งหมด */}
+                  <Pressable
+                    onPress={() => {
+                      const next = !openCases;
+                      setOpenCases(next);
+                      if (!next) resetCaseView();
+                    }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, paddingTop: 10 }}>
+                    <Txt size={12.5} weight="med" color={ACCENT} style={{ flex: 1 }}>
+                      {openCases
+                        ? priFilter
+                          ? `กรองเฉพาะ ${priFilter} · แตะเพื่อซ่อน`
+                          : 'ซ่อนรายละเอียดเคส'
+                        : `ดูรายละเอียดเคสทั้งหมด (${stats.caseItems.length})`}
+                    </Txt>
+                    <Icon name={openCases ? 'chevD' : 'chevR'} size={16} color={ACCENT} />
+                  </Pressable>
+
+                  {/* รายการเคส — แตะเปิด bottom sheet รายละเอียดเต็ม */}
+                  {openCases ? (
+                    casesFiltered.length ? (
+                      <View>
+                        {casesFiltered.map((it, i) => (
+                          <CaseRow key={`${it.id}:${it.date}`} it={it} first={i === 0} nameById={nameById} />
+                        ))}
+                      </View>
+                    ) : (
+                      <Txt size={12} color={t.faint} style={{ paddingVertical: 6 }}>ไม่มีเคสระดับนี้ในช่วงที่เลือก</Txt>
+                    )
+                  ) : null}
+                </>
+              ) : person ? (
+                /* รายละเอียดคนคนเดียว — ข้อมูลติดต่อ + สรุปนัด + รายการนัดของคนนี้ */
+                <PersonDetail p={person} nameById={nameById} onBack={() => setPersonKey(null)} showToast={showToast} />
+              ) : (
+                <>
+                  <SearchBox value={peopleQuery} onChange={setPeopleQuery} placeholder="ค้นหาชื่อคน…" />
+                  {peopleShown.length ? (
+                    <View>
+                      {peopleShown.map((p, i) => (
+                        <PersonRow key={p.key} p={p} first={i === 0} onPress={() => setPersonKey(p.key)} />
+                      ))}
+                    </View>
+                  ) : (
+                    <Txt size={12} color={t.faint} style={{ paddingVertical: 6 }}>ไม่พบชื่อที่ตรงกับคำค้น — ลองล้างคำค้น</Txt>
+                  )}
+                  {people.unnamed ? (
+                    <Txt size={11} color={t.faint}>อีก {people.unnamed} เคสในช่วงนี้ไม่ได้ระบุผู้ติดต่อ</Txt>
+                  ) : null}
+                </>
+              )}
             </Card>
           ) : null}
         </>
@@ -377,6 +488,178 @@ function PeriodBars({ series }: { series: { label: string; done: number }[] }) {
           <Txt size={9} color={t.faint} numberOfLines={1}>{s.label}</Txt>
         </View>
       ))}
+    </View>
+  );
+}
+
+/** ช่องค้นหา (รูปแบบเดียวกับสมุดรายชื่อ) */
+function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  const t = useTokens();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, paddingHorizontal: 12 }}>
+      <Icon name="search" size={16} color={t.faint} />
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor={t.faint}
+        autoCorrect={false}
+        style={{ flex: 1, paddingVertical: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
+      />
+      {value ? (
+        <Pressable onPress={() => onChange('')} hitSlop={6}>
+          <Icon name="x" size={16} color={t.faint} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/** แถวคน 1 คนในแท็บรายชื่อ — ป้ายระดับ · ชื่อ · สรุปย่อ · จำนวนนัด (แตะดูรายละเอียด) */
+function PersonRow({ p, first, onPress }: { p: Person; first: boolean; onPress: () => void }) {
+  const t = useTokens();
+  const pri = PRI_BY_ID[p.pri];
+  const last = p.items[p.items.length - 1];
+  const d = last ? fromISO(last.date) : null;
+  const sub = [
+    `เสร็จ ${p.done}/${p.items.length}`,
+    p.hours ? hoursText(p.hours * 60) : null,
+    d ? `ล่าสุด ${d.getDate()} ${MONTH_TH[d.getMonth()]}` : null,
+    p.contacts.length > 1 ? `รวม ${p.contacts.length} รายชื่อชื่อเดียวกัน` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 10,
+        borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
+        borderTopColor: t.line,
+      }}>
+      <View style={{ backgroundColor: pri.color, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, minWidth: 28, alignItems: 'center' }}>
+        <Txt size={11} weight="bold" color="#FFFFFF">{pri.id}</Txt>
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Txt size={13.5} weight="med" numberOfLines={1}>{p.name}</Txt>
+        <Txt size={11} color={t.faint} numberOfLines={1}>{sub}</Txt>
+      </View>
+      <Txt size={13} num weight="bold" color={t.sub}>{p.items.length}</Txt>
+      <Icon name="chevR" size={15} color={t.faint} />
+    </Pressable>
+  );
+}
+
+/** รายละเอียดคน 1 คน (drill-down ในการ์ด) — ปุ่มย้อนกลับ + ช่องทางติดต่อ + สรุปนัดในช่วง + รายการนัด */
+function PersonDetail({
+  p,
+  nameById,
+  onBack,
+  showToast,
+}: {
+  p: Person;
+  nameById: Record<number, string>;
+  onBack: () => void;
+  showToast: (m: string) => void;
+}) {
+  const t = useTokens();
+  const rate = p.items.length ? p.done / p.items.length : 0;
+  return (
+    <View style={{ gap: 12 }}>
+      <Pressable onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="chevL" size={16} color={t.sub} />
+        </View>
+        <Txt size={15} weight="bold" style={{ flex: 1 }} numberOfLines={1}>{p.name}</Txt>
+        <PriBadge id={p.pri} withLabel />
+      </Pressable>
+
+      <ContactMethods contacts={p.contacts} showToast={showToast} />
+
+      {/* สรุปนัดของคนนี้ในช่วงที่เลือก */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <MiniStat k="นัดในช่วงนี้" v={`${p.items.length}`} />
+        <MiniStat k="ทำเสร็จ" v={`${p.done}`} tint={p.done ? GREEN : undefined} />
+        <MiniStat k="อัตราสำเร็จ" v={`${Math.round(rate * 100)}%`} />
+        <MiniStat k="ชั่วโมงรวม" v={hoursText(p.hours * 60)} />
+      </View>
+
+      {/* รายการนัดของคนนี้ — แตะเปิด bottom sheet รายละเอียดเต็ม */}
+      <View>
+        {p.items.map((it, i) => (
+          <CaseRow key={`${it.id}:${it.date}`} it={it} first={i === 0} nameById={nameById} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** ช่องทางติดต่อ — รวมจากทุกรายชื่อที่ชื่อเหมือนกัน (ค่าซ้ำแสดงครั้งเดียว) · แตะเพื่อเปิดแอป */
+function ContactMethods({ contacts, showToast }: { contacts: Contact[]; showToast: (m: string) => void }) {
+  const t = useTokens();
+
+  const methods = useMemo(() => {
+    const out: { label: string; icon: string; display: string; url: string }[] = [];
+    const seen = new Set<string>();
+    const add = (m: { label: string; icon: string; display: string; url: string }) => {
+      const k = `${m.label}:${m.display}`;
+      if (seen.has(k)) return;
+      seen.add(k);
+      out.push(m);
+    };
+    for (const c of contacts) {
+      if (c.phone) add({ label: 'เบอร์โทร', icon: 'phone', display: c.phone, url: `tel:${c.phone.replace(/[^0-9+]/g, '')}` });
+      if (c.line) add({ label: 'LINE', icon: 'line', display: c.line, url: `https://line.me/R/ti/p/~${c.line.replace(/^@/, '')}` });
+      if (c.email) add({ label: 'อีเมล', icon: 'mail', display: c.email, url: `mailto:${c.email}` });
+      if (c.zoom) add({ label: 'Zoom', icon: 'video', display: 'ห้อง Zoom', url: zoomDeepLink(c.zoom) });
+      if (c.googlemeet) add({ label: 'Google Meet', icon: 'video', display: 'ห้อง Google Meet', url: meetLink(c.googlemeet) });
+    }
+    return out;
+  }, [contacts]);
+
+  const notes = contacts.map((c) => c.note?.trim()).filter(Boolean) as string[];
+
+  const open = async (label: string, url: string) => {
+    showToast(`กำลังเปิด ${label}…`);
+    try {
+      await Linking.openURL(url);
+    } catch {
+      showToast('เปิดแอปไม่ได้');
+    }
+  };
+
+  return (
+    <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: t.line, padding: 12, gap: 9 }}>
+      {methods.map((m) => (
+        <Pressable key={`${m.label}:${m.display}`} onPress={() => open(m.label, m.url)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <SvgIcon name={m.icon} size={14} color={t.sub} />
+          <Txt size={13} style={{ flex: 1 }} numberOfLines={1}>{m.display}</Txt>
+          <SvgIcon name="extLink" size={14} color={ACCENT} />
+        </Pressable>
+      ))}
+      {notes.map((n, i) => (
+        <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
+          <View style={{ paddingTop: 1 }}><SvgIcon name="note" size={13} color={t.sub} /></View>
+          <Txt size={12} color={t.sub} style={{ flex: 1 }}>{n}</Txt>
+        </View>
+      ))}
+      {methods.length === 0 && notes.length === 0 ? (
+        <Txt size={12} color={t.faint}>ยังไม่มีช่องทางติดต่อ — เพิ่มได้ในสมุดรายชื่อ</Txt>
+      ) : null}
+    </View>
+  );
+}
+
+/** กล่องตัวเลขย่อยในรายละเอียดคน (เรียง 2 คอลัมน์บนจอเล็ก) */
+function MiniStat({ k, v, tint }: { k: string; v: string; tint?: string }) {
+  const t = useTokens();
+  return (
+    <View style={{ flexGrow: 1, minWidth: '46%', backgroundColor: t.chip, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, gap: 2 }}>
+      <Txt size={11} color={t.sub}>{k}</Txt>
+      <Txt size={15} num weight="bold" color={tint}>{v}</Txt>
     </View>
   );
 }
