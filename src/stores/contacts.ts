@@ -79,6 +79,18 @@ export function meetLink(raw: string): string {
   return code ? `https://meet.google.com/${code}` : s;
 }
 
+/** ช่องทางติดต่อที่คนนี้มี พร้อมหัวข้อกำกับ — ใช้แสดงรายละเอียดของคนที่เลือกไว้ (ฟอร์มนัดเคส ฯลฯ) */
+export function contactChannels(c: Contact): { icon: string; label: string; value: string }[] {
+  return [
+    c.phone && { icon: 'phone', label: 'โทร', value: c.phone },
+    c.line && { icon: 'line', label: 'LINE', value: c.line },
+    c.email && { icon: 'mail', label: 'อีเมล', value: c.email },
+    c.zoom && { icon: 'video', label: 'Zoom', value: c.zoom },
+    c.googlemeet && { icon: 'video', label: 'Meet', value: c.googlemeet },
+    c.note && { icon: 'note', label: 'หมายเหตุ', value: c.note },
+  ].filter(Boolean) as { icon: string; label: string; value: string }[];
+}
+
 interface ContactsState {
   list: Contact[];
   boot: () => Promise<void>;

@@ -6,7 +6,7 @@ import Animated, { FadeInLeft } from 'react-native-reanimated';
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
 import { ACCENT } from '@/constants/theme';
-import type { DayItem } from '@/lib/types';
+import type { Contact, DayItem } from '@/lib/types';
 import { useContacts } from '@/stores/contacts';
 
 export type View3 = 'day' | 'week' | 'month' | 'year';
@@ -28,6 +28,22 @@ export function useCaseNames(): (it: DayItem) => string {
     const nameById = Object.fromEntries(contacts.map((c) => [c.id, c.name])) as Record<number, string>;
     return (it: DayItem) => caseNames(it, nameById);
   }, [contacts]);
+}
+
+/** รายชื่อเต็ม ๆ ของนัดเคส (ตามลำดับที่ผูกไว้) — สำหรับที่ที่มีเนื้อที่พอโชว์รายละเอียด เช่นบล็อกในมุมมองวัน */
+export function useCaseContacts(): (it: DayItem) => Contact[] {
+  const contacts = useContacts((s) => s.list);
+  return useMemo(() => {
+    const byId = new Map(contacts.map((c) => [c.id, c]));
+    return (it: DayItem) => it.contactIds.map((id) => byId.get(id)).filter((c): c is Contact => !!c);
+  }, [contacts]);
+}
+
+/** ช่องทางติดต่อที่คนนี้มี ย่อเป็นบรรทัดเดียว — มีป้ายกำกับหน้าค่าที่อ่านเองไม่ออก (โทร/LINE) */
+export function contactLine(c: Contact): string {
+  return [c.phone && `โทร ${c.phone}`, c.line && `LINE ${c.line}`, c.email, c.zoom && 'ห้อง Zoom', c.googlemeet && 'ห้อง Meet']
+    .filter(Boolean)
+    .join(' · ');
 }
 
 const VIEW_TABS: { key: View3; label: string; icon: string }[] = [

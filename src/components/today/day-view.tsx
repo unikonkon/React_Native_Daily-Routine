@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
-import { DrillBack, useCaseNames, ViewSwitcher, type View3 } from '@/components/today/parts';
+import { contactLine, DrillBack, useCaseContacts, useCaseNames, ViewSwitcher, type View3 } from '@/components/today/parts';
 import { PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { addDays, beYear, fmtMin, fmtRange, fromISO, hoursText, mondayOf, MONTH_TH_FULL, nowMin, thaiDate, todayISO, WD_TH } from '@/lib/dates';
@@ -17,6 +17,7 @@ const GUTTER = 52;
 const TIME_COL = 34; // คอลัมน์เวลาในบล็อก — พอดี "10:30" ที่ 10.5px ของ Space Grotesk
 const COMPACT_MIN = 40; // นาที — สั้นกว่านี้ยุบเหลือบรรทัดเดียว (ไม่มีที่พอสำหรับบรรทัดรอง)
 const SUB_MIN_H = 40; // px — ความสูงขั้นต่ำที่บรรทัดรอง (สถานที่/ชื่อคน) ลงได้โดยไม่โดนตัด
+const ROW_H = 14; // px — ความสูงคงที่ของบรรทัดรายชื่อ/ช่องทางติดต่อ (ใช้คำนวณว่าบล็อกใส่ได้กี่บรรทัด)
 const SKIP = '#8A8175'; // เทาอุ่น (= สีระดับ P6) สำหรับ "ข้าม" — ไม่ใช้ DANGER เพราะข้ามไม่ใช่ความผิดพลาด
 
 /**
@@ -208,6 +209,7 @@ function DayTimeline({
   const t = useTokens();
   const scRef = useRef<ScrollView>(null);
   const caseNamesOf = useCaseNames();
+  const caseContactsOf = useCaseContacts();
   const height = (DAY_END - DAY_START) * PX;
   const lanes = useMemo(() => assignLanes(items), [items]);
   const slots = useMemo(() => (freeMode ? daytimeFreeSlots(items) : []), [freeMode, items]);
@@ -250,6 +252,13 @@ function DayTimeline({
           const st = STATUS_UI[it.ostatus]; // undefined = planned (ยังไม่ทำ)
           // นัดเคส → ชื่อผู้ติดต่อ เหมือนมุมมองสัปดาห์ · ไม่มีรายชื่อผูกไว้ → ถอยไปใช้สถานที่
           const sub = (cat.isCase ? caseNamesOf(it) : '') || it.loc || '';
+          // นัดเคสที่มีรายชื่อ + บล็อกสูงพอ → กางรายชื่อทั้งหมด + ช่องทางติดต่อที่มี (ใส่ได้กี่บรรทัดตามความสูงจริง)
+          const people = cat.isCase && !compact && h >= SUB_MIN_H ? caseContactsOf(it) : [];
+          const detailRows = people.map((c) => ({ key: `c${c.id}`, icon: 'user', head: c.name, body: contactLine(c) }));
+          if (detailRows.length && it.loc) detailRows.push({ key: 'loc', icon: 'mappin', head: '', body: it.loc });
+          const roomRows = Math.max(1, Math.floor((h - 24) / ROW_H)); // 24 = แถวหัวเรื่อง + padding บน/ล่าง
+          const overflow = Math.max(0, detailRows.length - roomRows);
+          const shownRows = overflow ? detailRows.slice(0, Math.max(1, roomRows - 1)) : detailRows;
           return (
             <Pressable
               key={`${it.id}:${it.date}`}
@@ -303,7 +312,30 @@ function DayTimeline({
                     ) : null}
                   </View>
                   {/* กันบรรทัดรองโดนตัดครึ่ง: 40 นาทีพอดี = สูง 36px ซึ่งใส่ 2 บรรทัด (≈33px) + padding 6px ไม่ลง */}
-                  {!compact && h >= SUB_MIN_H && sub ? (
+                  {shownRows.length ? (
+                    <View style={{ marginTop: 1 }}>
+                      {shownRows.map((r) => (
+                        <View key={r.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, height: ROW_H }}>
+                          <Icon name={r.icon} size={9.5} color={t.faint} />
+                          {r.head ? (
+                            <Txt size={10.5} weight="med" color={t.sub} numberOfLines={1} style={{ flexShrink: 0, maxWidth: '55%' }}>
+                              {r.head}
+                            </Txt>
+                          ) : null}
+                          {r.body ? (
+                            <Txt size={10} color={t.faint} numberOfLines={1} style={{ flexShrink: 1 }}>
+                              {r.body}
+                            </Txt>
+                          ) : null}
+                        </View>
+                      ))}
+                      {overflow ? (
+                        <Txt size={10} weight="med" color={t.faint} numberOfLines={1} style={{ height: ROW_H }}>
+                          +{overflow} รายชื่อ — แตะเพื่อดูทั้งหมด
+                        </Txt>
+                      ) : null}
+                    </View>
+                  ) : !compact && h >= SUB_MIN_H && sub ? (
                     <Txt size={11} color={t.sub} numberOfLines={1}>
                       {sub}
                     </Txt>

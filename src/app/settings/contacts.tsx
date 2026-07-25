@@ -1,5 +1,6 @@
 // 6.2 สมุดรายชื่อ — CRUD รายชื่อคนที่นัด (ใช้เลือกในฟอร์มนัดเคส)
-import React, { useMemo, useRef, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
 
 import { FONT, PRI, PRI_BY_ID, type PriorityId } from '@/constants/theme';
@@ -19,6 +20,18 @@ export default function ContactsScreen() {
   const [editing, setEditing] = useState<Partial<Contact> | null>(null);
   const [priFilter, setPriFilter] = useState<PriorityId | null>(null); // กรองตามระดับความสำคัญ
   const [query, setQuery] = useState(''); // ค้นหาชื่อ
+
+  // มาจากปุ่ม "แก้ไข" ที่อื่น (เช่นฟอร์มนัดเคส) ด้วย /settings/contacts?edit=<id> → เปิดฟอร์มของคนนั้นให้เลย
+  // ใช้ ref กันเปิดซ้ำ: หลังบันทึกแล้ว list เปลี่ยน effect จะวิ่งใหม่ ถ้าไม่กันไว้ฟอร์มจะเด้งกลับมาเอง
+  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const consumedEdit = useRef(false);
+  useEffect(() => {
+    if (consumedEdit.current || !edit) return;
+    const c = list.find((x) => x.id === Number(edit));
+    if (!c) return;
+    consumedEdit.current = true;
+    setEditing(c);
+  }, [edit, list]);
 
   // จำนวนรายชื่อต่อระดับ (สำหรับป้ายตัวกรอง)
   const countByPri = useMemo(() => {

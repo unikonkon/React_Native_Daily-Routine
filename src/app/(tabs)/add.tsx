@@ -8,14 +8,15 @@ import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
 import { MonthYearPicker } from '@/components/month-year-picker';
 import { Screen } from '@/components/screen';
+import { SvgIcon } from '@/components/svg-icon';
 import { TimeRangeModal } from '@/components/time-range-modal';
-import { Btn, Card, Chip, ChipRow, Toggle, Txt, useTokens } from '@/components/ui';
+import { Btn, Card, Chip, ChipRow, PriBadge, Toggle, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CATS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, addDays, beYear, fmtMin, fromISO, hoursText, thaiDate, todayISO } from '@/lib/dates';
 import { conflictsOn, freeSlots, maskFromDates } from '@/lib/engine';
-import { HORIZON_DAYS, type Horizon, type RepeatRule } from '@/lib/types';
+import { HORIZON_DAYS, type Contact, type Horizon, type RepeatRule } from '@/lib/types';
 import { getDay, useActivities, useDayReader } from '@/stores/activities';
-import { useContacts } from '@/stores/contacts';
+import { contactChannels, useContacts } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
@@ -128,12 +129,16 @@ function StepSection({
 function DetailsSection() {
   const t = useTokens();
   const d = useDraft();
+  const router = useRouter();
   const showToast = useUI((s) => s.showToast);
   const contacts = useContacts((s) => s.list);
   const upsertContact = useContacts((s) => s.upsert);
   const quickPicks = useSettings((s) => s.quickPicks);
   const [newName, setNewName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
+
+  // คนที่เลือกไว้ (ตามลำดับที่กด) — ใช้กางรายละเอียดช่องทางติดต่อใต้แถวชิป
+  const pickedContacts = d.contactIds.map((id) => contacts.find((c) => c.id === id)).filter((c): c is Contact => !!c);
 
   // มีอะไรให้ล้างไหม — ชิป "ล้างค่า" โผล่เฉพาะตอนฟอร์มมีข้อมูลแล้ว (reset ทั้ง draft: หมวด/ชื่อ/วัน/เวลา/แจ้งเตือน)
   const dirty = !!d.cat || !!d.title || !!d.editId;
@@ -242,7 +247,11 @@ function DetailsSection() {
         {d.cat === 'case' ? (
           <>
             <View style={{ height: 1, backgroundColor: t.line }} />
-            <Txt size={13} weight="med" color={t.sub}>คนที่นัด</Txt>
+            {/* คนที่นัด — เลือกจากสมุดรายชื่อ · ปุ่มแก้ไขพาไปหน้าสมุดรายชื่อเพื่อเติม/แก้ข้อมูลติดต่อ */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Txt size={13} weight="med" color={t.sub} style={{ flex: 1 }}>คนที่นัด</Txt>
+              <Chip small icon="edit" label="แก้ไขรายชื่อ" onPress={() => router.push('/settings/contacts')} />
+            </View>
             <ChipRow>
               {contacts.map((c) => (
                 <Chip
@@ -257,29 +266,73 @@ function DetailsSection() {
                   }
                 />
               ))}
-              <Chip small label="+ เพิ่ม" onPress={() => setAddingContact(true)} />
+              <Chip small label="+ เพิ่ม" active={addingContact} onPress={() => setAddingContact(true)} />
             </ChipRow>
             {addingContact ? (
-              <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={{ gap: 8 }}>
                 <TextInput
                   value={newName}
                   onChangeText={setNewName}
                   placeholder="ชื่อรายชื่อใหม่…"
                   placeholderTextColor={t.faint}
-                  style={{ flex: 1, backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
+                  autoFocus
+                  style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
                 />
-                <Btn
-                  label="เพิ่ม"
-                  onPress={async () => {
-                    const name = newName.trim();
-                    if (!name) return;
-                    await upsertContact({ name, priority: 'P6', phone: null, line: null, email: null, zoom: null, googlemeet: null, note: null });
-                    setNewName('');
-                    setAddingContact(false);
-                  }}
-                />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {/* ยกเลิกการเพิ่ม — ปิดช่องกรอกและทิ้งชื่อที่พิมพ์ค้างไว้ */}
+                  <Btn
+                    style={{ flex: 1 }}
+                    kind="ghost"
+                    label="ยกเลิก"
+                    onPress={() => {
+                      setNewName('');
+                      setAddingContact(false);
+                    }}
+                  />
+                  <Btn
+                    style={{ flex: 1 }}
+                    label="เพิ่ม"
+                    disabled={!newName.trim()}
+                    onPress={async () => {
+                      const name = newName.trim();
+                      if (!name) return;
+                      await upsertContact({ name, priority: 'P6', phone: null, line: null, email: null, zoom: null, googlemeet: null, note: null });
+                      setNewName('');
+                      setAddingContact(false);
+                      showToast(`เพิ่ม ${name} ในสมุดรายชื่อแล้ว ✓`);
+                    }}
+                  />
+                </View>
               </View>
             ) : null}
+
+            {/* รายละเอียดของคนที่เลือกไว้ — ช่องทางติดต่อที่มี พร้อมหัวข้อกำกับ · แตะแก้ไขเพื่อไปเติมในสมุดรายชื่อ */}
+            {pickedContacts.map((c) => {
+              const channels = contactChannels(c);
+              return (
+                <View key={c.id} style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 10, gap: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                    <SvgIcon name="user" size={14} color={t.sub} />
+                    <Txt size={13.5} weight="bold" style={{ flex: 1 }} numberOfLines={1}>{c.name}</Txt>
+                    <PriBadge id={c.priority} />
+                    <Chip small icon="edit" label="แก้ไข" onPress={() => router.push({ pathname: '/settings/contacts', params: { edit: String(c.id) } })} />
+                  </View>
+                  {channels.length ? (
+                    channels.map((ch) => (
+                      <View key={ch.label} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 7 }}>
+                        <SvgIcon name={ch.icon} size={13} color={t.faint} />
+                        <Txt size={12} color={t.faint} style={{ width: 54 }}>{ch.label}</Txt>
+                        <Txt size={12.5} color={t.ink} style={{ flex: 1 }} numberOfLines={ch.label === 'หมายเหตุ' ? 3 : 1}>
+                          {ch.value}
+                        </Txt>
+                      </View>
+                    ))
+                  ) : (
+                    <Txt size={12} color={t.faint}>ยังไม่มีข้อมูลติดต่อ — แตะ “แก้ไข” เพื่อเพิ่มเบอร์/LINE/ห้องประชุม</Txt>
+                  )}
+                </View>
+              );
+            })}
 
             <Txt size={13} weight="med" color={t.sub}>ระดับความสำคัญ</Txt>
             <ChipRow>
