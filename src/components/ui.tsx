@@ -149,11 +149,13 @@ interface BtnProps {
   onPress: () => void;
   kind?: 'primary' | 'ghost' | 'danger' | 'green';
   icon?: string;
+  /** วาดไอคอนเอง (เช่น SVG) — รับสี/ขนาดจากปุ่มเพื่อให้เข้าธีม; ทับ icon เมื่อกำหนด */
+  renderIcon?: (color: string, size: number) => React.ReactNode;
   style?: ViewStyle;
   disabled?: boolean;
 }
 
-export function Btn({ label, onPress, kind = 'primary', icon, style, disabled }: BtnProps) {
+export function Btn({ label, onPress, kind = 'primary', icon, renderIcon, style, disabled }: BtnProps) {
   const t = useTokens();
   const bg = kind === 'primary' ? ACCENT : kind === 'danger' ? '#C0392B' : kind === 'green' ? '#4C9A6A' : t.chip;
   const fg = kind === 'ghost' ? t.ink : '#FFFFFF';
@@ -175,7 +177,7 @@ export function Btn({ label, onPress, kind = 'primary', icon, style, disabled }:
         },
         style,
       ]}>
-      {icon ? <Icon name={icon} size={16} color={fg} /> : null}
+      {renderIcon ? renderIcon(fg, 16) : icon ? <Icon name={icon} size={16} color={fg} /> : null}
       <Txt size={14} weight="bold" color={fg}>
         {label}
       </Txt>

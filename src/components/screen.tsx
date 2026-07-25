@@ -21,6 +21,8 @@ interface ScreenProps {
   scroll?: boolean;
   /** แสดงปุ่มย้อนกลับ + หัวข้อ (หน้า settings ย่อย) แทนแถบแท็บ */
   back?: boolean;
+  /** ref ไปยัง ScrollView ภายใน — ให้หน้าเลื่อนเนื้อหาเองได้ (เช่น เลื่อนขึ้นไปฟอร์มแก้ไข) */
+  scrollRef?: React.Ref<ScrollView>;
 }
 
 /** แถบแท็บย้ายขึ้นไปอยู่ใน header แล้ว — ไม่มีแถบล่างอีกต่อไป (คงชื่อไว้เพื่อระยะ padding ล่าง) */
@@ -32,6 +34,19 @@ export const TABS = [
   { name: 'add', label: 'เพิ่ม', icon: 'plus', href: '/add' },
   { name: 'settings', label: 'ตั้งค่า', icon: 'sliders', href: '/settings' },
 ] as const;
+
+/**
+ * หาแท็บที่ "ตรง" กับ path ปัจจุบัน — นับหน้าย่อยเป็นแท็บแม่ด้วย (/settings/stats → แท็บ settings)
+ * จำเป็นเพราะตอน router.push หน้าย่อย หน้าแท็บยังถูก mount อยู่ระหว่างทรานซิชัน
+ * ถ้าเทียบแบบ href === pathname เฉย ๆ จะไม่เจอ → pill เด้งกลับแท็บแรก ('วันนี้') ทุกครั้งที่กดเมนู
+ * เทียบจาก href ที่ยาวสุดก่อน เพื่อไม่ให้ '/' ไปคว้าทุก path
+ */
+export function activeTabName(pathname: string): (typeof TABS)[number]['name'] {
+  const hit = [...TABS]
+    .sort((a, b) => b.href.length - a.href.length)
+    .find((tab) => pathname === tab.href || (tab.href !== '/' && pathname.startsWith(`${tab.href}/`)));
+  return hit?.name ?? 'index';
+}
 
 /** ปุ่มสลับธีม (มุมขวาบนของทุก header) */
 function ThemeToggle() {
@@ -83,7 +98,7 @@ function TabStrip() {
   const t = useTokens();
   const router = useRouter();
   const pathname = usePathname();
-  const activeName = TABS.find((tab) => tab.href === pathname)?.name ?? 'index';
+  const activeName = activeTabName(pathname);
   return (
     <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       {TABS.map((tab) => {
@@ -121,7 +136,7 @@ function TabStrip() {
   );
 }
 
-export function Screen({ title, subtitle, children, scroll = true, back }: ScreenProps) {
+export function Screen({ title, subtitle, children, scroll = true, back, scrollRef }: ScreenProps) {
   const t = useTokens();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -168,6 +183,7 @@ export function Screen({ title, subtitle, children, scroll = true, back }: Scree
       {header}
       {scroll ? (
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: TABBAR_H + insets.bottom + 24, gap: 14 }}
           showsVerticalScrollIndicator={false}>
           {children}

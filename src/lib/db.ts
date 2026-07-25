@@ -71,6 +71,22 @@ function migrate(d: SQLite.SQLiteDatabase) {
       PRAGMA user_version = 1;
     `);
   }
+  if (v < 2) {
+    // เพิ่มช่องข้อมูลผู้ติดต่อ (ไม่บังคับ): อีเมล + หมายเหตุ
+    d.execSync(`
+      ALTER TABLE contacts ADD COLUMN email TEXT;
+      ALTER TABLE contacts ADD COLUMN note TEXT;
+      PRAGMA user_version = 2;
+    `);
+  }
+  if (v < 3) {
+    // เพิ่มช่องลิงก์ประชุมออนไลน์ (ไม่บังคับ): Zoom + Google Meet
+    d.execSync(`
+      ALTER TABLE contacts ADD COLUMN zoom TEXT;
+      ALTER TABLE contacts ADD COLUMN googlemeet TEXT;
+      PRAGMA user_version = 3;
+    `);
+  }
 }
 
 // ---------- โหลดตอนเปิดแอป (ครั้งเดียว) ----------
@@ -223,10 +239,16 @@ export async function insertRescheduleLog(
 export async function upsertContact(c: Omit<Contact, 'id'> & { id?: number }): Promise<number> {
   const d = getDb();
   if (c.id) {
-    await d.runAsync('UPDATE contacts SET name=?, priority=?, phone=?, line=? WHERE id=?', c.name, c.priority, c.phone, c.line, c.id);
+    await d.runAsync(
+      'UPDATE contacts SET name=?, priority=?, phone=?, line=?, email=?, zoom=?, googlemeet=?, note=? WHERE id=?',
+      c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null, c.id,
+    );
     return c.id;
   }
-  const res = await d.runAsync('INSERT INTO contacts (name, priority, phone, line) VALUES (?,?,?,?)', c.name, c.priority, c.phone, c.line);
+  const res = await d.runAsync(
+    'INSERT INTO contacts (name, priority, phone, line, email, zoom, googlemeet, note) VALUES (?,?,?,?,?,?,?,?)',
+    c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null,
+  );
   return res.lastInsertRowId;
 }
 
@@ -362,8 +384,8 @@ export async function restoreAll(data: BackupData, mode: 'replace' | 'merge'): P
     const contactIdMap: Record<number, number> = {};
     for (const c of data.contacts) {
       const res = await txn.runAsync(
-        'INSERT INTO contacts (name, priority, phone, line) VALUES (?,?,?,?)',
-        c.name, c.priority, c.phone, c.line,
+        'INSERT INTO contacts (name, priority, phone, line, email, zoom, googlemeet, note) VALUES (?,?,?,?,?,?,?,?)',
+        c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null,
       );
       contactIdMap[c.id] = res.lastInsertRowId;
     }

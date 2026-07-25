@@ -18,6 +18,12 @@ const SUN = 1 << 6;
 
 const hm = (h: number, m = 0) => h * 60 + m;
 
+// รหัสห้อง Google Meet จำลอง (abc-defg-hij) จาก PRNG — คงที่ตาม seed
+const meetCode = (rand: () => number) => {
+  const s = (n: number) => Array.from({ length: n }, () => 'abcdefghijklmnopqrstuvwxyz'[Math.floor(rand() * 26)]).join('');
+  return `${s(3)}-${s(4)}-${s(3)}`;
+};
+
 /** PRNG แบบ seed คงที่ (mulberry32) — ผลลัพธ์เดิมทุกครั้ง ไม่พึ่ง Math.random/Date */
 function rng(seed: number) {
   let s = seed;
@@ -85,6 +91,10 @@ export function buildMockYear(year: number, today = todayISO(), now = nowMin()):
       priority: CONTACT_PRI[i],
       phone: `08${Math.floor(rand() * 90000000 + 10000000)}`,
       line: rand() < 0.7 ? `@${name.replace(/\s/g, '')}` : null,
+      email: rand() < 0.5 ? `${name.replace(/\s/g, '.').toLowerCase()}@example.com` : null,
+      zoom: rand() < 0.35 ? `https://zoom.us/j/${Math.floor(rand() * 9000000000 + 1000000000)}` : null,
+      googlemeet: rand() < 0.35 ? `https://meet.google.com/${meetCode(rand)}` : null,
+      note: null,
     });
   });
 

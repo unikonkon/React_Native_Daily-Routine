@@ -40,6 +40,10 @@ export interface Contact {
   priority: PriorityId;
   phone: string | null;
   line: string | null;
+  email: string | null;
+  zoom: string | null; // ลิงก์ห้อง Zoom ประจำตัว (ไม่บังคับ)
+  googlemeet: string | null; // ลิงก์ห้อง Google Meet ประจำตัว (ไม่บังคับ)
+  note: string | null; // ข้อมูลอื่น ๆ / หมายเหตุ (ไม่บังคับ)
 }
 
 export interface FreeSlot {

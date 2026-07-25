@@ -34,6 +34,10 @@ const FEATHER: Record<string, React.ComponentProps<typeof Feather>['name']> = {
   cloud: 'upload-cloud',
   user: 'user',
   grid: 'grid',
+  copy: 'copy',
+  extLink: 'external-link',
+  search: 'search',
+  clipboard: 'clipboard',
 };
 
 export function Icon({ name, size = 20, color }: { name: string; size?: number; color: string }) {
