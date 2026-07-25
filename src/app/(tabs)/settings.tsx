@@ -8,10 +8,11 @@ import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { Btn, Card, Row, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CATS, GREEN } from '@/constants/theme';
-import { beYear, nowMin, todayISO } from '@/lib/dates';
+import { MONTH_TH_FULL, beYear, fromISO, nowMin, todayISO } from '@/lib/dates';
 import { restoreAll } from '@/lib/db';
 import { computeStats } from '@/lib/engine';
-import { buildMockYear } from '@/lib/mock';
+import { buildMockMonth } from '@/lib/mock';
+import { TT_SOURCE_LABEL } from '@/lib/mock-timetable';
 import { requestResync } from '@/lib/notifications';
 import { useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
@@ -30,22 +31,23 @@ export default function SettingsScreen() {
 
   const syncNotif = (master: boolean, morning: boolean) => requestResync(acts, occ, master, morning);
 
-  // สร้างข้อมูลตัวอย่าง 1 ปี (แทนที่ข้อมูลเดิมทั้งหมด) — ใช้ทดสอบสถิติ/จัดการข้อมูล/Export
+  // ข้อมูลตัวอย่าง = ตารางจริงจากไฟล์ "Time Table จอย.xlsx" นำเข้าเป็นเดือนปัจจุบัน 1 เดือน (แทนที่ข้อมูลเดิมทั้งหมด)
   const showToast = useUI((s) => s.showToast);
-  const year = Number(todayISO().slice(0, 4));
+  const today = todayISO();
+  const monthLabel = `${MONTH_TH_FULL[fromISO(today).getMonth()]} ${beYear(Number(today.slice(0, 4)))}`;
   const [confirmSeed, setConfirmSeed] = useState(false);
   const [seeding, setSeeding] = useState(false);
 
   const seedNow = async () => {
     setSeeding(true);
     try {
-      const data = buildMockYear(year);
+      const data = buildMockMonth(today);
       await restoreAll(data, 'replace');
       await Promise.all([useActivities.getState().boot(), useContacts.getState().boot()]);
       setConfirmSeed(false);
-      showToast(`สร้างข้อมูลตัวอย่างปี ${beYear(year)} แล้ว ✓ (${data.activities.length} กิจกรรม · ${data.contacts.length} รายชื่อ)`);
+      showToast(`นำเข้าตารางตัวอย่างเดือน${monthLabel} แล้ว ✓ (${data.activities.length} กิจกรรม · ${data.contacts.length} รายชื่อ)`);
     } catch {
-      showToast('สร้างข้อมูลตัวอย่างไม่สำเร็จ');
+      showToast('นำเข้าข้อมูลตัวอย่างไม่สำเร็จ');
     } finally {
       setSeeding(false);
     }
@@ -140,9 +142,9 @@ export default function SettingsScreen() {
       <Card>
         <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>ข้อมูลตัวอย่าง (Demo)</Txt>
         <Row
-          icon="calendar"
-          label="สร้างข้อมูลตัวอย่าง 1 ปี"
-          sub={`งานประจำ + นัดคุยเคส + กิจกรรม ทั้งปี ${beYear(year)} — แทนที่ข้อมูลเดิม`}
+          icon="grid"
+          label="นำเข้าตารางตัวอย่าง 1 เดือน"
+          sub={`${TT_SOURCE_LABEL} → เดือน${monthLabel} — แทนที่ข้อมูลเดิม`}
           onPress={() => setConfirmSeed(true)}
           last
         />
@@ -150,14 +152,14 @@ export default function SettingsScreen() {
 
       {confirmSeed ? (
         <Card tone="card2" style={{ gap: 10 }}>
-          <Txt size={14} weight="bold">สร้างข้อมูลตัวอย่างทั้งปี?</Txt>
+          <Txt size={14} weight="bold">นำเข้าตารางตัวอย่างเป็นเดือน{monthLabel}?</Txt>
           <Txt size={12} color={t.sub}>
-            จะลบข้อมูลปัจจุบันทั้งหมด (กิจกรรม/สถานะ/รายชื่อ) แล้วแทนที่ด้วยตารางจำลอง 1 ปี{'\n'}
-            เหมาะสำหรับทดสอบสถิติ · จัดการข้อมูล · Export / Import
+            ใช้ตารางจริงจากไฟล์ {TT_SOURCE_LABEL} มาลงเดือนนี้ทั้งเดือน (จับคู่ตามวันในสัปดาห์ · เก็บสีเดิมของไฟล์){'\n'}
+            จะลบข้อมูลปัจจุบันทั้งหมด (กิจกรรม/สถานะ/รายชื่อ) ก่อน — เหมาะสำหรับทดสอบสถิติ · จัดการข้อมูล · Export / Import
           </Txt>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" disabled={seeding} onPress={() => setConfirmSeed(false)} />
-            <Btn style={{ flex: 1 }} kind="danger" label={seeding ? 'กำลังสร้าง…' : 'สร้าง (แทนที่)'} disabled={seeding} onPress={seedNow} />
+            <Btn style={{ flex: 1 }} kind="danger" label={seeding ? 'กำลังนำเข้า…' : 'นำเข้า (แทนที่)'} disabled={seeding} onPress={seedNow} />
           </View>
         </Card>
       ) : null}

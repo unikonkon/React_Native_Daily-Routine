@@ -17,8 +17,8 @@ import { meetLink, useContacts, zoomDeepLink } from '@/stores/contacts';
 import { useUI } from '@/stores/ui';
 
 type Mode = 'week' | 'month' | 'all';
-/** 2 แท็บในการ์ดนัดเคส: ตามระดับความสำคัญ · รายชื่อคน */
-type CaseTab = 'pri' | 'people';
+/** 3 แท็บในการ์ดนัดเคส: ตามระดับความสำคัญ · ตามเคส (ชื่อไม่ซ้ำ) · รายชื่อคน */
+type CaseTab = 'pri' | 'case' | 'people';
 
 const PER_LABEL: Record<Mode, string> = { week: 'รายวัน', month: 'รายสัปดาห์', all: 'รายเดือน' };
 
@@ -27,6 +27,9 @@ const PRI_RANK = Object.fromEntries(PRI.map((p, i) => [p.id, i])) as Record<Prio
 
 /** ชื่อ normalize สำหรับรวมคนซ้ำ — ตัดช่องว่างหัวท้าย/ซ้ำ + ไม่สนตัวพิมพ์ */
 const nameKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/** ลำดับของระดับที่อาจว่าง (ไม่ระบุระดับ = ท้ายสุด) */
+const priRank = (p: PriorityId | null) => (p ? PRI_RANK[p] : PRI.length);
 
 /** คน 1 คนในแท็บ "รายชื่อคน" — รวมทุก contact ที่ชื่อเหมือนกันเป็นคนเดียว */
 interface Person {
@@ -37,6 +40,19 @@ interface Person {
   items: DayItem[]; // นัดเคสของคนนี้ในช่วงที่เลือก (เรียงตามวัน)
   done: number;
   hours: number; // ชั่วโมงของนัดที่ทำเสร็จ
+}
+
+/** เคส 1 เรื่องในแท็บ "ตามเคส" — รวมทุกนัดที่ชื่อเคสเหมือนกันเป็นรายการเดียว */
+interface CaseGroup {
+  key: string; // ชื่อเคส normalize แล้ว
+  title: string; // ชื่อที่แสดง
+  pri: PriorityId | null; // ระดับที่สำคัญสุดในกลุ่ม (null = ไม่ระบุ)
+  items: DayItem[]; // นัดทั้งหมดของเคสนี้ในช่วงที่เลือก (เรียงตามวัน)
+  done: number;
+  hours: number; // ชั่วโมงของนัดที่ทำเสร็จ
+  contactIds: number[]; // ผู้ติดต่อที่เกี่ยวข้อง (ไม่ซ้ำ)
+  online: number; // จำนวนนัดออนไลน์
+  inperson: number; // จำนวนนัดพบตัว
 }
 
 export default function StatsScreen() {
@@ -51,6 +67,8 @@ export default function StatsScreen() {
   const [caseTab, setCaseTab] = useState<CaseTab>('pri'); // แท็บในการ์ดนัดเคส
   const [personKey, setPersonKey] = useState<string | null>(null); // คนที่เปิดดูรายละเอียด (null = แสดงรายชื่อ)
   const [peopleQuery, setPeopleQuery] = useState(''); // ค้นหาชื่อคนในแท็บรายชื่อ
+  const [groupKey, setGroupKey] = useState<string | null>(null); // เคสที่เปิดดูรายละเอียด (null = แสดงรายการเคส)
+  const [caseQuery, setCaseQuery] = useState(''); // ค้นหาชื่อเคสในแท็บตามเคส
   const today = todayISO();
   const showToast = useUI((s) => s.showToast);
 
@@ -63,6 +81,8 @@ export default function StatsScreen() {
     setPriFilter(null);
     setPersonKey(null);
     setPeopleQuery('');
+    setGroupKey(null);
+    setCaseQuery('');
   };
 
   // วันแรกสุดที่มีข้อมูล (ใช้เป็นจุดเริ่มของ "ทั้งหมด")
@@ -189,9 +209,43 @@ export default function StatsScreen() {
     return { list, unnamed };
   }, [stats.caseItems, contactList]);
 
+  /**
+   * แท็บ "ตามเคส" — รวมนัดที่ชื่อเคสซ้ำกันให้เหลือรายการเดียว
+   *  • ชื่อเดียวกัน (ไม่สนช่องว่าง/ตัวพิมพ์) → นับเป็นเคสเดียว แม้จะคนละกิจกรรม/คนละวัน
+   *  • เก็บระดับสำคัญสุด · ผู้ติดต่อที่เกี่ยวข้องทั้งหมด · ช่องทางที่ใช้
+   */
+  const caseGroups = useMemo(() => {
+    const map = new Map<string, CaseGroup>();
+    for (const it of stats.caseItems) {
+      const key = nameKey(it.title);
+      const g =
+        map.get(key) ??
+        { key, title: it.title.trim(), pri: null, items: [], done: 0, hours: 0, contactIds: [], online: 0, inperson: 0 };
+      if (priRank(it.priority) < priRank(g.pri)) g.pri = it.priority;
+      g.items.push(it);
+      if (it.ostatus === 'done') {
+        g.done++;
+        g.hours += (it.endMin - it.startMin) / 60;
+      }
+      if (it.channel === 'online') g.online++;
+      else if (it.channel === 'inperson') g.inperson++;
+      for (const id of it.contactIds) if (!g.contactIds.includes(id)) g.contactIds.push(id);
+      map.set(key, g);
+    }
+    for (const g of map.values()) g.items.sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin);
+    // เรียง: นัดมากสุด → ระดับสำคัญ → ชื่อไทย
+    return [...map.values()].sort(
+      (a, b) => b.items.length - a.items.length || priRank(a.pri) - priRank(b.pri) || a.title.localeCompare(b.title, 'th'),
+    );
+  }, [stats.caseItems]);
+
   const q = peopleQuery.trim().toLowerCase();
   const peopleShown = q ? people.list.filter((p) => p.key.includes(q)) : people.list;
   const person = personKey ? people.list.find((p) => p.key === personKey) ?? null : null; // หาไม่เจอ (เปลี่ยนช่วง) → กลับไปแสดงรายชื่อ
+
+  const cq = caseQuery.trim().toLowerCase();
+  const groupsShown = cq ? caseGroups.filter((g) => g.key.includes(cq)) : caseGroups;
+  const group = groupKey ? caseGroups.find((g) => g.key === groupKey) ?? null : null; // หาไม่เจอ (เปลี่ยนช่วง) → กลับไปแสดงรายการ
 
   return (
     <Screen title="สถิติ" subtitle="รายงานสรุปจากที่บันทึกไว้" back>
@@ -304,18 +358,22 @@ export default function StatsScreen() {
             <Card style={{ gap: 12 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Txt size={12} weight="bold" color={t.sub}>นัดเคส</Txt>
-                <Txt size={12} num color={t.faint}>{stats.caseItems.length} เคส · {people.list.length} คน</Txt>
+                <Txt size={12} num color={t.faint}>
+                  {stats.caseItems.length} นัด · {caseGroups.length} เคส · {people.list.length} คน
+                </Txt>
               </View>
 
               <Segmented
                 options={[
-                  { key: 'pri', label: 'ตามความสำคัญ' },
-                  { key: 'people', label: `รายชื่อคน (${people.list.length})`, icon: 'users' },
+                  { key: 'pri', label: 'ความสำคัญ' },
+                  { key: 'case', label: `ตามเคส (${caseGroups.length})` },
+                  { key: 'people', label: `รายชื่อ (${people.list.length})` },
                 ]}
                 value={caseTab}
                 onChange={(k) => {
                   setCaseTab(k);
                   setPersonKey(null);
+                  setGroupKey(null);
                 }}
               />
 
@@ -382,6 +440,24 @@ export default function StatsScreen() {
                     )
                   ) : null}
                 </>
+              ) : caseTab === 'case' ? (
+                group ? (
+                  /* รายละเอียดเคสเดียว — สรุปรวมทุกนัดที่ชื่อเดียวกัน + รายการนัด */
+                  <CaseGroupDetail g={group} nameById={nameById} onBack={() => setGroupKey(null)} />
+                ) : (
+                  <>
+                    <SearchBox value={caseQuery} onChange={setCaseQuery} placeholder="ค้นหาชื่อเคส…" />
+                    {groupsShown.length ? (
+                      <View>
+                        {groupsShown.map((g, i) => (
+                          <CaseGroupRow key={g.key} g={g} first={i === 0} nameById={nameById} onPress={() => setGroupKey(g.key)} />
+                        ))}
+                      </View>
+                    ) : (
+                      <Txt size={12} color={t.faint} style={{ paddingVertical: 6 }}>ไม่พบเคสที่ตรงกับคำค้น — ลองล้างคำค้น</Txt>
+                    )}
+                  </>
+                )
               ) : person ? (
                 /* รายละเอียดคนคนเดียว — ข้อมูลติดต่อ + สรุปนัด + รายการนัดของคนนี้ */
                 <PersonDetail p={person} nameById={nameById} onBack={() => setPersonKey(null)} showToast={showToast} />
@@ -518,7 +594,6 @@ function SearchBox({ value, onChange, placeholder }: { value: string; onChange: 
 /** แถวคน 1 คนในแท็บรายชื่อ — ป้ายระดับ · ชื่อ · สรุปย่อ · จำนวนนัด (แตะดูรายละเอียด) */
 function PersonRow({ p, first, onPress }: { p: Person; first: boolean; onPress: () => void }) {
   const t = useTokens();
-  const pri = PRI_BY_ID[p.pri];
   const last = p.items[p.items.length - 1];
   const d = last ? fromISO(last.date) : null;
   const sub = [
@@ -540,9 +615,7 @@ function PersonRow({ p, first, onPress }: { p: Person; first: boolean; onPress: 
         borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
         borderTopColor: t.line,
       }}>
-      <View style={{ backgroundColor: pri.color, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, minWidth: 28, alignItems: 'center' }}>
-        <Txt size={11} weight="bold" color="#FFFFFF">{pri.id}</Txt>
-      </View>
+      <PriTag id={p.pri} />
       <View style={{ flex: 1, gap: 2 }}>
         <Txt size={13.5} weight="med" numberOfLines={1}>{p.name}</Txt>
         <Txt size={11} color={t.faint} numberOfLines={1}>{sub}</Txt>
@@ -590,6 +663,118 @@ function PersonDetail({
       {/* รายการนัดของคนนี้ — แตะเปิด bottom sheet รายละเอียดเต็ม */}
       <View>
         {p.items.map((it, i) => (
+          <CaseRow key={`${it.id}:${it.date}`} it={it} first={i === 0} nameById={nameById} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** ป้ายระดับความสำคัญขนาดคงที่ (ไม่ระบุระดับ → ขีดจาง) — ใช้หน้าแถวรายการ */
+function PriTag({ id }: { id: PriorityId | null }) {
+  const t = useTokens();
+  const p = id ? PRI_BY_ID[id] : null;
+  return (
+    <View style={{ backgroundColor: p ? p.color : t.chip, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, minWidth: 28, alignItems: 'center' }}>
+      <Txt size={11} weight="bold" color={p ? '#FFFFFF' : t.faint}>{p ? p.id : '–'}</Txt>
+    </View>
+  );
+}
+
+/** แถวเคส 1 เรื่องในแท็บตามเคส — ป้ายระดับ · ชื่อเคส · สรุปย่อ · จำนวนนัด (แตะดูรายละเอียด) */
+function CaseGroupRow({ g, first, nameById, onPress }: { g: CaseGroup; first: boolean; nameById: Record<number, string>; onPress: () => void }) {
+  const t = useTokens();
+  const last = g.items[g.items.length - 1];
+  const d = last ? fromISO(last.date) : null;
+  const names = g.contactIds.map((id) => nameById[id]).filter(Boolean).join(', ');
+  const sub = [
+    `เสร็จ ${g.done}/${g.items.length}`,
+    g.hours ? hoursText(g.hours * 60) : null,
+    d ? `ล่าสุด ${d.getDate()} ${MONTH_TH[d.getMonth()]}` : null,
+    names || null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 10,
+        borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
+        borderTopColor: t.line,
+      }}>
+      <PriTag id={g.pri} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Txt size={13.5} weight="med" numberOfLines={1}>{g.title}</Txt>
+        <Txt size={11} color={t.faint} numberOfLines={1}>{sub}</Txt>
+      </View>
+      <Txt size={13} num weight="bold" color={t.sub}>{g.items.length}</Txt>
+      <Icon name="chevR" size={15} color={t.faint} />
+    </Pressable>
+  );
+}
+
+/** รายละเอียดเคส 1 เรื่อง (drill-down ในการ์ด) — ปุ่มย้อนกลับ + สรุปรวม + ผู้ติดต่อ/ช่องทาง + รายการนัดทุกครั้ง */
+function CaseGroupDetail({ g, nameById, onBack }: { g: CaseGroup; nameById: Record<number, string>; onBack: () => void }) {
+  const t = useTokens();
+  const rate = g.items.length ? g.done / g.items.length : 0;
+  const names = g.contactIds.map((id) => nameById[id]).filter(Boolean);
+  const first = g.items[0];
+  const last = g.items[g.items.length - 1];
+  const span =
+    first && last
+      ? first.date === last.date
+        ? `${fromISO(first.date).getDate()} ${MONTH_TH[fromISO(first.date).getMonth()]}`
+        : `${fromISO(first.date).getDate()} ${MONTH_TH[fromISO(first.date).getMonth()]} – ${fromISO(last.date).getDate()} ${MONTH_TH[fromISO(last.date).getMonth()]}`
+      : '';
+  const channel = [g.online ? `ออนไลน์ ${g.online}` : null, g.inperson ? `พบตัว ${g.inperson}` : null].filter(Boolean).join(' · ');
+  return (
+    <View style={{ gap: 12 }}>
+      <Pressable onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="chevL" size={16} color={t.sub} />
+        </View>
+        <Txt size={15} weight="bold" style={{ flex: 1 }} numberOfLines={2}>{g.title}</Txt>
+        <PriBadge id={g.pri} withLabel />
+      </Pressable>
+
+      {/* สรุปเคสนี้ในช่วงที่เลือก */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <MiniStat k="นัดในช่วงนี้" v={`${g.items.length}`} />
+        <MiniStat k="ทำเสร็จ" v={`${g.done}`} tint={g.done ? GREEN : undefined} />
+        <MiniStat k="อัตราสำเร็จ" v={`${Math.round(rate * 100)}%`} />
+        <MiniStat k="ชั่วโมงรวม" v={hoursText(g.hours * 60)} />
+      </View>
+
+      {span || channel || names.length ? (
+        <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: t.line, padding: 12, gap: 8 }}>
+          {span ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Icon name="calendar" size={14} color={t.sub} />
+              <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>{span}</Txt>
+            </View>
+          ) : null}
+          {channel ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Icon name={g.online >= g.inperson ? 'video' : 'mappin'} size={14} color={t.sub} />
+              <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>{channel}</Txt>
+            </View>
+          ) : null}
+          {names.length ? (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+              <View style={{ paddingTop: 1 }}><Icon name="users" size={14} color={t.sub} /></View>
+              <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>{names.join(', ')}</Txt>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* ทุกนัดของเคสนี้ — แตะเปิด bottom sheet รายละเอียดเต็ม */}
+      <View>
+        {g.items.map((it, i) => (
           <CaseRow key={`${it.id}:${it.date}`} it={it} first={i === 0} nameById={nameById} />
         ))}
       </View>

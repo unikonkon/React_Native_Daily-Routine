@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Icon } from '@/components/icon';
 import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Chip, ChipRow, PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, FONT, GREEN, PRI } from '@/constants/theme';
@@ -43,7 +44,7 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   const closeSheet = useUI((s) => s.closeSheet);
   const openResc = useUI((s) => s.openResc);
   const showToast = useUI((s) => s.showToast);
-  const { setStatus, deleteOne, deleteSeries, acts } = useActivities();
+  const { setStatus, deleteOne, deleteSeries, update, acts } = useActivities();
   const contacts = useContacts((s) => s.list);
   const item = useDay(date).find((i) => i.id === id);
   const [confirm, setConfirm] = useState(false);
@@ -65,6 +66,25 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   const caseContacts = item.contactIds
     .map((cid) => contacts.find((c) => c.id === cid))
     .filter((c): c is Contact => !!c);
+
+  /**
+   * เปลี่ยนรายชื่อของเคสนี้ — สลับ id ในกิจกรรม (ทั้งชุดถ้าเป็นกิจกรรมทำซ้ำ) แล้วให้ฟอร์มไปแก้ข้อมูลของคนใหม่ต่อ
+   * ถ้าคนใหม่อยู่ในเคสนี้อยู่แล้ว → แค่ถอดคนเดิมออก (กันชื่อซ้ำในเคสเดียว)
+   */
+  const swapContact = (from: Contact, to: Contact) => {
+    const a = acts.find((x) => x.id === item.id);
+    if (!a) return showToast('ไม่พบกิจกรรมนี้');
+    if (from.id !== to.id) {
+      update({
+        ...a,
+        contactIds: a.contactIds.includes(to.id)
+          ? a.contactIds.filter((cid) => cid !== from.id)
+          : a.contactIds.map((cid) => (cid === from.id ? to.id : cid)),
+      });
+      showToast(`เปลี่ยนเป็น ${to.name} แล้ว ✓`);
+    }
+    setEditContact(to);
+  };
 
   const onEdit = () => {
     const a = acts.find((x) => x.id === item.id);
@@ -101,7 +121,13 @@ function SheetBody({ id, date }: { id: number; date: string }) {
         <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: t.line2, alignSelf: 'center' }} />
 
         {editContact ? (
-          <ContactEditForm c={editContact} showToast={showToast} onClose={() => setEditContact(null)} />
+          <ContactEditForm
+            key={editContact.id}
+            c={editContact}
+            showToast={showToast}
+            onSwap={(next) => swapContact(editContact, next)}
+            onClose={() => setEditContact(null)}
+          />
         ) : (
         <>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -287,11 +313,24 @@ function ContactCard({ c, onEdit, showToast }: { c: Contact; onEdit: (c: Contact
 /**
  * ฟอร์มแก้ไขข้อมูลรายชื่อ — เป็นเนื้อหาหลักของแผ่น (แทนรายละเอียดกิจกรรมชั่วคราว)
  * ช่องกรอกอยู่ใน ScrollView เลื่อนได้ · ปุ่มยกเลิก/บันทึกปักท้ายเสมอ (พ้นคีย์บอร์ดเพราะแผ่นถูกยกด้วย marginBottom)
+ * ชื่อไม่ได้พิมพ์ตรง ๆ — แตะแถวชื่อเพื่อเปิดรายการรายชื่อทั้งหมด แล้วเลือกเปลี่ยนเป็นคนอื่น (หรือเปลี่ยนชื่อคนเดิม)
  */
-function ContactEditForm({ c, showToast, onClose }: { c: Contact; showToast: (m: string) => void; onClose: () => void }) {
+function ContactEditForm({
+  c,
+  showToast,
+  onSwap,
+  onClose,
+}: {
+  c: Contact;
+  showToast: (m: string) => void;
+  /** เลือกรายชื่ออื่นจากสมุด — สลับรายชื่อของเคสนี้เป็นคนที่เลือก */
+  onSwap: (next: Contact) => void;
+  onClose: () => void;
+}) {
   const t = useTokens();
   const [d, setD] = useState<Contact>({ ...c });
   const [saving, setSaving] = useState(false);
+  const [picking, setPicking] = useState(false);
 
   const save = async () => {
     const name = d.name.trim();
@@ -316,6 +355,23 @@ function ContactEditForm({ c, showToast, onClose }: { c: Contact; showToast: (m:
     }
   };
 
+  if (picking)
+    return (
+      <ContactPicker
+        current={c}
+        onPick={(next) => {
+          setPicking(false);
+          if (next.id !== c.id) onSwap(next); // คนใหม่ → พ่อแม่สลับรายชื่อของเคส แล้ว remount ฟอร์มเป็นของคนใหม่
+        }}
+        onRename={(name) => {
+          setD({ ...d, name });
+          setPicking(false);
+          showToast('เปลี่ยนชื่อแล้ว — กด "ยืนยัน" เพื่อบันทึก');
+        }}
+        onCancel={() => setPicking(false)}
+      />
+    );
+
   return (
     <View style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
@@ -328,7 +384,33 @@ function ContactEditForm({ c, showToast, onClose }: { c: Contact; showToast: (m:
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ gap: 8, paddingBottom: 2 }}>
-        <Field value={d.name} placeholder="ชื่อ *" onChange={(name) => setD({ ...d, name })} showToast={showToast} />
+        {/* ชื่อ — เลือกจากรายการรายชื่อทั้งหมด (แตะเพื่อเปลี่ยนเป็นคนอื่น / เปลี่ยนชื่อคนนี้) */}
+        <Pressable
+          onPress={() => setPicking(true)}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            backgroundColor: t.sheet,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: t.line,
+            paddingHorizontal: 11,
+            paddingVertical: 9,
+            minHeight: 44,
+          }}>
+          <SvgIcon name="user" size={14} color={t.sub} />
+          <View style={{ flex: 1 }}>
+            <Txt size={14} weight="med" numberOfLines={1} color={d.name.trim() ? t.ink : t.faint}>
+              {d.name.trim() || 'ชื่อ *'}
+            </Txt>
+            <Txt size={11} color={t.faint}>แตะเพื่อเลือกจากรายชื่อทั้งหมด</Txt>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 9, backgroundColor: t.chip }}>
+            <SvgIcon name="users" size={12} color={t.sub} />
+            <Txt size={11} weight="med" color={t.sub}>เปลี่ยน</Txt>
+          </View>
+        </Pressable>
         <Field value={d.phone ?? ''} placeholder="เบอร์โทร (ไม่บังคับ)" keyboardType="phone-pad" onChange={(phone) => setD({ ...d, phone })} showToast={showToast} />
         <Field value={d.line ?? ''} placeholder="LINE ID (ไม่บังคับ)" onChange={(line) => setD({ ...d, line })} showToast={showToast} />
         <Field value={d.email ?? ''} placeholder="อีเมล (ไม่บังคับ)" keyboardType="email-address" onChange={(email) => setD({ ...d, email })} showToast={showToast} />
@@ -356,6 +438,134 @@ function ContactEditForm({ c, showToast, onClose }: { c: Contact; showToast: (m:
         <Btn style={{ flex: 1 }} renderIcon={(c2, s) => <SvgIcon name="check" size={s} color={c2} />} label={saving ? 'กำลังบันทึก…' : 'ยืนยัน'} disabled={saving} onPress={save} />
       </View>
     </View>
+  );
+}
+
+/**
+ * เลือกรายชื่อ — ลิสต์รายชื่อทั้งหมดในสมุด (ค้นหาชื่อ/เบอร์/LINE ได้)
+ *  • แตะรายชื่อ → สลับรายชื่อของเคสนี้เป็นคนนั้น (คนปัจจุบันมีเครื่องหมายถูก)
+ *  • พิมพ์ชื่อที่ยังไม่มีในสมุด → ใช้เป็นชื่อใหม่ของคนปัจจุบันได้ (เท่ากับแก้ชื่อแบบเดิม)
+ */
+function ContactPicker({
+  current,
+  onPick,
+  onRename,
+  onCancel,
+}: {
+  current: Contact;
+  onPick: (c: Contact) => void;
+  onRename: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const t = useTokens();
+  const all = useContacts((s) => s.list);
+  const [q, setQ] = useState('');
+
+  const query = q.trim().replace(/\s+/g, ' ');
+  const k = query.toLowerCase();
+  const shown = k
+    ? all.filter(
+        (c) =>
+          c.name.toLowerCase().includes(k) ||
+          (c.phone ?? '').replace(/\s+/g, '').includes(k) ||
+          (c.line ?? '').toLowerCase().includes(k) ||
+          (c.email ?? '').toLowerCase().includes(k),
+      )
+    : all;
+  // พิมพ์ชื่อที่ยังไม่มีในสมุด (และไม่ใช่ชื่อเดิม) → เสนอเป็นการเปลี่ยนชื่อคนปัจจุบัน
+  const canRename = !!query && !all.some((c) => c.name.trim().toLowerCase() === k);
+
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+        <Pressable
+          onPress={onCancel}
+          hitSlop={6}
+          style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="chevL" size={15} color={t.sub} />
+        </Pressable>
+        <Txt size={16} weight="bold" style={{ flex: 1 }} numberOfLines={1}>เลือกรายชื่อ</Txt>
+        <Txt size={12} num color={t.faint}>{all.length} รายชื่อ</Txt>
+      </View>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: t.sheet, borderRadius: 10, borderWidth: 1, borderColor: t.line, paddingHorizontal: 11 }}>
+        <Icon name="search" size={15} color={t.faint} />
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder="ค้นหาชื่อ / เบอร์ / LINE…"
+          placeholderTextColor={t.faint}
+          autoCorrect={false}
+          style={{ flex: 1, paddingVertical: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
+        />
+        {q ? (
+          <Pressable onPress={() => setQ('')} hitSlop={6}>
+            <SvgIcon name="x" size={14} color={t.faint} />
+          </Pressable>
+        ) : null}
+      </View>
+
+      <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
+        {shown.map((c) => (
+          <PickRow key={c.id} c={c} active={c.id === current.id} onPress={() => onPick(c)} />
+        ))}
+        {!shown.length ? (
+          <Txt size={12.5} color={t.faint} style={{ paddingVertical: 8 }}>
+            ไม่พบรายชื่อที่ตรงกับคำค้น
+          </Txt>
+        ) : null}
+        {canRename ? (
+          <Pressable
+            onPress={() => onRename(query)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: ACCENT + '55',
+              backgroundColor: ACCENT + '12',
+              paddingHorizontal: 11,
+              paddingVertical: 10,
+            }}>
+            <SvgIcon name="edit" size={14} color={ACCENT} />
+            <Txt size={13} color={ACCENT} weight="med" style={{ flex: 1 }} numberOfLines={2}>
+              ใช้ “{query}” เป็นชื่อใหม่ของ {current.name}
+            </Txt>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+
+      <Btn kind="ghost" label="ยกเลิก" onPress={onCancel} />
+    </View>
+  );
+}
+
+/** แถวรายชื่อในหน้าเลือก — ป้ายระดับ · ชื่อ · ช่องทางย่อ · ติ๊กถูกถ้าเป็นคนที่ใช้อยู่ */
+function PickRow({ c, active, onPress }: { c: Contact; active: boolean; onPress: () => void }) {
+  const t = useTokens();
+  const sub = [c.phone, c.line, c.email].filter(Boolean).join(' · ');
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: active ? ACCENT : t.line,
+        backgroundColor: active ? ACCENT + '10' : t.card2,
+        paddingHorizontal: 11,
+        paddingVertical: 9,
+      }}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Txt size={13.5} weight={active ? 'bold' : 'med'} numberOfLines={1}>{c.name}</Txt>
+        {sub ? <Txt size={11} color={t.faint} numberOfLines={1}>{sub}</Txt> : null}
+      </View>
+      <PriBadge id={c.priority} />
+      {active ? <SvgIcon name="check" size={15} color={ACCENT} /> : null}
+    </Pressable>
   );
 }
 
