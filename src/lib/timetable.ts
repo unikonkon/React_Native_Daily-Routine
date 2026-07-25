@@ -1,7 +1,8 @@
-// Time Table CSV (ฟอร์แมต "Time Table จอย") — pure functions ไม่มี I/O
+// Time Table (ฟอร์แมต "Time Table จอย") — pure functions ไม่มี I/O · ใช้ร่วมกันทั้ง CSV และ .xlsx
 // โครงไฟล์: แถว 1 "MONTH m/yyyy" + ป้าย WEEK, แถว "Date" = ชื่อวัน, แถว "Time" = เลขวันที่ของเดือน (คอลัมน์ละวัน),
-// แถวถัดไป = ช่องเวลา (06:00 → เลยเที่ยงคืน) เซลล์ = ชื่อกิจกรรม — เซลล์ merge ในต้นฉบับมาเป็นค่าเฉพาะช่องแรก
-// จึงตีความ: กิจกรรมยาวถึงช่องเวลาถัดไป และรวมช่องติดกันที่ชื่อเดียวกันเป็นก้อนเดียว
+// แถวถัดไป = ช่องเวลา (06:00 → เลยเที่ยงคืน) เซลล์ = ชื่อกิจกรรม
+// CSV: เซลล์ merge ของต้นฉบับเหลือค่าเฉพาะช่องแรก → ตีความว่ากิจกรรมยาวถึงช่องเวลาถัดไป
+// .xlsx: ตัวอ่านคลี่ merge ให้เต็มกริดมาแล้ว → ช่องติดกันที่ชื่อเดียวกันถูกรวมกลับเป็นก้อนเดียวเหมือนกัน
 
 import { DAY_END, type CatId } from '@/constants/theme';
 import { MONTH_TH, beYear, fmtMin, fromISO, toISO, todayISO } from '@/lib/dates';
@@ -13,6 +14,13 @@ export interface TimeTableImport {
   from: string;
   to: string;
   list: Omit<Activity, 'id'>[];
+}
+
+/** เซลล์หนึ่งช่องของตาราง — CSV ให้แต่ข้อความ, .xlsx ให้สีพื้นมาด้วย */
+export interface TTCell {
+  text: string;
+  /** สีพื้น '#RRGGBB' — เก็บไว้ใน Activity.color เพื่อส่งออกกลับด้วยสีเดิม */
+  color: string | null;
 }
 
 /** CSV → แถวของเซลล์ (รองรับ quote, "" และขึ้นบรรทัดใหม่ในเซลล์) */
@@ -91,12 +99,12 @@ function guessCat(title: string): CatId {
  * parse บล็อกเดือนเดียว (rows = ตั้งแต่แถว MONTH ถึงก่อนแถว MONTH ถัดไป) เป็นรายการกิจกรรมครั้งเดียว (repeat none)
  * คืน null เมื่อโครงไม่ครบ (ให้ตัว multi ข้ามบล็อกเสีย ไม่ล้มทั้งไฟล์)
  */
-function parseMonthBlock(rows: string[][]): TimeTableImport | null {
+function parseMonthBlock(rows: TTCell[][]): TimeTableImport | null {
   // หัวไฟล์ MONTH m/yyyy (รับทั้ง ค.ศ. และ พ.ศ.)
   let month = 0;
   let year = 0;
   for (const r of rows.slice(0, 3)) {
-    const m = (r[0] ?? '').match(/MONTH\s*(\d{1,2})\s*\/\s*(\d{2,4})/i);
+    const m = (r[0]?.text ?? '').match(/MONTH\s*(\d{1,2})\s*\/\s*(\d{2,4})/i);
     if (m) {
       month = +m[1];
       year = +m[2];
@@ -104,10 +112,11 @@ function parseMonthBlock(rows: string[][]): TimeTableImport | null {
     }
   }
   if (!month || month > 12) return null;
-  if (year < 100) year += 2000;
+  // ปีสองหลัก: ≥50 อ่านเป็น พ.ศ. ("4/67" = เม.ย. 2567) ต่ำกว่านั้นเป็น ค.ศ. ("4/25" = 2025)
+  if (year < 100) year += year >= 50 ? 2500 : 2000;
   if (year > 2400) year -= 543;
 
-  const timeRowIdx = rows.findIndex((r) => (r[0] ?? '').trim().toLowerCase() === 'time');
+  const timeRowIdx = rows.findIndex((r) => (r[0]?.text ?? '').trim().toLowerCase() === 'time');
   if (timeRowIdx < 0) return null;
 
   // คอลัมน์ → วันที่ (เลขวันลดลง = ข้ามเข้าเดือนถัดไป)
@@ -117,7 +126,7 @@ function parseMonthBlock(rows: string[][]): TimeTableImport | null {
   let cy = year;
   let prev = 0;
   for (let c = 1; c < dayRow.length; c++) {
-    const n = parseInt((dayRow[c] ?? '').trim(), 10);
+    const n = parseInt((dayRow[c]?.text ?? '').trim(), 10);
     if (!n || n < 1 || n > 31) {
       colDate[c] = null;
       continue;
@@ -136,9 +145,9 @@ function parseMonthBlock(rows: string[][]): TimeTableImport | null {
   if (!dates.length) return null;
 
   // แถวเวลา: เก็บเฉพาะแถวที่ป้ายเวลาอ่านออก (แถวท้ายไฟล์ที่เป็นโน้ต/คำอธิบายจะถูกข้ามเอง)
-  const timed: { start: number; end: number | null; cells: string[] }[] = [];
+  const timed: { start: number; end: number | null; cells: TTCell[] }[] = [];
   for (const r of rows.slice(timeRowIdx + 1)) {
-    const p = parseTimeLabel(r[0] ?? '');
+    const p = parseTimeLabel(r[0]?.text ?? '');
     if (p && p.start < DAY_END) timed.push({ ...p, cells: r });
   }
   if (!timed.length) return null;
@@ -151,19 +160,30 @@ function parseMonthBlock(rows: string[][]): TimeTableImport | null {
     return Math.min(next ?? start + 30, DAY_END);
   };
 
-  const byDate = new Map<string, { title: string; start: number; end: number }[]>();
+  interface Piece {
+    title: string;
+    start: number;
+    end: number;
+    color: string | null;
+  }
+  const byDate = new Map<string, Piece[]>();
   for (const row of timed) {
     const end = endOf(row.start, row.end);
     for (let c = 1; c < row.cells.length; c++) {
       const date = colDate[c];
-      const title = (row.cells[c] ?? '').replace(/\s+/g, ' ').trim();
-      if (!date || !title) continue;
+      const cell = row.cells[c];
+      const text = (cell?.text ?? '').replace(/\s+/g, ' ').trim();
+      if (!date || !text) continue;
       let arr = byDate.get(date);
       if (!arr) {
         arr = [];
         byDate.set(date, arr);
       }
-      arr.push({ title, start: row.start, end });
+      // ช่องเดียวหลายกิจกรรม (ที่ส่งออกไว้ด้วย " | ") → แยกกลับเป็นคนละรายการ · ตัดเครื่องหมาย ✓/✗ ที่มากับไฟล์ส่งออก
+      for (const raw of text.split(' | ')) {
+        const title = raw.replace(/^[✓✔✗✘×]\s*/, '').trim();
+        if (title) arr.push({ title, start: row.start, end, color: cell?.color ?? null });
+      }
     }
   }
 
@@ -171,16 +191,19 @@ function parseMonthBlock(rows: string[][]): TimeTableImport | null {
   for (const [date, items] of byDate) {
     items.sort((a, b) => a.start - b.start || a.title.localeCompare(b.title));
     // รวมช่องติดกันชื่อเดียวกัน (ร่องรอยเซลล์ merge ของต้นฉบับ)
-    const merged: typeof items = [];
+    const merged: Piece[] = [];
     for (const it of items) {
-      const tail = merged[merged.length - 1];
-      if (tail && tail.title === it.title && it.start <= tail.end) tail.end = Math.max(tail.end, it.end);
-      else merged.push({ ...it });
+      const tail = merged.find((x) => x.title === it.title && it.start <= x.end && it.end >= x.start);
+      if (tail) {
+        tail.end = Math.max(tail.end, it.end);
+        tail.start = Math.min(tail.start, it.start);
+      } else merged.push({ ...it });
     }
     for (const it of merged) {
       list.push({
         title: it.title,
         cat: guessCat(it.title),
+        color: it.color,
         sub: null,
         loc: null,
         channel: null,
@@ -214,9 +237,16 @@ function parseMonthBlock(rows: string[][]): TimeTableImport | null {
  * ขอบเขตที่นำเข้าถูกกำหนดจากไฟล์เอง — โยน Error เมื่อไม่ใช่ฟอร์แมตนี้
  */
 export function parseTimeTableCsv(text: string): TimeTableImport {
-  const rows = parseCsv(text);
+  return parseTimeTableCells(parseCsv(text).map((r) => r.map((t) => ({ text: t, color: null }))));
+}
+
+/**
+ * แปลงกริดเซลล์ (มาจาก CSV หรือชีต .xlsx) เป็นรายการกิจกรรม — รองรับหลายบล็อก MONTH ในกริดเดียว
+ * ขอบเขตที่นำเข้าถูกกำหนดจากไฟล์เอง — โยน Error เมื่อไม่ใช่ฟอร์แมตนี้
+ */
+export function parseTimeTableCells(rows: TTCell[][]): TimeTableImport {
   const heads = rows
-    .map((r, i) => (/MONTH\s*\d{1,2}\s*\/\s*\d{2,4}/i.test(r[0] ?? '') ? i : -1))
+    .map((r, i) => (/MONTH\s*\d{1,2}\s*\/\s*\d{2,4}/i.test(r[0]?.text ?? '') ? i : -1))
     .filter((i) => i >= 0);
   if (!heads.length) throw new Error('ไม่พบหัว MONTH m/yyyy');
 

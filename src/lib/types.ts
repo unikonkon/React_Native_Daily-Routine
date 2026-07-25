@@ -26,6 +26,8 @@ export interface Activity {
   detachedFrom: number | null;
   status: 'active' | 'cancelled';
   contactIds: number[];
+  /** สีพื้นเซลล์ '#RRGGBB' ที่จำมาจากไฟล์ Time Table (.xlsx) — null = ใช้สีตามหมวดตอนส่งออก */
+  color: string | null;
 }
 
 /** กิจกรรมของวันหนึ่ง ๆ = Activity + สถานะรายวัน */

@@ -87,6 +87,13 @@ function migrate(d: SQLite.SQLiteDatabase) {
       PRAGMA user_version = 3;
     `);
   }
+  if (v < 4) {
+    // สีพื้นเซลล์ที่จำมาจากไฟล์ Time Table (.xlsx) — ส่งออกแล้วได้สีเดิมของผู้ใช้กลับไป
+    d.execSync(`
+      ALTER TABLE activities ADD COLUMN color TEXT;
+      PRAGMA user_version = 4;
+    `);
+  }
 }
 
 // ---------- โหลดตอนเปิดแอป (ครั้งเดียว) ----------
@@ -109,6 +116,7 @@ interface ActivityRow {
   notify_before: number;
   detached_from: number | null;
   status: string;
+  color: string | null;
 }
 
 export async function loadActivities(): Promise<Activity[]> {
@@ -138,6 +146,7 @@ export async function loadActivities(): Promise<Activity[]> {
     detachedFrom: r.detached_from,
     status: r.status as Activity['status'],
     contactIds: byAct[r.id] ?? [],
+    color: r.color ?? null,
   }));
 }
 
@@ -172,11 +181,11 @@ export async function insertActivity(a: Omit<Activity, 'id'>): Promise<number> {
   const d = getDb();
   const res = await d.runAsync(
     `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-       repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status, color)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
     a.repeat, a.daysMask, a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore,
-    a.detachedFrom, a.status,
+    a.detachedFrom, a.status, a.color,
   );
   const id = res.lastInsertRowId;
   await setActivityContacts(id, a.contactIds);
@@ -186,9 +195,9 @@ export async function insertActivity(a: Omit<Activity, 'id'>): Promise<number> {
 export async function updateActivity(a: Activity): Promise<void> {
   await getDb().runAsync(
     `UPDATE activities SET title=?, cat=?, sub=?, loc=?, channel=?, priority=?, start_min=?, end_min=?,
-       repeat=?, days_mask=?, start_date=?, end_date=?, notify=?, notify_before=?, status=? WHERE id=?`,
+       repeat=?, days_mask=?, start_date=?, end_date=?, notify=?, notify_before=?, status=?, color=? WHERE id=?`,
     a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
-    a.repeat, a.daysMask, a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore, a.status, a.id,
+    a.repeat, a.daysMask, a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore, a.status, a.color, a.id,
   );
   await setActivityContacts(a.id, a.contactIds);
 }
@@ -272,11 +281,11 @@ export async function insertActivities(list: Omit<Activity, 'id'>[]): Promise<vo
     for (const a of list) {
       await txn.runAsync(
         `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-           repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status, color)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
         a.repeat, a.daysMask, a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore,
-        a.detachedFrom, a.status,
+        a.detachedFrom, a.status, a.color,
       );
     }
   });
@@ -393,10 +402,10 @@ export async function restoreAll(data: BackupData, mode: 'replace' | 'merge'): P
     for (const a of data.activities) {
       const res = await txn.runAsync(
         `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-           repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)`,
+           repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status, color)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`,
         a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.start_min, a.end_min,
-        a.repeat, a.days_mask, a.start_date, a.end_date, a.notify, a.notify_before, a.status,
+        a.repeat, a.days_mask, a.start_date, a.end_date, a.notify, a.notify_before, a.status, a.color ?? null,
       );
       actIdMap[a.id] = res.lastInsertRowId;
     }

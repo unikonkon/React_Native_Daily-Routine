@@ -75,7 +75,7 @@ export function buildMockYear(year: number, today = todayISO(), now = nowMin()):
   let aid = 0;
   const base: Omit<Row, 'id' | 'title' | 'cat' | 'start_min' | 'end_min' | 'repeat' | 'days_mask' | 'start_date'> = {
     sub: null, loc: null, channel: null, priority: null, end_date: null,
-    notify: 0, notify_before: 30, detached_from: null, status: 'active',
+    notify: 0, notify_before: 30, detached_from: null, status: 'active', color: null,
   };
   const add = (r: Partial<Row> & Pick<Row, 'title' | 'cat' | 'start_min' | 'end_min' | 'repeat' | 'days_mask' | 'start_date'>): number => {
     const id = ++aid;

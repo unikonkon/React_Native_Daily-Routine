@@ -15,6 +15,7 @@ import { MONTH_TH, beYear, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
 import { buildSheetTabs, pushToSheets, type SheetsRange } from '@/lib/sheets';
 import { buildTimeTableCsvMulti, listDataMonths, parseTimeTableCsv, type TimeTableImport } from '@/lib/timetable';
+import { buildTimeTableXlsx, parseTimeTableXlsx } from '@/lib/timetableXlsx';
 import { buildTimeTableXlsMulti } from '@/lib/xls';
 import { getDay, useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
@@ -26,7 +27,7 @@ export default function DataScreen() {
   const router = useRouter();
   const showToast = useUI((s) => s.showToast);
   const [pendingImport, setPendingImport] = useState<BackupData | null>(null);
-  const [pendingCsv, setPendingCsv] = useState<TimeTableImport | null>(null);
+  const [pendingTT, setPendingTT] = useState<TimeTableImport | null>(null);
   /** กันเปิด document picker ซ้อน (native อนุญาตทีละตัว — เรียกซ้ำจะ throw) */
   const picking = useRef(false);
 
@@ -99,7 +100,7 @@ export default function DataScreen() {
     }
   };
 
-  const shareFile = async (name: string, content: string, mimeType: string) => {
+  const shareFile = async (name: string, content: string | Uint8Array, mimeType: string) => {
     const file = new File(Paths.cache, name);
     if (file.exists) file.delete();
     file.create();
@@ -114,14 +115,15 @@ export default function DataScreen() {
   /** เดือนที่มีข้อมูล (first-of-month ISO) — สำหรับให้ติ๊กเลือกในโหมด "เลือกเดือน" */
   const dataMonths = useMemo(() => listDataMonths(acts, occ), [acts, occ]);
 
+  type TtFormat = 'xlsx' | 'xls' | 'csv';
   const [ttOpen, setTtOpen] = useState(false);
   const [ttScope, setTtScope] = useState<'month' | 'pick' | 'all'>('month');
-  const [ttFormat, setTtFormat] = useState<'xls' | 'csv'>('xls');
+  const [ttFormat, setTtFormat] = useState<TtFormat>('xlsx');
   const [pickedMonths, setPickedMonths] = useState<string[]>([]);
 
   const openExport = () => {
     setTtScope('month');
-    setTtFormat('xls');
+    setTtFormat('xlsx');
     setPickedMonths([]);
     setTtOpen(true);
   };
@@ -133,8 +135,12 @@ export default function DataScreen() {
   const exportAnchors = (): string[] =>
     (ttScope === 'month' ? [thisMonthAnchor()] : ttScope === 'all' ? dataMonths : [...pickedMonths]).sort();
 
-  /** ส่งออก Time Table หลายเดือนในไฟล์เดียว — 'xls' = มีสี/จัดรูปแบบ, 'csv' = ข้อความล้วน (นำกลับเข้าแอปได้) */
-  const doExportTT = async (format: 'xls' | 'csv') => {
+  /**
+   * ส่งออก Time Table หลายเดือนในไฟล์เดียว
+   * 'xlsx' = Excel จริง (โครง/สี/ฟอนต์/เซลล์ merge เหมือนไฟล์ต้นฉบับ · นำกลับเข้าแอปได้)
+   * 'xls'  = HTML table มีสี (เปิดดูอย่างเดียว) · 'csv' = ข้อความล้วน (นำกลับเข้าแอปได้)
+   */
+  const doExportTT = async (format: TtFormat) => {
     const anchors = exportAnchors();
     if (!anchors.length) {
       showToast('ยังไม่ได้เลือกเดือน');
@@ -146,8 +152,17 @@ export default function DataScreen() {
         anchors.length === 1
           ? anchors[0].slice(0, 7)
           : `${anchors[0].slice(0, 7)}_ถึง_${anchors[anchors.length - 1].slice(0, 7)}`;
-      if (format === 'xls') await shareFile(`timetable-${tag}.xls`, buildTimeTableXlsMulti(getDay, anchors), 'application/vnd.ms-excel');
-      else await shareFile(`timetable-${tag}.csv`, buildTimeTableCsvMulti(getDay, anchors), 'text/csv');
+      if (format === 'xlsx') {
+        await shareFile(
+          `timetable-${tag}.xlsx`,
+          buildTimeTableXlsx(getDay, anchors),
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+      } else if (format === 'xls') {
+        await shareFile(`timetable-${tag}.xls`, buildTimeTableXlsMulti(getDay, anchors), 'application/vnd.ms-excel');
+      } else {
+        await shareFile(`timetable-${tag}.csv`, buildTimeTableCsvMulti(getDay, anchors), 'text/csv');
+      }
     } catch {
       showToast('ส่งออกไม่สำเร็จ');
     }
@@ -163,25 +178,34 @@ export default function DataScreen() {
     }
   };
 
-  const pickCsvImport = async () => {
-    const asset = await pickDocument(['text/csv', 'text/comma-separated-values', 'text/plain']);
+  /** นำเข้า Time Table — รับทั้ง .xlsx (อ่านสี/เซลล์ merge ด้วย) และ .csv ในปุ่มเดียว */
+  const pickTimeTableImport = async () => {
+    const asset = await pickDocument([
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'text/comma-separated-values',
+      'text/plain',
+    ]);
     if (!asset) return;
+    const isXlsx =
+      /\.xlsx$/i.test(asset.name ?? '') || asset.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     try {
-      const text = await new File(asset.uri).text();
-      setPendingCsv(parseTimeTableCsv(text));
-    } catch {
-      showToast('อ่านไฟล์ไม่ได้ — ต้องเป็น CSV ฟอร์แมต Time Table (มีหัว MONTH และแถว Time)');
+      const file = new File(asset.uri);
+      setPendingTT(isXlsx ? parseTimeTableXlsx(await file.bytes()) : parseTimeTableCsv(await file.text()));
+    } catch (err) {
+      const why = err instanceof Error ? err.message : '';
+      showToast(`อ่านไฟล์ไม่ได้${why ? ` — ${why}` : ''} — ต้องเป็น .xlsx/.csv ฟอร์แมต Time Table (มีหัว MONTH และแถว Time)`);
     }
   };
 
-  const doCsvImport = async (mode: 'merge' | 'replace') => {
-    if (!pendingCsv) return;
+  const doTTImport = async (mode: 'merge' | 'replace') => {
+    if (!pendingTT) return;
     try {
-      if (mode === 'replace') await purgeRange(pendingCsv.from, pendingCsv.to);
-      await insertActivities(pendingCsv.list);
+      if (mode === 'replace') await purgeRange(pendingTT.from, pendingTT.to);
+      await insertActivities(pendingTT.list);
       await useActivities.getState().boot();
-      setPendingCsv(null);
-      showToast(`นำเข้า ${pendingCsv.list.length} รายการแล้ว ✓`);
+      setPendingTT(null);
+      showToast(`นำเข้า ${pendingTT.list.length} รายการแล้ว ✓`);
     } catch {
       showToast('นำเข้าไม่สำเร็จ');
     }
@@ -216,8 +240,8 @@ export default function DataScreen() {
     <Screen title="ข้อมูล" subtitle="Export · Import · Google Sheets" back>
       <Card>
         <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>Time Table — ส่งออก / นำเข้า</Txt>
-        <Row icon="grid" label="ส่งออก Time Table" sub="เลือกช่วง: เดือนนี้ / เลือกเดือน / ทั้งหมด — มีสี (.xls) หรือ CSV" onPress={openExport} />
-        <Row icon="repeat" label="นำเข้า Time Table" sub="ไฟล์ CSV แบบ grid — รองรับหลายเดือนในไฟล์เดียว" onPress={pickCsvImport} last />
+        <Row icon="grid" label="ส่งออก Time Table" sub="เลือกช่วง: เดือนนี้ / เลือกเดือน / ทั้งหมด — Excel (.xlsx), มีสี (.xls) หรือ CSV" onPress={openExport} />
+        <Row icon="repeat" label="นำเข้า Time Table" sub="ไฟล์ .xlsx หรือ CSV แบบ grid — รองรับหลายเดือน/หลายชีตในไฟล์เดียว" onPress={pickTimeTableImport} last />
       </Card>
 
       {ttOpen ? (
@@ -287,7 +311,7 @@ export default function DataScreen() {
           <View style={{ gap: 6 }}>
             <Txt size={11} color={t.faint}>รูปแบบไฟล์</Txt>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              {([['xls', 'มีสี (.xls)'], ['csv', 'CSV']] as const).map(([k, lb]) => {
+              {([['xlsx', 'Excel (.xlsx)'], ['xls', 'มีสี (.xls)'], ['csv', 'CSV']] as const).map(([k, lb]) => {
                 const on = ttFormat === k;
                 return (
                   <Pressable key={k} onPress={() => setTtFormat(k)} style={{ flex: 1 }}>
@@ -307,9 +331,11 @@ export default function DataScreen() {
               })}
             </View>
             <Txt size={11} color={t.faint}>
-              {ttFormat === 'xls'
-                ? 'มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ — เปิดใน Excel/Sheets ได้เลย'
-                : 'CSV: ข้อความล้วน นำกลับเข้าแอปนี้ได้'}
+              {ttFormat === 'xlsx'
+                ? 'Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK พื้นสีเดิม เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้'
+                : ttFormat === 'xls'
+                  ? 'มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ — เปิดดูใน Excel/Sheets ได้ แต่นำกลับเข้าแอปไม่ได้'
+                  : 'CSV: ข้อความล้วน นำกลับเข้าแอปนี้ได้'}
             </Txt>
           </View>
 
@@ -327,19 +353,20 @@ export default function DataScreen() {
         </Card>
       ) : null}
 
-      {pendingCsv ? (
+      {pendingTT ? (
         <Card tone="card2" style={{ gap: 10 }}>
           <Txt size={14} weight="bold">
-            พบ Time Table {pendingCsv.monthLabel}: {pendingCsv.list.length} รายการ
+            พบ Time Table {pendingTT.monthLabel}: {pendingTT.list.length} รายการ
           </Txt>
           <Txt size={12} color={t.sub}>
-            ช่วง {pendingCsv.from} – {pendingCsv.to} · หมวดถูกเดาจากชื่อกิจกรรม แก้ทีหลังได้{'\n'}
+            ช่วง {pendingTT.from} – {pendingTT.to} · หมวดถูกเดาจากชื่อกิจกรรม แก้ทีหลังได้{'\n'}
+            ไฟล์ .xlsx: สีพื้นเซลล์เดิมถูกจำไว้ ส่งออกครั้งหน้าได้สีเดิมกลับไป{'\n'}
             “แทนที่ช่วงนี้” จะลบข้อมูลเดิมเฉพาะช่วงวันดังกล่าวก่อนนำเข้า
           </Txt>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setPendingCsv(null)} />
-            <Btn style={{ flex: 1 }} label="เพิ่มรวม" onPress={() => doCsvImport('merge')} />
-            <Btn style={{ flex: 1 }} kind="danger" label="แทนที่ช่วงนี้" onPress={() => doCsvImport('replace')} />
+            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setPendingTT(null)} />
+            <Btn style={{ flex: 1 }} label="เพิ่มรวม" onPress={() => doTTImport('merge')} />
+            <Btn style={{ flex: 1 }} kind="danger" label="แทนที่ช่วงนี้" onPress={() => doTTImport('replace')} />
           </View>
         </Card>
       ) : null}

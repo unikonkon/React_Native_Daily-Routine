@@ -346,11 +346,13 @@ function ScheduleSection() {
       detachedFrom: null,
       status: 'active' as const,
       contactIds: d.cat === 'case' ? d.contactIds : [],
+      color: null, // สีจากไฟล์ Time Table เท่านั้น — กิจกรรมที่สร้างในแอปใช้สีตามหมวด
     };
 
     if (d.editId) {
       const prev = acts.find((a) => a.id === d.editId);
-      update({ ...fields, id: d.editId, detachedFrom: prev?.detachedFrom ?? null });
+      // แก้ไขกิจกรรมที่นำเข้ามา: รักษาสีเดิมที่จำจากไฟล์ไว้
+      update({ ...fields, id: d.editId, detachedFrom: prev?.detachedFrom ?? null, color: prev?.color ?? null });
       showToast('บันทึกการแก้ไขแล้ว ✓');
     } else {
       await add(fields);

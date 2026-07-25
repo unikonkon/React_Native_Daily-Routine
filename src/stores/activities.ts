@@ -125,6 +125,7 @@ export const useActivities = create<ActivitiesState>((set, get) => {
         detachedFrom: item.id,
         status: 'active',
         contactIds: item.contactIds,
+        color: item.color,
       };
       const newId = await db.insertActivity(fields);
       db.insertRescheduleLog(newId, item.date, item.startMin, to.date, to.start, reason || null);
