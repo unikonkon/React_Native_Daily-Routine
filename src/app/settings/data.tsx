@@ -10,9 +10,10 @@ import { Pressable, View } from 'react-native';
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { Btn, Card, Chip, Row, Txt, useTokens } from '@/components/ui';
-import { ACCENT, DANGER } from '@/constants/theme';
-import { MONTH_TH, beYear, todayISO } from '@/lib/dates';
+import { ACCENT, DANGER, GREEN } from '@/constants/theme';
+import { MONTH_TH, beYear, nowMin, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
+import { buildReport, reportCsv, reportHtml, reportSheets } from '@/lib/report';
 import { buildSheetTabs, pushToSheets, type SheetsRange } from '@/lib/sheets';
 import { buildTimeTableCsvMulti, listDataMonths, parseTimeTableCsv, type TimeTableImport } from '@/lib/timetable';
 import { buildTimeTableXlsx, parseTimeTableXlsx } from '@/lib/timetableXlsx';
@@ -120,11 +121,17 @@ export default function DataScreen() {
   const [ttScope, setTtScope] = useState<'month' | 'pick' | 'all'>('month');
   const [ttFormat, setTtFormat] = useState<TtFormat>('xlsx');
   const [pickedMonths, setPickedMonths] = useState<string[]>([]);
+  /** แนบ "รายงานสรุปจากที่บันทึกไว้" (ชุดเดียวกับหน้าสถิติ) ไปกับไฟล์ที่ส่งออก */
+  const [withReport, setWithReport] = useState(true);
+  /** ส่งออกเฉพาะรายงาน — ไม่ต้องมี grid Time Table ในไฟล์ */
+  const [reportOnly, setReportOnly] = useState(false);
 
   const openExport = () => {
     setTtScope('month');
     setTtFormat('xlsx');
     setPickedMonths([]);
+    setWithReport(true);
+    setReportOnly(false);
     setTtOpen(true);
   };
 
@@ -136,9 +143,9 @@ export default function DataScreen() {
     (ttScope === 'month' ? [thisMonthAnchor()] : ttScope === 'all' ? dataMonths : [...pickedMonths]).sort();
 
   /**
-   * ส่งออก Time Table หลายเดือนในไฟล์เดียว
-   * 'xlsx' = Excel จริง (โครง/สี/ฟอนต์/เซลล์ merge เหมือนไฟล์ต้นฉบับ · นำกลับเข้าแอปได้)
-   * 'xls'  = HTML table มีสี (เปิดดูอย่างเดียว) · 'csv' = ข้อความล้วน (นำกลับเข้าแอปได้)
+   * ส่งออก Time Table + รายงานสรุป หลายเดือนในไฟล์เดียว
+   * 'xlsx' = Excel จริง (โครง/สี/ฟอนต์/เซลล์ merge เหมือนไฟล์ต้นฉบับ · นำกลับเข้าแอปได้) — รายงานเป็นชีตแยกหน้าสุด
+   * 'xls'  = HTML table มีสี (เปิดดูอย่างเดียว) · 'csv' = ข้อความล้วน (นำกลับเข้าแอปได้ — บล็อกรายงานถูกมองข้ามตอนนำเข้า)
    */
   const doExportTT = async (format: TtFormat) => {
     const anchors = exportAnchors();
@@ -146,22 +153,31 @@ export default function DataScreen() {
       showToast('ยังไม่ได้เลือกเดือน');
       return;
     }
+    if (!withReport && reportOnly) {
+      showToast('เลือกอย่างน้อยหนึ่งอย่าง: ตาราง Time Table หรือรายงานสรุป');
+      return;
+    }
     setTtOpen(false);
     try {
+      const report = withReport
+        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin())
+        : null;
+      const ttAnchors = reportOnly ? [] : anchors;
+      const kind = reportOnly ? 'report' : 'timetable';
       const tag =
         anchors.length === 1
           ? anchors[0].slice(0, 7)
           : `${anchors[0].slice(0, 7)}_ถึง_${anchors[anchors.length - 1].slice(0, 7)}`;
       if (format === 'xlsx') {
         await shareFile(
-          `timetable-${tag}.xlsx`,
-          buildTimeTableXlsx(getDay, anchors),
+          `${kind}-${tag}.xlsx`,
+          buildTimeTableXlsx(getDay, ttAnchors, report ? reportSheets(report) : []),
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         );
       } else if (format === 'xls') {
-        await shareFile(`timetable-${tag}.xls`, buildTimeTableXlsMulti(getDay, anchors), 'application/vnd.ms-excel');
+        await shareFile(`${kind}-${tag}.xls`, buildTimeTableXlsMulti(getDay, ttAnchors, report ? reportHtml(report) : undefined), 'application/vnd.ms-excel');
       } else {
-        await shareFile(`timetable-${tag}.csv`, buildTimeTableCsvMulti(getDay, anchors), 'text/csv');
+        await shareFile(`${kind}-${tag}.csv`, buildTimeTableCsvMulti(getDay, ttAnchors, report ? reportCsv(report) : undefined), 'text/csv');
       }
     } catch {
       showToast('ส่งออกไม่สำเร็จ');
@@ -240,13 +256,13 @@ export default function DataScreen() {
     <Screen title="ข้อมูล" subtitle="Export · Import · Google Sheets" back>
       <Card>
         <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>Time Table — ส่งออก / นำเข้า</Txt>
-        <Row icon="grid" label="ส่งออก Time Table" sub="เลือกช่วง: เดือนนี้ / เลือกเดือน / ทั้งหมด — Excel (.xlsx), มีสี (.xls) หรือ CSV" onPress={openExport} />
+        <Row icon="grid" label="ส่งออก Time Table & รายงานสรุป" sub="เลือกช่วง: เดือนนี้ / เลือกเดือน / ทั้งหมด — Excel (.xlsx), มีสี (.xls) หรือ CSV" onPress={openExport} />
         <Row icon="repeat" label="นำเข้า Time Table" sub="ไฟล์ .xlsx หรือ CSV แบบ grid — รองรับหลายเดือน/หลายชีตในไฟล์เดียว" onPress={pickTimeTableImport} last />
       </Card>
 
       {ttOpen ? (
         <Card tone="card2" style={{ gap: 12 }}>
-          <Txt size={14} weight="bold">ส่งออก Time Table — เลือกช่วงข้อมูล</Txt>
+          <Txt size={14} weight="bold">ส่งออก Time Table & รายงานสรุป — เลือกช่วงข้อมูล</Txt>
 
           {/* ขอบเขต 3 แบบ */}
           <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -307,6 +323,28 @@ export default function DataScreen() {
             </Txt>
           )}
 
+          {/* เนื้อหาในไฟล์ — ตาราง Time Table / รายงานสรุป (ชุดเดียวกับหน้าสถิติ) */}
+          <View style={{ gap: 6 }}>
+            <Txt size={11} color={t.faint}>เนื้อหาในไฟล์</Txt>
+            <CheckRow
+              label="รายงานสรุปจากที่บันทึกไว้"
+              sub="ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · นัดเคส (ระดับ/ตามเคส/รายชื่อคน) · รายการนัด"
+              on={withReport}
+              onPress={() => {
+                const next = !withReport;
+                setWithReport(next);
+                if (!next) setReportOnly(false); // ไม่เอารายงานแล้วจะ "เฉพาะรายงาน" ไม่ได้
+              }}
+            />
+            <CheckRow
+              label="ตาราง Time Table รายเดือน"
+              sub="grid ช่องเวลา 30 นาที — เอาออกได้ถ้าต้องการเฉพาะรายงาน"
+              on={!reportOnly}
+              disabled={!withReport}
+              onPress={() => setReportOnly(!reportOnly)}
+            />
+          </View>
+
           {/* เลือกรูปแบบไฟล์ */}
           <View style={{ gap: 6 }}>
             <Txt size={11} color={t.faint}>รูปแบบไฟล์</Txt>
@@ -332,10 +370,10 @@ export default function DataScreen() {
             </View>
             <Txt size={11} color={t.faint}>
               {ttFormat === 'xlsx'
-                ? 'Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK พื้นสีเดิม เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้'
+                ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK พื้นสีเดิม เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้${withReport ? ' · รายงานอยู่ในชีตแยก 3 ชีตแรก' : ''}`
                 : ttFormat === 'xls'
                   ? 'มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ — เปิดดูใน Excel/Sheets ได้ แต่นำกลับเข้าแอปไม่ได้'
-                  : 'CSV: ข้อความล้วน นำกลับเข้าแอปนี้ได้'}
+                  : `CSV: ข้อความล้วน นำกลับเข้าแอปนี้ได้${withReport ? ' (บล็อกรายงานถูกข้ามตอนนำเข้า)' : ''}`}
             </Txt>
           </View>
 
@@ -345,7 +383,7 @@ export default function DataScreen() {
             <Btn
               style={{ flex: 2 }}
               icon="share"
-              label="ส่งออก"
+              label={reportOnly ? 'ส่งออกรายงาน' : withReport ? 'ส่งออกตาราง + รายงาน' : 'ส่งออกตาราง'}
               disabled={ttScope === 'pick' && !pickedMonths.length}
               onPress={() => doExportTT(ttFormat)}
             />
@@ -528,6 +566,45 @@ function thisMonthAnchor(): string {
 function ttMonthLabel(anchor: string): string {
   const [y, m] = anchor.split('-').map(Number);
   return `${MONTH_TH[m - 1]} ${beYear(y)}`;
+}
+
+/** แถวติ๊กเลือกเนื้อหาที่จะใส่ในไฟล์ส่งออก */
+function CheckRow({ label, sub, on, disabled, onPress }: { label: string; sub: string; on: boolean; disabled?: boolean; onPress: () => void }) {
+  const t = useTokens();
+  return (
+    <Pressable onPress={disabled ? undefined : onPress} style={{ opacity: disabled ? 0.4 : 1 }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 10,
+          paddingVertical: 8,
+          paddingHorizontal: 10,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: on ? ACCENT : t.line,
+          backgroundColor: on ? t.chip : 'transparent',
+        }}>
+        <View
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: 6,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: on ? GREEN : 'transparent',
+            borderWidth: on ? 0 : 1.5,
+            borderColor: t.line2,
+          }}>
+          {on ? <Icon name="check" size={13} color="#FFFFFF" /> : null}
+        </View>
+        <View style={{ flex: 1, gap: 1 }}>
+          <Txt size={12.5} weight="bold" color={on ? t.ink : t.sub}>{label}</Txt>
+          <Txt size={10.5} color={t.faint}>{sub}</Txt>
+        </View>
+      </View>
+    </Pressable>
+  );
 }
 
 /** แถว URL ในรายการที่บันทึกไว้ — โชว์ URL ย่อ + ปุ่มเชื่อมต่อ/ใช้ + ปุ่มลบ */

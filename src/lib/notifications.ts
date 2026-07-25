@@ -7,10 +7,17 @@ import { Platform } from 'react-native';
 import { CAT_BY_ID } from '@/constants/theme';
 import { addDays, fmtMin, fromISO, todayISO } from '@/lib/dates';
 import { dayItems } from '@/lib/engine';
+import { morningDigest } from '@/lib/morning';
 import type { Activity, OccMap } from '@/lib/types';
 
 const BUDGET = 50;
 const LOOKAHEAD_DAYS = 30;
+/**
+ * สรุปตอนเช้าตั้งล่วงหน้าเป็นรายวัน 7 วัน (ไม่ใช้ทริกเกอร์ DAILY ซ้ำ เพราะเนื้อหาต้องบอกนัดเคส "ของวันนั้น")
+ * ทุก mutation จะ resync ใหม่อยู่แล้ว — ข้อความจึงตามข้อมูลล่าสุดเสมอ
+ */
+const MORNING_DAYS = 7;
+const MORNING_HOUR = 6;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -53,18 +60,30 @@ async function resync(acts: Activity[], occ: OccMap, master: boolean, morning: b
   await Notifications.cancelAllScheduledNotificationsAsync();
   if (!master) return;
 
-  if (morning) {
-    await Notifications.scheduleNotificationAsync({
-      content: { title: 'สรุปตอนเช้า ☀️', body: 'แตะเพื่อดูตารางกิจกรรมของวันนี้' },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: 6, minute: 0 },
-    });
-  }
-
-  // occurrence ล่วงหน้า 30 วัน ที่ notify เปิดและยัง planned → เรียงใกล้สุดก่อน → ตั้ง 50 รายการแรก
   const now = Date.now();
   const today = todayISO();
+
+  // สรุปตอนเช้า — 06:00 ของแต่ละวัน บอกว่าวันนั้นมีนัดเคส (งานธุรกิจ/ทีม) อะไรบ้าง
+  let morningUsed = 0;
+  if (morning) {
+    for (let i = 0; i < MORNING_DAYS; i++) {
+      const d = addDays(today, i);
+      const at = fromISO(d);
+      at.setHours(MORNING_HOUR, 0, 0, 0);
+      if (+at <= now) continue; // เช้าวันนี้ผ่านไปแล้ว → เริ่มที่พรุ่งนี้
+      const digest = morningDigest(acts, occ, d);
+      await Notifications.scheduleNotificationAsync({
+        content: { title: digest.title, body: digest.body },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at },
+      });
+      morningUsed++;
+    }
+  }
+
+  // occurrence ล่วงหน้า 30 วัน ที่ notify เปิดและยัง planned → เรียงใกล้สุดก่อน → ตั้งเท่างบที่เหลือ
+  const budget = Math.max(0, BUDGET - morningUsed);
   const queue: { at: Date; title: string; body: string }[] = [];
-  for (let i = 0; i <= LOOKAHEAD_DAYS && queue.length < BUDGET * 2; i++) {
+  for (let i = 0; i <= LOOKAHEAD_DAYS && queue.length < budget * 2; i++) {
     const d = addDays(today, i);
     for (const it of dayItems(acts, occ, d)) {
       if (!it.notify || it.ostatus !== 'planned') continue;
@@ -79,7 +98,7 @@ async function resync(acts: Activity[], occ: OccMap, master: boolean, morning: b
     }
   }
   queue.sort((a, b) => +a.at - +b.at);
-  for (const q of queue.slice(0, BUDGET)) {
+  for (const q of queue.slice(0, budget)) {
     await Notifications.scheduleNotificationAsync({
       content: { title: q.title, body: q.body },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: q.at },

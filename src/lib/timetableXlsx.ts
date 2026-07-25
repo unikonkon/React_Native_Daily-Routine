@@ -194,9 +194,12 @@ function monthSheet(read: Read, anchor: string): XWriteSheet {
   };
 }
 
-/** Time Table หลายเดือนในไฟล์ .xlsx เดียว (ชีตละเดือน) — คู่กับ parseTimeTableXlsx */
-export function buildTimeTableXlsx(read: Read, anchors: string[]): Uint8Array {
-  return buildXlsx(anchors.map((anchor) => monthSheet(read, anchor)));
+/**
+ * Time Table หลายเดือนในไฟล์ .xlsx เดียว (ชีตละเดือน) — คู่กับ parseTimeTableXlsx
+ * extra = ชีตรายงานสรุป (ถ้ามี) วางไว้หน้าสุดให้เปิดไฟล์แล้วเจอรายงานก่อน — ตัวอ่านฝั่งนำเข้าข้ามชีตที่ไม่ใช่ Time Table เอง
+ */
+export function buildTimeTableXlsx(read: Read, anchors: string[], extra: XWriteSheet[] = []): Uint8Array {
+  return buildXlsx([...extra, ...anchors.map((anchor) => monthSheet(read, anchor))]);
 }
 
 /** สีอ่อนตามหมวดที่แอปสร้างเอง — เจอตอนนำเข้าแปลว่าไฟล์นี้แอปเป็นคนส่งออก ไม่ใช่สีที่ผู้ใช้เลือก */

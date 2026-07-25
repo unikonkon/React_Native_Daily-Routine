@@ -322,9 +322,12 @@ export function buildTimeTableRows(read: (date: string) => DayItem[], anchor: st
   return rows;
 }
 
-/** Time Table CSV หลายเดือนในไฟล์เดียว — ต่อบล็อก MONTH ของแต่ละ anchor คั่นด้วยบรรทัดว่าง (parser อ่านกลับได้) */
-export function buildTimeTableCsvMulti(read: (date: string) => DayItem[], anchors: string[]): string {
+/**
+ * Time Table CSV หลายเดือนในไฟล์เดียว — ต่อบล็อก MONTH ของแต่ละ anchor คั่นด้วยบรรทัดว่าง (parser อ่านกลับได้)
+ * report = บล็อกรายงานสรุป (ถ้ามี) วางไว้หน้าสุด — parser มองข้ามเพราะไม่มีหัว MONTH
+ */
+export function buildTimeTableCsvMulti(read: (date: string) => DayItem[], anchors: string[], report?: string): string {
   const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
   const blocks = anchors.map((anchor) => buildTimeTableRows(read, anchor).map((r) => r.map(esc).join(',')).join('\n'));
-  return '﻿' + blocks.join('\n\n'); // BOM ให้ Excel เปิดภาษาไทยถูก
+  return '﻿' + (report ? [report, ...blocks] : blocks).join('\n\n'); // BOM ให้ Excel เปิดภาษาไทยถูก
 }

@@ -90,7 +90,8 @@ function monthTable(read: Read, anchor: string): string {
   return gridTable(`Time Table ${MONTH_TH_FULL[m]} ${beYear(y)}`, dates, heads, read);
 }
 
-/** Time Table หลายเดือนในไฟล์ .xls เดียว แบบมีสี — คู่กับ buildTimeTableCsvMulti */
-export function buildTimeTableXlsMulti(read: Read, anchors: string[]): string {
-  return htmlDoc(anchors.map((anchor) => monthTable(read, anchor)));
+/** Time Table หลายเดือนในไฟล์ .xls เดียว แบบมีสี — คู่กับ buildTimeTableCsvMulti · report = บล็อกรายงานสรุปที่นำหน้าตาราง */
+export function buildTimeTableXlsMulti(read: Read, anchors: string[], report?: string): string {
+  const tables = anchors.map((anchor) => monthTable(read, anchor));
+  return htmlDoc(report ? [report, ...tables] : tables);
 }

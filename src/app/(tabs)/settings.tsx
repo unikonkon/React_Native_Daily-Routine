@@ -113,7 +113,7 @@ export default function SettingsScreen() {
         <Row
           icon="sun"
           label="สรุปตอนเช้า"
-          sub="ทุกวัน 06:00"
+          sub="ทุกวัน 06:00 · สรุปนัดเคส (งานธุรกิจ/ทีม) ของวันนั้น"
           last
           right={<Toggle value={settings.morning} onChange={(v) => { settings.setMorning(v); syncNotif(settings.notifMaster, v); }} />}
         />
