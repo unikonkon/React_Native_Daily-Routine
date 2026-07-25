@@ -98,6 +98,7 @@ export default function SettingsScreen() {
         <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>การจัดการ</Txt>
         <Row icon="grid" label="จัดการหมวดหมู่" sub="6 หมวด · P1–P6" onPress={() => router.push('/settings/categories')} />
         <Row icon="user" label="สมุดรายชื่อ" sub={`${nContacts} รายชื่อ`} onPress={() => router.push('/settings/contacts')} />
+        <Row icon="copy" label="คัดลอกกิจกรรม" sub="เลือกจากสัปดาห์/เดือน → วางลงวันที่ต้องการ" onPress={() => router.push('/settings/copy')} />
         <Row icon="bars" label="จัดการข้อมูล" sub="ดูความจุ & ลบข้อมูล รายปี · เดือน · สัปดาห์ · วัน" onPress={() => router.push('/settings/manage')} last />
       </Card>
 
