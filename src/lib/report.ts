@@ -2,11 +2,11 @@
 // เนื้อหาตรงกับหน้าสถิติ (app/settings/stats.tsx): ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · นัดเคส (ระดับ/ตามเคส/รายชื่อคน) · รายการนัด
 // ตัวเลขทุกตัวคำนวณจาก engine.rangeStats ตัวเดียวกับหน้าจอ — เลขในไฟล์กับในแอปจึงตรงกันเสมอ
 
-import { ACCENT, CATS, DANGER, GREEN, PRI, PRI_BY_ID, type PriorityId } from '@/constants/theme';
+import { CATS, PRI, PRI_BY_ID, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, WD_TH_FULL, addDays, beYear, fmtRange, fromISO, hoursText, thaiDate, toISO, wdMon } from '@/lib/dates';
 import { rangeStats, type RangeStats } from '@/lib/engine';
+import { EXPORT_PALETTES, type ExportPalette } from '@/lib/export-theme';
 import type { Activity, Contact, DayItem, OccMap, OccStatus } from '@/lib/types';
-import { mix } from '@/lib/xls';
 import { xmlEsc, type XStyle, type XWriteCell, type XWriteSheet } from '@/lib/xlsx';
 
 const STATUS_TH: Record<OccStatus, string> = {
@@ -317,22 +317,40 @@ const itemRow = (it: DayItem, nameById: Record<number, string>): (string | numbe
 
 // ---------- .xlsx ----------
 
-const S_TITLE: XStyle = { bold: true, size: 16, color: '#FFFFFF', fill: ACCENT, valign: 'center' };
-const S_SUB: XStyle = { size: 10, color: '#6E6555', valign: 'center' };
-const S_SECTION: XStyle = { bold: true, size: 12, color: '#FFFFFF', fill: '#6B6255', valign: 'center' };
-const S_HEAD: XStyle = { bold: true, size: 10, color: '#FFFFFF', fill: '#8A8175', align: 'center', valign: 'center', border: true };
-const S_KEY: XStyle = { size: 10, valign: 'center', border: true };
-const S_VAL: XStyle = { bold: true, size: 11, align: 'right', valign: 'center', border: true };
-const S_NOTE: XStyle = { size: 9, color: '#A79C88', valign: 'center', border: true };
-const S_CELL: XStyle = { size: 10, valign: 'center', border: true, wrap: true };
-const S_NUM: XStyle = { size: 10, align: 'center', valign: 'center', border: true };
+/** ชุดสไตล์ของชีตรายงานตามโทนที่เลือก */
+interface Styles {
+  title: XStyle;
+  sub: XStyle;
+  section: XStyle;
+  head: XStyle;
+  key: XStyle;
+  val: XStyle;
+  note: XStyle;
+  cell: XStyle;
+  num: XStyle;
+}
+
+function styles(pal: ExportPalette): Styles {
+  const base = { valign: 'center' as const, border: true, fill: pal.cellBg ?? undefined };
+  return {
+    title: { bold: true, size: 16, color: pal.titleInk, fill: pal.title, valign: 'center' },
+    sub: { size: 10, color: pal.sub, valign: 'center', fill: pal.cellBg ?? undefined },
+    section: { bold: true, size: 12, color: pal.headInk, fill: pal.head, valign: 'center' },
+    head: { bold: true, size: 10, color: pal.headInk, fill: pal.head2, align: 'center', valign: 'center', border: true },
+    key: { ...base, size: 10, color: pal.ink },
+    val: { ...base, bold: true, size: 11, color: pal.ink, align: 'right' },
+    note: { ...base, size: 9, color: pal.faint },
+    cell: { ...base, size: 10, color: pal.ink, wrap: true },
+    num: { ...base, size: 10, color: pal.ink, align: 'center' },
+  };
+}
 
 const cell = (v: string | number, s: XStyle): XWriteCell => ({ v, s });
 
-/** ป้ายระดับความสำคัญพื้นสีตามระดับ */
-function priCell(id: PriorityId | null | string): XWriteCell {
+/** ป้ายระดับความสำคัญพื้นสีตามระดับ (ปรับความสว่างตามโทน) */
+function priCell(id: PriorityId | null | string, pal: ExportPalette, S: Styles): XWriteCell {
   const p = typeof id === 'string' && id in PRI_BY_ID ? PRI_BY_ID[id as PriorityId] : null;
-  return { v: p ? p.id : '–', s: { ...S_NUM, bold: !!p, color: p ? '#FFFFFF' : '#A79C88', fill: p?.color } };
+  return { v: p ? p.id : '–', s: { ...S.num, bold: !!p, color: p ? pal.priInk : pal.faint, fill: p ? pal.priFill(p.color) : S.num.fill } };
 }
 
 /** เขียนตารางหนึ่งชุด: หัวข้อ + หัวคอลัมน์ + แถวข้อมูล — คืนเลขแถวถัดไป */
@@ -344,12 +362,13 @@ function table(
   title: string,
   head: string[],
   body: (XWriteCell | null)[][],
+  S: Styles,
 ): number {
   let r = at;
-  rows[r] = [cell(title, S_SECTION), ...Array<XWriteCell | null>(width - 1).fill({ s: S_SECTION })];
+  rows[r] = [cell(title, S.section), ...Array<XWriteCell | null>(width - 1).fill({ s: S.section })];
   merges.push(`A${r + 1}:${colLetter(width)}${r + 1}`);
   r++;
-  rows[r++] = head.map((h) => cell(h, S_HEAD));
+  rows[r++] = head.map((h) => cell(h, S.head));
   for (const b of body) rows[r++] = b;
   rows[r++] = [];
   return r;
@@ -362,50 +381,50 @@ function colLetter(n: number): string {
 }
 
 /** ชีตรายงานสรุป (ภาพรวม + แนวโน้ม + ชั่วโมงตามหมวด + เคสตามระดับ) */
-function summarySheet(d: ReportData): XWriteSheet {
+function summarySheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
   const rows: (XWriteCell | null)[][] = [];
   const merges: string[] = [];
   const W = 4;
 
-  rows[0] = [cell('รายงานสรุปจากที่บันทึกไว้', S_TITLE), ...Array<XWriteCell | null>(W - 1).fill({ s: S_TITLE })];
+  rows[0] = [cell('รายงานสรุปจากที่บันทึกไว้', S.title), ...Array<XWriteCell | null>(W - 1).fill({ s: S.title })];
   merges.push(`A1:${colLetter(W)}1`);
-  rows[1] = [cell(`ช่วง ${d.label} · ${d.from} ถึง ${d.to}`, S_SUB)];
-  rows[2] = [cell(`ออกรายงาน ${thaiDate(d.madeOn)} — นับเฉพาะรายการที่ถึงกำหนดแล้ว`, S_SUB)];
+  rows[1] = [cell(`ช่วง ${d.label} · ${d.from} ถึง ${d.to}`, S.sub)];
+  rows[2] = [cell(`ออกรายงาน ${thaiDate(d.madeOn)} — นับเฉพาะรายการที่ถึงกำหนดแล้ว`, S.sub)];
   rows[3] = [];
   let r = 4;
 
   r = table(rows, merges, r, W, 'ภาพรวม', ['ตัวชี้วัด', 'ค่า', 'คำอธิบาย', ''],
-    overviewRows(d).map(([k, v, note]) => [cell(k, S_KEY), cell(v, S_VAL), cell(note, S_NOTE), { s: S_NOTE }]));
+    overviewRows(d).map(([k, v, note]) => [cell(k, S.key), cell(v, S.val), cell(note, S.note), { s: S.note }]), S);
 
   r = table(rows, merges, r, W, `แนวโน้ม${d.bucketTitle}`, ['ช่วง', 'ทำเสร็จ', 'ถึงกำหนด', 'อัตราสำเร็จ'],
     d.buckets.map((b) => [
-      cell(b.label, S_KEY),
-      cell(b.done, S_NUM),
-      cell(b.scheduled, S_NUM),
-      { v: ratePct(b.done, b.scheduled), s: { ...S_NUM, bold: true, color: b.scheduled && b.rate >= 0.7 ? GREEN : undefined } },
-    ]));
+      cell(b.label, S.key),
+      cell(b.done, S.num),
+      cell(b.scheduled, S.num),
+      { v: ratePct(b.done, b.scheduled), s: { ...S.num, bold: true, color: b.scheduled && b.rate >= 0.7 ? pal.ok : S.num.color } },
+    ]), S);
 
   r = table(rows, merges, r, W, 'ชั่วโมงตามหมวด', ['หมวด', 'ชั่วโมง', 'สัดส่วน', ''],
     d.cats.length
       ? d.cats.map((c) => [
-          { v: c.name, s: { ...S_KEY, bold: true, fill: mix(c.color, 255, 0.78), color: mix(c.color, 0, 0.45) } },
-          cell(h1(c.hours), S_VAL),
-          cell(pct(c.pct), S_NUM),
-          { s: S_NOTE },
+          { v: c.name, s: { ...S.key, bold: true, fill: pal.catTint(c.color), color: pal.catInk(c.color) } },
+          cell(h1(c.hours), S.val),
+          cell(pct(c.pct), S.num),
+          { s: S.note },
         ])
-      : [[cell('ยังไม่มีรายการที่ทำเสร็จในช่วงนี้', S_NOTE), { s: S_NOTE }, { s: S_NOTE }, { s: S_NOTE }]]);
+      : [[cell('ยังไม่มีรายการที่ทำเสร็จในช่วงนี้', S.note), { s: S.note }, { s: S.note }, { s: S.note }]], S);
 
   r = table(rows, merges, r, W, 'นัดเคสตามระดับความสำคัญ', ['ระดับ', 'ความหมาย', 'จำนวนนัด', 'สัดส่วน'],
     d.pris.length
       ? d.pris.map((p) => [
-          priCell(p.id),
-          cell(p.label, S_KEY),
-          cell(p.count, S_NUM),
-          cell(pct(d.items.length ? p.count / d.items.length : 0), S_NUM),
+          priCell(p.id, pal, S),
+          cell(p.label, S.key),
+          cell(p.count, S.num),
+          cell(pct(d.items.length ? p.count / d.items.length : 0), S.num),
         ])
-      : [[cell('–', S_NUM), cell('ไม่มีนัดเคสในช่วงนี้', S_KEY), { s: S_NOTE }, { s: S_NOTE }]]);
+      : [[cell('–', S.num), cell('ไม่มีนัดเคสในช่วงนี้', S.key), { s: S.note }, { s: S.note }]], S);
 
-  if (d.unnamed) rows[r++] = [cell(`อีก ${d.unnamed} นัดในช่วงนี้ไม่ได้ระบุผู้ติดต่อ`, S_SUB)];
+  if (d.unnamed) rows[r++] = [cell(`อีก ${d.unnamed} นัดในช่วงนี้ไม่ได้ระบุผู้ติดต่อ`, S.sub)];
 
   return {
     name: 'รายงานสรุป',
@@ -417,42 +436,42 @@ function summarySheet(d: ReportData): XWriteSheet {
 }
 
 /** ชีตสรุปเคส + รายชื่อคน (สองตารางเรียงลงมา) */
-function caseSheet(d: ReportData): XWriteSheet {
+function caseSheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
   const rows: (XWriteCell | null)[][] = [];
   const merges: string[] = [];
   const W = Math.max(CASE_HEAD.length, PEOPLE_HEAD.length);
   let r = 0;
 
   r = table(rows, merges, r, W, `สรุปตามเคส (${d.cases.length} เคส)`, pad(CASE_HEAD, W),
-    d.cases.map((c) => rowCells(caseRow(c), 1)));
+    d.cases.map((c) => rowCells(caseRow(c), 1, pal, S)), S);
 
   table(rows, merges, r, W, `รายชื่อคน (${d.people.length} คน)`, pad(PEOPLE_HEAD, W),
-    d.people.length ? d.people.map((p) => rowCells(personRow(p), 1)) : [[cell('ไม่มีนัดเคสที่ระบุผู้ติดต่อในช่วงนี้', S_NOTE)]]);
+    d.people.length ? d.people.map((p) => rowCells(personRow(p), 1, pal, S)) : [[cell('ไม่มีนัดเคสที่ระบุผู้ติดต่อในช่วงนี้', S.note)]], S);
 
   return { name: 'สรุปเคส & รายชื่อ', rows: normalize(rows, W), colWidths: [30, 8, 7, 7, 11, 10, 10, 9, 20, 30], merges, freeze: { cols: 0, rows: 2 } };
 }
 
 /** ชีตรายการนัดเคสทุกครั้ง */
-function itemSheet(d: ReportData): XWriteSheet {
+function itemSheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
   const rows: (XWriteCell | null)[][] = [];
   const merges: string[] = [];
   const W = ITEM_HEAD.length;
   table(rows, merges, 0, W, `รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD,
     d.items.map((it) => {
-      const cs = rowCells(itemRow(it, d.nameById), 4);
+      const cs = rowCells(itemRow(it, d.nameById), 4, pal, S);
       const st = it.ostatus;
-      cs[7] = { v: STATUS_TH[st], s: { ...S_NUM, bold: st === 'done' || st === 'skipped', color: st === 'done' ? GREEN : st === 'skipped' || st === 'cancelled' ? DANGER : undefined, strike: st === 'skipped' } };
+      cs[7] = { v: STATUS_TH[st], s: { ...S.num, bold: st === 'done' || st === 'skipped', color: st === 'done' ? pal.ok : st === 'skipped' || st === 'cancelled' ? pal.bad : S.num.color, strike: st === 'skipped' } };
       return cs;
-    }));
+    }), S);
   return { name: 'รายการนัดเคส', rows: normalize(rows, W), colWidths: [13, 12, 16, 34, 8, 11, 28, 12], merges, freeze: { cols: 0, rows: 2 } };
 }
 
 /** แปลงค่าดิบเป็นเซลล์ — คอลัมน์ priIdx ใช้ป้ายระดับสีพื้น, ตัวเลข/ข้อความสั้นจัดกลาง */
-function rowCells(vals: (string | number)[], priIdx: number): (XWriteCell | null)[] {
+function rowCells(vals: (string | number)[], priIdx: number, pal: ExportPalette, S: Styles): (XWriteCell | null)[] {
   return vals.map((v, i) => {
-    if (i === priIdx) return priCell(String(v));
-    if (i === 0) return cell(v, { ...S_CELL, bold: true });
-    return cell(v, typeof v === 'number' || String(v).length <= 12 ? S_NUM : S_CELL);
+    if (i === priIdx) return priCell(String(v), pal, S);
+    if (i === 0) return cell(v, { ...S.cell, bold: true });
+    return cell(v, typeof v === 'number' || String(v).length <= 12 ? S.num : S.cell);
   });
 }
 
@@ -472,9 +491,10 @@ function normalize(rows: (XWriteCell | null)[][], w: number): (XWriteCell | null
 }
 
 /** ชีตรายงานทั้งชุดสำหรับไฟล์ .xlsx */
-export function reportSheets(d: ReportData): XWriteSheet[] {
-  const out = [summarySheet(d)];
-  if (d.items.length) out.push(caseSheet(d), itemSheet(d));
+export function reportSheets(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.current): XWriteSheet[] {
+  const S = styles(pal);
+  const out = [summarySheet(d, pal, S)];
+  if (d.items.length) out.push(caseSheet(d, pal, S), itemSheet(d, pal, S));
   return out;
 }
 
@@ -527,46 +547,54 @@ export function reportCsv(d: ReportData): string {
 
 // ---------- .xls (HTML table) ----------
 
-const TD = 'border:1px solid #E3DACB;padding:3px 6px;font-size:9pt;';
-
-function htmlTable(title: string, head: string[], body: (string | number)[][], colorCol?: (v: string | number, i: number) => string): string {
+function htmlTable(
+  pal: ExportPalette,
+  title: string,
+  head: string[],
+  body: (string | number)[][],
+  colorCol?: (v: string | number, i: number) => string,
+): string {
+  const td = `border:1px solid ${pal.border};padding:3px 6px;font-size:9pt;color:${pal.ink};`;
+  const bg = pal.cellBg ? `background:${pal.cellBg};` : '';
   let s = `<table style="border-collapse:collapse;font-family:'Anuphan','Tahoma',sans-serif;margin-bottom:14px;">`;
-  s += `<tr><td colspan="${head.length}" style="${TD}background:#6B6255;color:#FFFFFF;font-weight:bold;font-size:11pt;">${xmlEsc(title)}</td></tr><tr>`;
-  s += head.map((h) => `<td style="${TD}background:#8A8175;color:#FFFFFF;font-weight:bold;text-align:center;">${xmlEsc(h)}</td>`).join('');
+  s += `<tr><td colspan="${head.length}" style="${td}background:${pal.head};color:${pal.headInk};font-weight:bold;font-size:11pt;">${xmlEsc(title)}</td></tr><tr>`;
+  s += head.map((h) => `<td style="${td}background:${pal.head2};color:${pal.headInk};font-weight:bold;text-align:center;">${xmlEsc(h)}</td>`).join('');
   s += '</tr>';
   for (const row of body) {
     s += '<tr>';
-    s += row.map((v, i) => `<td style="${TD}${colorCol?.(v, i) ?? ''}">${xmlEsc(String(v))}</td>`).join('');
+    s += row.map((v, i) => `<td style="${td}${bg}${colorCol?.(v, i) ?? ''}">${xmlEsc(String(v))}</td>`).join('');
     s += '</tr>';
   }
   return s + '</table>';
 }
 
-/** รายงานเป็นตาราง HTML (สำหรับไฟล์ .xls) — ต่อท้ายตาราง Time Table */
-export function reportHtml(d: ReportData): string {
+/** รายงานเป็นตาราง HTML (สำหรับไฟล์ .xls) — วางไว้หน้าตาราง Time Table */
+export function reportHtml(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.current): string {
   const priTint = (v: string | number, i: number, at: number) =>
     i === at && typeof v === 'string' && v in PRI_BY_ID
-      ? `background:${PRI_BY_ID[v as PriorityId].color};color:#FFFFFF;font-weight:bold;text-align:center;`
+      ? `background:${pal.priFill(PRI_BY_ID[v as PriorityId].color)};color:${pal.priInk};font-weight:bold;text-align:center;`
       : '';
+  const T = (title: string, head: string[], body: (string | number)[][], colorCol?: (v: string | number, i: number) => string) =>
+    htmlTable(pal, title, head, body, colorCol);
 
   let s = `<div style="font-family:'Anuphan','Tahoma',sans-serif;">`;
-  s += `<div style="background:${ACCENT};color:#FFFFFF;font-weight:bold;font-size:14pt;padding:6px;">รายงานสรุปจากที่บันทึกไว้</div>`;
-  s += `<div style="font-size:9pt;color:#6E6555;padding:4px 0 10px 0;">ช่วง ${xmlEsc(d.label)} · ${d.from} ถึง ${d.to} — ออกรายงาน ${xmlEsc(thaiDate(d.madeOn))}</div>`;
-  s += htmlTable('ภาพรวม', ['ตัวชี้วัด', 'ค่า', 'คำอธิบาย'], overviewRows(d).map((r) => [...r]));
-  s += htmlTable(`แนวโน้ม${d.bucketTitle}`, ['ช่วง', 'ทำเสร็จ', 'ถึงกำหนด', 'อัตราสำเร็จ', 'ชั่วโมง'],
+  s += `<div style="background:${pal.title};color:${pal.titleInk};font-weight:bold;font-size:14pt;padding:6px;">รายงานสรุปจากที่บันทึกไว้</div>`;
+  s += `<div style="font-size:9pt;color:${pal.sub};padding:4px 0 10px 0;">ช่วง ${xmlEsc(d.label)} · ${d.from} ถึง ${d.to} — ออกรายงาน ${xmlEsc(thaiDate(d.madeOn))}</div>`;
+  s += T('ภาพรวม', ['ตัวชี้วัด', 'ค่า', 'คำอธิบาย'], overviewRows(d).map((r) => [...r]));
+  s += T(`แนวโน้ม${d.bucketTitle}`, ['ช่วง', 'ทำเสร็จ', 'ถึงกำหนด', 'อัตราสำเร็จ', 'ชั่วโมง'],
     d.buckets.map((b) => [b.label, b.done, b.scheduled, ratePct(b.done, b.scheduled), h1(b.hours)]));
-  s += htmlTable('ชั่วโมงตามหมวด', ['หมวด', 'ชั่วโมง', 'สัดส่วน'], d.cats.map((c) => [c.name, h1(c.hours), pct(c.pct)]),
+  s += T('ชั่วโมงตามหมวด', ['หมวด', 'ชั่วโมง', 'สัดส่วน'], d.cats.map((c) => [c.name, h1(c.hours), pct(c.pct)]),
     (v, i) => {
       if (i !== 0) return '';
       const c = CATS.find((x) => x.short === v);
-      return c ? `background:${mix(c.color, 255, 0.78)};color:${mix(c.color, 0, 0.45)};font-weight:bold;` : '';
+      return c ? `background:${pal.catTint(c.color)};color:${pal.catInk(c.color)};font-weight:bold;` : '';
     });
-  s += htmlTable('นัดเคสตามระดับความสำคัญ', ['ระดับ', 'ความหมาย', 'จำนวนนัด'], d.pris.map((p) => [p.id, p.label, p.count]),
+  s += T('นัดเคสตามระดับความสำคัญ', ['ระดับ', 'ความหมาย', 'จำนวนนัด'], d.pris.map((p) => [p.id, p.label, p.count]),
     (v, i) => priTint(v, i, 0));
   if (d.items.length) {
-    s += htmlTable(`สรุปตามเคส (${d.cases.length} เคส)`, CASE_HEAD, d.cases.map(caseRow), (v, i) => priTint(v, i, 1));
-    s += htmlTable(`รายชื่อคน (${d.people.length} คน)`, PEOPLE_HEAD, d.people.map(personRow), (v, i) => priTint(v, i, 1));
-    s += htmlTable(`รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD, d.items.map((it) => itemRow(it, d.nameById)), (v, i) => priTint(v, i, 4));
+    s += T(`สรุปตามเคส (${d.cases.length} เคส)`, CASE_HEAD, d.cases.map(caseRow), (v, i) => priTint(v, i, 1));
+    s += T(`รายชื่อคน (${d.people.length} คน)`, PEOPLE_HEAD, d.people.map(personRow), (v, i) => priTint(v, i, 1));
+    s += T(`รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD, d.items.map((it) => itemRow(it, d.nameById)), (v, i) => priTint(v, i, 4));
   }
   return s + '</div>';
 }

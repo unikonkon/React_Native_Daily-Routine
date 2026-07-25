@@ -313,7 +313,7 @@ class StyleBook {
   fillXml: string[] = [];
   xfXml: string[] = [];
 
-  constructor(private defaultFont: string) {
+  constructor(private defaultFont: string, private borderColor: string) {
     // ตำแหน่ง 0/1 ของ fills ถูกสงวนตามสเปก (none + gray125)
     this.fillXml.push('<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>');
     this.font({});
@@ -381,9 +381,9 @@ class StyleBook {
       '<numFmts count="1"><numFmt numFmtId="164" formatCode="hh:mm"/></numFmts>' +
       `<fonts count="${this.fontXml.length}">${this.fontXml.join('')}</fonts>` +
       `<fills count="${this.fillXml.length}">${this.fillXml.join('')}</fills>` +
-      '<borders count="2"><border/>' +
-      '<border><left style="thin"><color rgb="FFD0D0D0"/></left><right style="thin"><color rgb="FFD0D0D0"/></right>' +
-      '<top style="thin"><color rgb="FFD0D0D0"/></top><bottom style="thin"><color rgb="FFD0D0D0"/></bottom></border></borders>' +
+      `<borders count="2"><border/><border>${(['left', 'right', 'top', 'bottom'] as const)
+        .map((s) => `<${s} style="thin"><color rgb="FF${this.borderColor.slice(1).toUpperCase()}"/></${s}>`)
+        .join('')}</border></borders>` +
       '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
       `<cellXfs count="${this.xfXml.length}">${this.xfXml.join('')}</cellXfs>` +
       '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
@@ -442,8 +442,8 @@ function sheetXml(sheet: XWriteSheet, sb: StyleBook): string {
 }
 
 /** สร้างไฟล์ .xlsx (ไบต์) จากชีตหลายแผ่น */
-export function buildXlsx(sheets: XWriteSheet[], defaultFont = 'Kanit'): Uint8Array {
-  const sb = new StyleBook(defaultFont);
+export function buildXlsx(sheets: XWriteSheet[], defaultFont = 'Kanit', borderColor = '#D0D0D0'): Uint8Array {
+  const sb = new StyleBook(defaultFont, borderColor);
   const bodies = sheets.map((s) => sheetXml(s, sb)); // ต้องเรนเดอร์ก่อน styles — ระหว่างนี้ registry ถูกเติม
 
   const rels = sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('');

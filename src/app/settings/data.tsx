@@ -13,6 +13,7 @@ import { Btn, Card, Chip, Row, Txt, useTokens } from '@/components/ui';
 import { ACCENT, DANGER, GREEN } from '@/constants/theme';
 import { MONTH_TH, beYear, nowMin, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
+import { EXPORT_PALETTES, EXPORT_TONES, type ExportTone } from '@/lib/export-theme';
 import { buildReport, reportCsv, reportHtml, reportSheets } from '@/lib/report';
 import { buildSheetTabs, pushToSheets, type SheetsRange } from '@/lib/sheets';
 import { buildTimeTableCsvMulti, listDataMonths, parseTimeTableCsv, type TimeTableImport } from '@/lib/timetable';
@@ -125,6 +126,8 @@ export default function DataScreen() {
   const [withReport, setWithReport] = useState(true);
   /** ส่งออกเฉพาะรายงาน — ไม่ต้องมี grid Time Table ในไฟล์ */
   const [reportOnly, setReportOnly] = useState(false);
+  /** โทนสีของไฟล์ (เฉพาะ .xlsx / .xls — CSV ไม่มีสี) */
+  const [ttTone, setTtTone] = useState<ExportTone>('current');
 
   const openExport = () => {
     setTtScope('month');
@@ -132,6 +135,7 @@ export default function DataScreen() {
     setPickedMonths([]);
     setWithReport(true);
     setReportOnly(false);
+    setTtTone('current');
     setTtOpen(true);
   };
 
@@ -162,6 +166,7 @@ export default function DataScreen() {
       const report = withReport
         ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin())
         : null;
+      const pal = EXPORT_PALETTES[ttTone];
       const ttAnchors = reportOnly ? [] : anchors;
       const kind = reportOnly ? 'report' : 'timetable';
       const tag =
@@ -171,11 +176,11 @@ export default function DataScreen() {
       if (format === 'xlsx') {
         await shareFile(
           `${kind}-${tag}.xlsx`,
-          buildTimeTableXlsx(getDay, ttAnchors, report ? reportSheets(report) : []),
+          buildTimeTableXlsx(getDay, ttAnchors, report ? reportSheets(report, pal) : [], pal),
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         );
       } else if (format === 'xls') {
-        await shareFile(`${kind}-${tag}.xls`, buildTimeTableXlsMulti(getDay, ttAnchors, report ? reportHtml(report) : undefined), 'application/vnd.ms-excel');
+        await shareFile(`${kind}-${tag}.xls`, buildTimeTableXlsMulti(getDay, ttAnchors, report ? reportHtml(report, pal) : undefined, pal), 'application/vnd.ms-excel');
       } else {
         await shareFile(`${kind}-${tag}.csv`, buildTimeTableCsvMulti(getDay, ttAnchors, report ? reportCsv(report) : undefined), 'text/csv');
       }
@@ -370,12 +375,52 @@ export default function DataScreen() {
             </View>
             <Txt size={11} color={t.faint}>
               {ttFormat === 'xlsx'
-                ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK พื้นสีเดิม เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้${withReport ? ' · รายงานอยู่ในชีตแยก 3 ชีตแรก' : ''}`
+                ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้${withReport ? ' · รายงานอยู่ในชีตแยก 3 ชีตแรก' : ''}`
                 : ttFormat === 'xls'
                   ? 'มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ — เปิดดูใน Excel/Sheets ได้ แต่นำกลับเข้าแอปไม่ได้'
                   : `CSV: ข้อความล้วน นำกลับเข้าแอปนี้ได้${withReport ? ' (บล็อกรายงานถูกข้ามตอนนำเข้า)' : ''}`}
             </Txt>
           </View>
+
+          {/* โทนสีของไฟล์ — CSV ไม่มีสีจึงไม่ต้องเลือก */}
+          {ttFormat !== 'csv' ? (
+            <View style={{ gap: 6 }}>
+              <Txt size={11} color={t.faint}>โทนสีของไฟล์</Txt>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {EXPORT_TONES.map((p) => {
+                  const on = ttTone === p.id;
+                  return (
+                    <Pressable key={p.id} onPress={() => setTtTone(p.id)} style={{ flex: 1 }}>
+                      <View
+                        style={{
+                          gap: 6,
+                          paddingVertical: 8,
+                          paddingHorizontal: 6,
+                          borderRadius: 10,
+                          borderWidth: 1,
+                          alignItems: 'center',
+                          borderColor: on ? ACCENT : t.line,
+                          backgroundColor: on ? t.chip : 'transparent',
+                        }}>
+                        <View style={{ flexDirection: 'row', borderRadius: 5, overflow: 'hidden' }}>
+                          {p.swatch.map((c) => (
+                            <View key={c} style={{ width: 13, height: 13, backgroundColor: c }} />
+                          ))}
+                        </View>
+                        <Txt size={11.5} weight="bold" color={on ? ACCENT : t.sub}>{p.name}</Txt>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Txt size={11} color={t.faint}>
+                {EXPORT_PALETTES[ttTone].desc}
+                {ttTone !== 'current'
+                  ? `\nสีที่จำมาจากไฟล์ต้นฉบับถูกปรับตามโทนนี้ด้วย — ถ้านำไฟล์กลับเข้าแอป สีที่จำไว้จะกลายเป็นสีโทนนี้ (เลือก “ปัจจุบัน” ถ้าอยากได้สีเดิมเป๊ะ)`
+                  : ''}
+              </Txt>
+            </View>
+          ) : null}
 
           {/* ปุ่มส่งออก */}
           <View style={{ flexDirection: 'row', gap: 8 }}>

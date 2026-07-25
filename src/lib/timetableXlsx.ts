@@ -6,30 +6,26 @@
 //   แถว 4 เป็นต้นไป = ช่องเวลาละ 30 นาที 06:00 → 06:00 ของวันถัดไป (33 แถว)
 //   กิจกรรมที่ยาวหลายช่องถูก merge แนวตั้งเป็นบล็อกเดียว — ตัวอ่านฝั่งนำเข้าคลี่ merge กลับเป็นช่วงเวลาได้ตรง ๆ
 //
-// สีพื้น: ใช้ Activity.color ที่จำมาจากไฟล์ต้นฉบับก่อน ถ้าไม่มีจึงใช้สีอ่อนตามหมวด
+// สีพื้น: ใช้ Activity.color ที่จำมาจากไฟล์ต้นฉบับก่อน ถ้าไม่มีจึงใช้สีอ่อนตามหมวด — ทุกสีผ่านโทนที่เลือก (lib/export-theme)
 
-import { CAT_BY_ID, CATS, DANGER, DAY_END, DAY_START, GREEN } from '@/constants/theme';
+import { CAT_BY_ID, CATS, DAY_END, DAY_START } from '@/constants/theme';
 import { fromISO, toISO, wdMon } from '@/lib/dates';
+import { EXPORT_PALETTES, EXPORT_TONES, type ExportPalette } from '@/lib/export-theme';
 import { parseTimeTableCells, type TimeTableImport } from '@/lib/timetable';
 import type { DayItem } from '@/lib/types';
 import { buildXlsx, colName, parseXlsx, type XStyle, type XWriteCell, type XWriteSheet } from '@/lib/xlsx';
-import { mix } from '@/lib/xls';
 
 type Read = (date: string) => DayItem[];
 
-// ค่าหน้าตาไฟล์ — ตรงกับ "Time Table จอย.xlsx"
+// ขนาด/ระยะ — ตรงกับ "Time Table จอย.xlsx" (สีมาจากพาเลตต์ ไม่ผูกกับตรงนี้)
 const W_TIME = 14.13;
 const W_DAY = 12.63;
 const W_SEP = 1.38;
 const H_ROW = 15.75;
 const H_TIME_HEAD = 19.5;
-const FILL_WEEK = '#F9CB9C'; // แถบ WEEK
-const FILL_SEP = '#000000'; // คอลัมน์คั่นสัปดาห์
-const FILL_TIME = '#EFEFEF'; // คอลัมน์เวลา (ชั่วโมงเต็ม)
 const EN_DAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const SEP_CELL: XWriteCell = { s: { fill: FILL_SEP } };
-const HEAD_STYLE: XStyle = { bold: true, size: 10, align: 'center', valign: 'center' };
+const HEAD_STYLE = (pal: ExportPalette): XStyle => ({ bold: true, size: 10, color: pal.ink, align: 'center', valign: 'center' });
 
 /** โครงคอลัมน์ของเดือน: เวลา + วัน + ตัวคั่นทุกวันจันทร์ */
 type Col = { kind: 'time' } | { kind: 'sep' } | { kind: 'day'; date: string; n: number };
@@ -45,11 +41,11 @@ function monthCols(y: number, m: number): Col[] {
   return cols;
 }
 
-/** สีพื้น/สีอักษรของเซลล์กิจกรรม — สีที่จำจากไฟล์มาก่อน ไม่มีจึงใช้สีอ่อนตามหมวด */
-function itemColors(it: DayItem): { fill: string; color: string } {
-  const fill = it.color ?? mix(CAT_BY_ID[it.cat].color, 255, 0.78);
+/** สีพื้น/สีอักษรของเซลล์กิจกรรม — สีที่จำจากไฟล์มาก่อน ไม่มีจึงใช้สีตามหมวด · ทั้งคู่ปรับตามโทนที่เลือก */
+function itemColors(it: DayItem, pal: ExportPalette): { fill: string; color: string } {
+  const fill = it.color ? pal.userFill(it.color) : pal.catTint(CAT_BY_ID[it.cat].color);
   const color =
-    it.ostatus === 'done' ? GREEN : it.ostatus === 'skipped' ? DANGER : it.color ? '#221C13' : mix(CAT_BY_ID[it.cat].color, 0, 0.45);
+    it.ostatus === 'done' ? pal.ok : it.ostatus === 'skipped' ? pal.bad : it.color ? pal.userInk : pal.catInk(CAT_BY_ID[it.cat].color);
   return { fill, color };
 }
 
@@ -59,7 +55,8 @@ function itemText(it: DayItem): string {
 }
 
 /** หนึ่งเดือน → หนึ่งชีต */
-function monthSheet(read: Read, anchor: string): XWriteSheet {
+function monthSheet(read: Read, anchor: string, pal: ExportPalette): XWriteSheet {
+  const SEP_CELL: XWriteCell = { s: { fill: pal.sep } };
   const a = fromISO(anchor);
   const y = a.getFullYear();
   const m = a.getMonth();
@@ -77,7 +74,7 @@ function monthSheet(read: Read, anchor: string): XWriteSheet {
 
   // ---------- แถว 1: MONTH + แถบ WEEK ----------
   const r1 = at(0);
-  r1[0] = { v: `MONTH ${m + 1}/${y}`, s: { bold: true, size: 11, align: 'center', valign: 'center' } };
+  r1[0] = { v: `MONTH ${m + 1}/${y}`, s: { bold: true, size: 11, color: pal.ink, align: 'center', valign: 'center' } };
   let week = 0;
   for (let c = 1; c < nCols; c++) {
     const col = cols[c];
@@ -92,8 +89,8 @@ function monthSheet(read: Read, anchor: string): XWriteSheet {
     while (end + 1 < nCols && cols[end + 1].kind === 'day') end++;
     // แถบแรกที่ไม่ได้เริ่มวันจันทร์เป็นเศษต้นเดือน — ไม่นับเป็น WEEK (เหมือนไฟล์ต้นฉบับ)
     const label = col.kind === 'day' && wdMon(col.date) === 0 ? `WEEK ${++week}` : '';
-    r1[c] = { v: label, s: { fill: FILL_WEEK, bold: true, size: 10, align: 'center', valign: 'center' } };
-    for (let x = c + 1; x <= end; x++) r1[x] = { s: { fill: FILL_WEEK } };
+    r1[c] = { v: label, s: { fill: pal.band, color: pal.bandInk, bold: true, size: 10, align: 'center', valign: 'center' } };
+    for (let x = c + 1; x <= end; x++) r1[x] = { s: { fill: pal.band } };
     if (end > c) merges.push(`${colName(c + 1)}1:${colName(end + 1)}1`);
   }
   rowHeights[0] = H_ROW;
@@ -101,15 +98,20 @@ function monthSheet(read: Read, anchor: string): XWriteSheet {
   // ---------- แถว 2: ชื่อวัน · แถว 3: เลขวันที่ ----------
   const r2 = at(1);
   const r3 = at(2);
-  r2[0] = { v: 'Date', s: HEAD_STYLE };
-  r3[0] = { v: 'Time', s: HEAD_STYLE };
+  const headStyle = HEAD_STYLE(pal);
+  r2[0] = { v: 'Date', s: headStyle };
+  r3[0] = { v: 'Time', s: headStyle };
   cols.forEach((col, c) => {
     if (col.kind === 'sep') {
       r2[c] = SEP_CELL;
       r3[c] = SEP_CELL;
     } else if (col.kind === 'day') {
-      r2[c] = { v: EN_DAY[fromISO(col.date).getDay()], s: { size: 10, align: 'center', valign: 'center' } };
-      r3[c] = { v: col.n, s: { size: 10, align: 'center', valign: 'center' } };
+      // หัววันเสาร์–อาทิตย์เข้มกว่าวันธรรมดา · โทน "ปัจจุบัน" ไม่ถมสี (พื้นขาวเหมือนไฟล์ต้นฉบับ)
+      const wk = wdMon(col.date) >= 5;
+      const fill = (wk ? pal.dayHeadWeekend : pal.dayHead) ?? undefined;
+      const hs: XStyle = { size: 10, bold: !!fill, fill, color: fill ? pal.dayHeadInk : pal.ink, align: 'center', valign: 'center' };
+      r2[c] = { v: EN_DAY[fromISO(col.date).getDay()], s: hs };
+      r3[c] = { v: col.n, s: hs };
     }
   });
   rowHeights[1] = H_ROW;
@@ -119,12 +121,16 @@ function monthSheet(read: Read, anchor: string): XWriteSheet {
   slots.forEach((t, i) => {
     const r = at(FIRST_SLOT_ROW - 1 + i);
     const hourly = t % 60 === 0;
-    r[0] =
-      t === 1440
-        ? { v: 'Midnight', s: { size: 10, align: 'center', valign: 'center' } }
-        : { v: (t % 1440) / 1440, s: { time: true, size: 10, align: 'center', valign: 'center', fill: hourly ? FILL_TIME : undefined } };
+    const timeFill = hourly ? pal.timeCol : pal.timeColAlt ?? undefined;
+    const ts: XStyle = { size: 10, color: pal.sub, align: 'center', valign: 'center', fill: timeFill };
+    r[0] = t === 1440 ? { v: 'Midnight', s: ts } : { v: (t % 1440) / 1440, s: { ...ts, time: true } };
+    // ถมพื้นช่องว่างทั้งตารางตามโทน (วันหยุดเข้มกว่านิด) — กิจกรรมจะทับทีหลัง
     cols.forEach((col, c) => {
       if (col.kind === 'sep') r[c] = SEP_CELL;
+      else if (col.kind === 'day') {
+        const bg = wdMon(col.date) >= 5 ? pal.weekendCell : pal.cellBg;
+        if (bg) r[c] = { s: { fill: bg } };
+      }
     });
     rowHeights[FIRST_SLOT_ROW - 1 + i] = H_ROW;
   });
@@ -148,7 +154,7 @@ function monthSheet(read: Read, anchor: string): XWriteSheet {
       let j = i;
       while (j + 1 < slots.length && keyOf(perSlot[j + 1]) === key) j++;
 
-      const { fill, color } = itemColors(here[0]);
+      const { fill, color } = itemColors(here[0], pal);
       const style: XStyle = {
         fill,
         color,
@@ -169,17 +175,17 @@ function monthSheet(read: Read, anchor: string): XWriteSheet {
 
   // ---------- คำอธิบายสี (ใต้ตาราง เว้นหนึ่งแถว) ----------
   const legend = at(FIRST_SLOT_ROW - 1 + slots.length + 1);
-  legend[0] = { v: 'สีตามหมวด', s: { bold: true, size: 10, valign: 'center' } };
+  legend[0] = { v: 'สีตามหมวด', s: { bold: true, size: 10, color: pal.ink, valign: 'center' } };
   CATS.forEach((cat, k) => {
     legend[k + 1] = {
       v: cat.short,
-      s: { fill: mix(cat.color, 255, 0.78), color: mix(cat.color, 0, 0.45), bold: true, size: 9, align: 'center', valign: 'center', border: true },
+      s: { fill: pal.catTint(cat.color), color: pal.catInk(cat.color), bold: true, size: 9, align: 'center', valign: 'center', border: true },
     };
   });
   const legend2 = at(FIRST_SLOT_ROW - 1 + slots.length + 2);
-  legend2[0] = { v: 'สถานะ', s: { bold: true, size: 10, valign: 'center' } };
-  legend2[1] = { v: '✓ เสร็จแล้ว', s: { color: GREEN, bold: true, size: 9, valign: 'center' } };
-  legend2[2] = { v: '✗ ข้าม', s: { color: DANGER, strike: true, size: 9, valign: 'center' } };
+  legend2[0] = { v: 'สถานะ', s: { bold: true, size: 10, color: pal.ink, valign: 'center' } };
+  legend2[1] = { v: '✓ เสร็จแล้ว', s: { color: pal.ok, bold: true, size: 9, valign: 'center' } };
+  legend2[2] = { v: '✗ ข้าม', s: { color: pal.bad, strike: true, size: 9, valign: 'center' } };
 
   // เติมแถวว่างที่อาจถูกข้าม (at() สร้างตามต้องการ) ให้ครบก่อนส่งต่อ
   for (let r = 0; r < rows.length; r++) at(r);
@@ -198,12 +204,20 @@ function monthSheet(read: Read, anchor: string): XWriteSheet {
  * Time Table หลายเดือนในไฟล์ .xlsx เดียว (ชีตละเดือน) — คู่กับ parseTimeTableXlsx
  * extra = ชีตรายงานสรุป (ถ้ามี) วางไว้หน้าสุดให้เปิดไฟล์แล้วเจอรายงานก่อน — ตัวอ่านฝั่งนำเข้าข้ามชีตที่ไม่ใช่ Time Table เอง
  */
-export function buildTimeTableXlsx(read: Read, anchors: string[], extra: XWriteSheet[] = []): Uint8Array {
-  return buildXlsx([...extra, ...anchors.map((anchor) => monthSheet(read, anchor))]);
+export function buildTimeTableXlsx(
+  read: Read,
+  anchors: string[],
+  extra: XWriteSheet[] = [],
+  pal: ExportPalette = EXPORT_PALETTES.current,
+): Uint8Array {
+  return buildXlsx([...extra, ...anchors.map((anchor) => monthSheet(read, anchor, pal))], 'Kanit', pal.border);
 }
 
-/** สีอ่อนตามหมวดที่แอปสร้างเอง — เจอตอนนำเข้าแปลว่าไฟล์นี้แอปเป็นคนส่งออก ไม่ใช่สีที่ผู้ใช้เลือก */
-const OWN_TINTS = new Set(CATS.map((c) => mix(c.color, 255, 0.78).toUpperCase()));
+/**
+ * สีตามหมวดที่แอปสร้างเอง (ครบทุกโทน) — เจอตอนนำเข้าแปลว่าไฟล์นี้แอปเป็นคนส่งออก ไม่ใช่สีที่ผู้ใช้เลือก
+ * จึงไม่จำไว้ ปล่อยให้ใช้สีตามหมวดต่อไป (เปลี่ยนหมวดแล้วสีตามทันที)
+ */
+const OWN_TINTS = new Set(EXPORT_TONES.flatMap((p) => CATS.map((c) => p.catTint(c.color).toUpperCase())));
 
 /**
  * อ่านไฟล์ .xlsx ฟอร์แมต Time Table → รายการกิจกรรม (รวมทุกชีต/ทุกบล็อก MONTH ที่มีข้อมูล)
