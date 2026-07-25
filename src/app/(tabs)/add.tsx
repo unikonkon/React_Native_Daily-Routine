@@ -317,6 +317,9 @@ function ScheduleSection() {
   });
   const [pickerOpen, setPickerOpen] = useState(false);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
+  // โหมด "ช่วงเวลา" ที่เลือกอยู่ = นาทีเริ่มของพรีเซ็ต (null = เลือกเอง)
+  // เก็บเป็น state แทนการเทียบกับ d.start ตรง ๆ — ปรับละเอียด เริ่ม/สิ้นสุด แล้วยังอยู่โหมดพรีเซ็ตเดิม ไม่เด้งไป "เลือกเอง"
+  const [periodStart, setPeriodStart] = useState<number | null>(() => PERIOD_PRESETS.find((p) => p.start === d.start)?.start ?? null);
 
   // ฟอร์มหน้าเดียว mount ค้างไว้ — พอ loadActivity/loadSlot เปลี่ยนวันแรก ให้เลื่อนปฏิทินตาม
   useEffect(() => {
@@ -324,13 +327,16 @@ function ScheduleSection() {
     setYm({ y: dt.getFullYear(), m: dt.getMonth() });
   }, [anchor]);
 
+  // โหลด draft ชุดใหม่ (แก้ไขกิจกรรม / มาจากช่องว่าง / ล้างค่า) → ตั้งโหมดช่วงเวลาใหม่ตามเวลาที่โหลดมา
+  useEffect(() => {
+    const s = useDraft.getState().start;
+    setPeriodStart(PERIOD_PRESETS.find((p) => p.start === s)?.start ?? null);
+  }, [d.loadRev]);
+
   const timeInvalid = d.end <= d.start;
   const duration = d.end - d.start;
   // ขั้น 2 ถูกแก้จากค่าตั้งต้น (วันนี้วันเดียว ไม่ทำซ้ำ) หรือยัง — ใช้ตัดสินว่าจะโชว์ปุ่มรีเซ็ตวันที่
   const datesDirty = d.repeat !== 'none' || d.dates.length > 1 || d.dates[0] !== todayISO();
-  // ชิปช่วงเวลา active ตามเวลาเริ่มจริง — ครอบคลุมทั้งกดเองและค่าที่มาจากโหมดแก้ไข
-  const activePeriod = PERIOD_PRESETS.find((p) => p.start === d.start);
-
   // วิเคราะห์การชน + พรีวิว — ตัดกิจกรรมที่กำลังแก้ไขออก
   const analysis = useMemo(() => {
     const per = d.dates.slice(0, 5).map((date) => {
@@ -464,18 +470,22 @@ function ScheduleSection() {
                 key={p.label}
                 small
                 label={p.label}
-                active={d.start === p.start}
-                onPress={() => d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) })}
+                active={periodStart === p.start}
+                onPress={() => {
+                  setPeriodStart(p.start);
+                  d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) });
+                }}
               />
             ))}
-            <Chip small label="เลือกเอง" active={!activePeriod} onPress={() => setTimePickerOpen(true)} />
+            {/* "เลือกเอง" active เมื่อไม่ได้อยู่ในโหมดพรีเซ็ต — เปิดตัวเลือกเวลา (ยกเลิกได้ ยังไม่เปลี่ยนโหมด) */}
+            <Chip small label="เลือกเอง" active={periodStart === null} onPress={() => setTimePickerOpen(true)} />
           </ChipRow>
 
-          {activePeriod ? (
+          {periodStart !== null ? (
             <>
               <Txt size={13} weight="med" color={t.sub}>ระยะเวลา</Txt>
               <ChipRow>
-                {[1, 2, 3, 4, 5].map((n) => (
+                {[1, 2, 3, 4, 5, 7].map((n) => (
                   <Chip
                     key={n}
                     small
@@ -499,6 +509,7 @@ function ScheduleSection() {
           end={d.end}
           onClose={() => setTimePickerOpen(false)}
           onConfirm={(s, e) => {
+            setPeriodStart(null); // ตั้งเวลาเองแล้ว → ออกจากโหมดพรีเซ็ต
             d.set({ start: s, end: e });
             setTimePickerOpen(false);
           }}
@@ -522,6 +533,7 @@ function ScheduleSection() {
               newStart={d.start}
               newEnd={d.end}
               onPickSlot={(s, e) => {
+                setPeriodStart(PERIOD_PRESETS.find((p) => p.start === s)?.start ?? null);
                 d.set({ start: s, end: e });
                 showToast(`ใช้ช่วงว่าง ${fmtMin(s)}–${fmtMin(e)} แล้ว`);
               }}

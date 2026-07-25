@@ -24,6 +24,8 @@ interface DraftState {
   dates: string[];
   notify: boolean;
   before: number;
+  /** นับครั้งที่ "โหลด draft ชุดใหม่" (reset / loadActivity / loadSlot) — ฟอร์มใช้ซิงก์ state ภายในของตัวเอง */
+  loadRev: number;
 
   set: (p: Partial<DraftState>) => void;
   setRepeat: (r: RepeatRule) => void;
@@ -56,6 +58,7 @@ const initial = {
 export const useDraft = create<DraftState>((set, get) => ({
   ...initial,
   dates: [todayISO()],
+  loadRev: 0, // อยู่นอก initial — การ set({ ...initial }) จึงไม่รีเซ็ตตัวนับกลับเป็น 0
 
   set: (p) => set(p),
 
@@ -81,12 +84,13 @@ export const useDraft = create<DraftState>((set, get) => ({
 
   resetDates: () => set({ dates: [todayISO()], repeat: initial.repeat, horizon: initial.horizon }),
 
-  reset: () => set({ ...initial, dates: [todayISO()] }),
+  reset: () => set((s) => ({ ...initial, dates: [todayISO()], loadRev: s.loadRev + 1 })),
 
   loadActivity: (a) => {
     // โหมดแก้ไข: เริ่มจากวันแรกของ series — ถ้าผู้ใช้เปลี่ยน repeat/horizon จะคำนวณวันใหม่จากตรงนั้น
-    set({
+    set((s) => ({
       ...initial,
+      loadRev: s.loadRev + 1,
       editId: a.id,
       cat: a.cat,
       title: a.title,
@@ -101,10 +105,10 @@ export const useDraft = create<DraftState>((set, get) => ({
       dates: a.repeat === 'none' || a.repeat === 'custom' ? [a.startDate] : computeDates(a.repeat, '1m', a.startDate),
       notify: a.notify,
       before: a.notifyBefore,
-    });
+    }));
   },
 
   loadSlot: (date, start, end) => {
-    set({ ...initial, dates: [date], start, end });
+    set((s) => ({ ...initial, dates: [date], start, end, loadRev: s.loadRev + 1 }));
   },
 }));
