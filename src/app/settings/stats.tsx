@@ -10,7 +10,7 @@ import { SvgIcon } from '@/components/svg-icon';
 import { Card, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CATS, FONT, GREEN, PRI, PRI_BY_ID, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, nowMin, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
-import { computeStats, rangeStats } from '@/lib/engine';
+import { rangeStats } from '@/lib/engine';
 import type { Contact, DayItem } from '@/lib/types';
 import { useActivities } from '@/stores/activities';
 import { meetLink, useContacts, zoomDeepLink } from '@/stores/contacts';
@@ -116,7 +116,6 @@ export default function StatsScreen() {
   }, [mode, offset, today, earliest]);
 
   const stats = useMemo(() => rangeStats(acts, occ, range.from, range.to, nowMin()), [acts, occ, range.from, range.to]);
-  const streak = useMemo(() => computeStats(acts, occ, nowMin()).streak, [acts, occ]);
 
   // แท่ง/สปาร์กไลน์รายช่วงย่อย — สัปดาห์=7 วัน, เดือน=สัปดาห์ในเดือน, ทั้งหมด=รายเดือน (≤12 ล่าสุด)
   const series = useMemo(() => {
@@ -304,19 +303,24 @@ export default function StatsScreen() {
               </View>
               <View style={{ flex: 1, gap: 1 }}>
                 <HeroStat k="เสร็จแล้ว" v={`${stats.done} / ${stats.scheduled}`} first />
-                <HeroStat k="สตรีค" v={`${streak} วัน`} />
-                <HeroStat k="ว่างเฉลี่ย" v={hoursText(stats.freeAvgMin)} />
+                <HeroStat k="วันที่นำมาคิด" v={`${stats.countedDays} วัน`} />
+                <HeroStat k="เวลาว่างรวม" v={hoursText(stats.freeTotalMin)} />
               </View>
             </View>
 
             <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: t.line2 }} />
 
-            <ReportRow k={`ทำเสร็จ${PER_LABEL[mode]}`} sub={`เฉลี่ย ${avgDone.toFixed(1)} /วัน`}>
+            <ReportRow k={`ทำเสร็จ${PER_LABEL[mode]}`} sub={`เฉลี่ย ${avgDone.toFixed(1)} /วัน · จาก ${stats.countedDays} วัน`}>
               <Spark data={series} color={ACCENT} />
             </ReportRow>
             <ReportRow k="ชั่วโมงลงมือรวม" sub="เฉพาะที่ทำเสร็จ" divider>
               <Txt size={22} num weight="bold">
                 {hoursText(stats.doneHours * 60)}
+              </Txt>
+            </ReportRow>
+            <ReportRow k="เวลาว่างรวม" sub={`ไม่นับ 00:00–06:00 · เฉลี่ย ${hoursText(stats.freeAvgMin)} /วัน`} divider>
+              <Txt size={22} num weight="bold" color={GREEN}>
+                {hoursText(stats.freeTotalMin)}
               </Txt>
             </ReportRow>
             <ReportRow k="เลื่อนนัด" sub="จำนวนครั้งที่เลื่อนในช่วงนี้" divider>
@@ -333,7 +337,7 @@ export default function StatsScreen() {
           <Card style={{ gap: 10 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Txt size={12} weight="bold" color={t.sub}>ชั่วโมงตามหมวด</Txt>
-              <Txt size={12} num color={t.faint}>{hoursText(stats.doneHours * 60)}</Txt>
+              <Txt size={12} num color={t.faint}>{hoursText(stats.doneHours * 60)} · {stats.countedDays} วัน</Txt>
             </View>
             {catHours.length ? (
               catHours.map((c) => {
@@ -351,6 +355,25 @@ export default function StatsScreen() {
             ) : (
               <Txt size={12} color={t.faint}>ยังไม่มีรายการที่ทำเสร็จในช่วงนี้</Txt>
             )}
+
+            {/* เวลาว่างรวมของช่วง — หน้าต่าง 06:00–24:00 (เวลานอน 00:00–06:00 ไม่ถูกนับเป็นเวลาว่าง) */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                borderTopWidth: StyleSheet.hairlineWidth,
+                borderTopColor: t.line,
+                paddingTop: 10,
+              }}>
+              <View style={{ flex: 1 }}>
+                <Txt size={12.5} weight="med">เวลาว่างรวม</Txt>
+                <Txt size={11} color={t.faint}>
+                  06:00–24:00 (ไม่นับ 00:00–06:00) · {stats.countedDays} วันที่นำมาคิด
+                </Txt>
+              </View>
+              <Txt size={16} num weight="bold" color={GREEN}>{hoursText(stats.freeTotalMin)}</Txt>
+            </View>
           </Card>
 
           {/* นัดเคส — 2 แท็บ: ตามความสำคัญ (ระดับ P1–P6) · รายชื่อคน (ชื่อไม่ซ้ำ · ค้นหาได้ · แตะดูรายละเอียด) */}

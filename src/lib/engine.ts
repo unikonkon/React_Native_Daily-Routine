@@ -230,6 +230,7 @@ export interface RangeStats {
   hoursByCat: Record<string, number>;
   rescheduled: number; // จำนวนครั้งที่เลื่อนนัดในช่วง
   freeAvgMin: number; // เวลาว่างกลางวันเฉลี่ยต่อวัน (นาที)
+  freeTotalMin: number; // เวลาว่างกลางวันรวมทั้งช่วง (นาที) — หน้าต่าง 06:00–24:00 ไม่นับ 00:00–06:00
   countedDays: number; // จำนวนวันที่นับจริง (ตัวหารของค่าเฉลี่ย/สปาร์กไลน์)
   caseByPriority: Record<string, number>;
   caseItems: DayItem[]; // เคส (cat='case') ที่ถึงกำหนดในช่วง เรียงตามวัน+เวลา — สำหรับดูรายละเอียด
@@ -284,6 +285,7 @@ export function rangeStats(acts: Activity[], occ: OccMap, from: string, to: stri
     hoursByCat,
     rescheduled,
     freeAvgMin: countedDays ? freeTotal / countedDays : 0,
+    freeTotalMin: freeTotal,
     countedDays,
     caseByPriority,
     caseItems,
