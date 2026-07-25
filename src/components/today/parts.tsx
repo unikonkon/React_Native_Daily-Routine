@@ -1,13 +1,34 @@
 // ชิ้นส่วน UI ร่วมของแท็บวันนี้ (ลุค mockup iOS Calendar) — ใช้ธีมเดิมของแอป
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { FadeInLeft } from 'react-native-reanimated';
 
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
 import { ACCENT } from '@/constants/theme';
+import type { DayItem } from '@/lib/types';
+import { useContacts } from '@/stores/contacts';
 
 export type View3 = 'day' | 'week' | 'month' | 'year';
+
+/**
+ * ชื่อคนในเคส (คนแรก + จำนวนที่เหลือ) — คืน '' เมื่อไม่มีรายชื่อผูกไว้
+ * ผู้เรียกจึง fallback เองได้ตามบริบท: มุมมองสัปดาห์ใช้ชื่อกิจกรรมแทน ส่วนมุมมองวันใช้สถานที่แทน
+ */
+export function caseNames(it: DayItem, nameById: Record<number, string>) {
+  const names = it.contactIds.map((id) => nameById[id]).filter((s) => !!s?.trim());
+  if (!names.length) return '';
+  return names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0];
+}
+
+/** hook คู่กับ caseNames — identity เปลี่ยนเมื่อสมุดรายชื่อเปลี่ยน (ทั้ง day/week view ใช้ตัวเดียวกัน) */
+export function useCaseNames(): (it: DayItem) => string {
+  const contacts = useContacts((s) => s.list);
+  return useMemo(() => {
+    const nameById = Object.fromEntries(contacts.map((c) => [c.id, c.name])) as Record<number, string>;
+    return (it: DayItem) => caseNames(it, nameById);
+  }, [contacts]);
+}
 
 const VIEW_TABS: { key: View3; label: string; icon: string }[] = [
   { key: 'day', label: 'วัน', icon: 'sun' },

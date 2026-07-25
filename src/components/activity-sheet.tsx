@@ -2,7 +2,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Keyboard, Modal, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
@@ -12,7 +12,7 @@ import { ACCENT, CAT_BY_ID, DANGER, FONT, GREEN, PRI } from '@/constants/theme';
 import { durText, fmtRange, thaiDate } from '@/lib/dates';
 import type { Contact } from '@/lib/types';
 import { useActivities, useDay } from '@/stores/activities';
-import { meetLink, useContacts, zoomDeepLink } from '@/stores/contacts';
+import { meetLink, openLink, useContacts, zoomAppLink, zoomWebLink } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
 
@@ -314,6 +314,16 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   );
 }
 
+/** ช่องทางติดต่อหนึ่งช่อง — url = ลิงก์หลัก (แอป), fallback = ลิงก์สำรองเมื่อไม่มีแอปติดตั้ง */
+interface Method {
+  label: string;
+  icon: string;
+  display: string;
+  value: string;
+  url: string;
+  fallback?: string;
+}
+
 /**
  * การ์ดข้อมูลผู้ติดต่อของเคส — แต่ละช่องทาง (โทร/LINE/อีเมล/Zoom/Meet) มี 2 ปุ่ม: คัดลอก + เปิดแอป
  * ดินสอ = แก้ไข/เปลี่ยนรายชื่อ · ถังขยะ = ถอดออกจากเคส (ถามยืนยันในการ์ด — ตัวรายชื่อในสมุดไม่ถูกลบ)
@@ -336,23 +346,30 @@ function ContactCard({
     await Clipboard.setStringAsync(value);
     showToast(`คัดลอก${label}แล้ว ✓`);
   };
-  const open = async (label: string, url: string) => {
-    showToast(`กำลังเปิด ${label}…`);
-    try {
-      await Linking.openURL(url);
-    } catch {
-      showToast('เปิดแอปไม่ได้');
-    }
+  /** เปิดช่องทางนั้น — คืน false เมื่อเปิดไม่ได้ ให้ปุ่มขึ้นสถานะ "เปิดไม่ได้" เอง */
+  const open = async (m: Method) => {
+    const res = await openLink(m.url, m.fallback);
+    if (res === 'fallback') showToast(`ไม่พบแอป ${m.label} — เปิดในเบราว์เซอร์แทน`);
+    if (res === 'fail') showToast(`เปิด ${m.label} ไม่ได้ — ลองคัดลอกแล้ววางในแอปนั้นแทน`);
+    return res !== 'fail';
   };
 
-  // ช่องทางติดต่อที่มีข้อมูล — ไอคอน SVG + สิ่งที่แสดง (display) + สิ่งที่คัดลอก (value) + URL สำหรับเปิดแอป
+  // ช่องทางติดต่อที่มีข้อมูล — ไอคอน SVG + สิ่งที่แสดง (display) + สิ่งที่คัดลอก (value) + URL เปิดแอป (+ ลิงก์สำรอง)
   const methods = [
     c.phone && { label: 'เบอร์โทร', icon: 'phone', display: c.phone, value: c.phone, url: `tel:${c.phone.replace(/[^0-9+]/g, '')}` },
     c.line && { label: 'LINE', icon: 'line', display: c.line, value: c.line, url: `https://line.me/R/ti/p/~${c.line.replace(/^@/, '')}` },
     c.email && { label: 'อีเมล', icon: 'mail', display: c.email, value: c.email, url: `mailto:${c.email}` },
-    c.zoom && { label: 'Zoom', icon: 'video', display: 'ห้อง Zoom', value: c.zoom, url: zoomDeepLink(c.zoom) },
+    // Zoom: ลองเปิดแอปด้วย zoomus:// ก่อน ไม่มีแอปค่อยเปิดลิงก์เว็บ
+    c.zoom && {
+      label: 'Zoom',
+      icon: 'video',
+      display: 'ห้อง Zoom',
+      value: c.zoom,
+      url: zoomAppLink(c.zoom) ?? zoomWebLink(c.zoom),
+      fallback: zoomWebLink(c.zoom),
+    },
     c.googlemeet && { label: 'Google Meet', icon: 'video', display: 'ห้อง Google Meet', value: c.googlemeet, url: meetLink(c.googlemeet) },
-  ].filter(Boolean) as { label: string; icon: string; display: string; value: string; url: string }[];
+  ].filter(Boolean) as Method[];
 
   return (
     <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: t.line, padding: 12, gap: 9 }}>
@@ -400,7 +417,16 @@ function ContactCard({
             {m.display}
           </Txt>
           <MiniBtn icon="copy" label="คัดลอก" feedbackIcon="check" feedbackLabel="คัดลอกแล้ว" onPress={() => copy(m.label, m.value)} />
-          <MiniBtn icon="extLink" label="เปิด" primary onPress={() => open(m.label, m.url)} />
+          <MiniBtn
+            icon="extLink"
+            label="เปิด"
+            primary
+            busyLabel="กำลังเปิด…"
+            feedbackIcon="check"
+            feedbackLabel="เปิดแล้ว"
+            errorLabel="เปิดไม่ได้"
+            onPress={() => open(m)}
+          />
         </View>
       ))}
 
@@ -782,46 +808,64 @@ function FieldBtn({ icon, label, disabled, onPress }: { icon: string; label: str
   );
 }
 
-/** ปุ่มเล็กในการ์ดผู้ติดต่อ (คัดลอก / เปิด) — แสดงผลตอบรับชั่วครู่หลังกด (เช่น "คัดลอกแล้ว ✓") */
+/**
+ * ปุ่มเล็กในการ์ดผู้ติดต่อ (คัดลอก / เปิด) — บอกสถานะบนตัวปุ่มเอง 4 สถานะ:
+ * idle → busy (สปินเนอร์ + "กำลังเปิด…") → done (เขียว ✓) หรือ error (แดง "เปิดไม่ได้") แล้วกลับเป็น idle
+ * onPress คืน false = ถือว่าไม่สำเร็จ
+ */
 function MiniBtn({
   icon,
   label,
   primary,
+  busyLabel,
   feedbackIcon,
   feedbackLabel,
+  errorLabel,
   onPress,
 }: {
   icon: string;
   label: string;
   primary?: boolean;
+  busyLabel?: string;
   feedbackIcon?: string;
   feedbackLabel?: string;
-  onPress: () => void | Promise<void>;
+  errorLabel?: string;
+  onPress: () => void | boolean | Promise<void | boolean>;
 }) {
   const t = useTokens();
-  const [hit, setHit] = useState(false);
+  const [state, setState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const handle = async () => {
-    await onPress();
-    if (feedbackLabel) {
-      setHit(true);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setHit(false), 1300);
+    if (state === 'busy') return; // กันกดรัว ๆ ระหว่างรอแอปเปิด
+    if (timer.current) clearTimeout(timer.current);
+    setState('busy');
+    let ok = true;
+    try {
+      ok = (await onPress()) !== false;
+    } catch {
+      ok = false;
     }
+    const next = ok ? (feedbackLabel ? 'done' : 'idle') : errorLabel ? 'error' : 'idle';
+    setState(next);
+    if (next !== 'idle') timer.current = setTimeout(() => setState('idle'), 1400);
   };
 
-  const showFb = hit && !!feedbackLabel;
-  const bg = showFb ? GREEN : primary ? ACCENT : t.chip;
-  const fg = showFb || primary ? '#FFFFFF' : t.sub;
+  const bg = state === 'done' ? GREEN : state === 'error' ? DANGER : primary || state === 'busy' ? ACCENT : t.chip;
+  const fg = state === 'idle' && !primary ? t.sub : '#FFFFFF';
+  const text = state === 'busy' ? busyLabel ?? 'กำลังเปิด…' : state === 'done' ? feedbackLabel : state === 'error' ? errorLabel : label;
   return (
     <Pressable
       onPress={handle}
       hitSlop={4}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9, backgroundColor: bg }}>
-      <SvgIcon name={showFb ? feedbackIcon ?? icon : icon} size={12} color={fg} />
-      <Txt size={12} weight="med" color={fg}>{showFb ? feedbackLabel : label}</Txt>
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9, backgroundColor: bg, opacity: state === 'busy' ? 0.85 : 1 }}>
+      {state === 'busy' ? (
+        <ActivityIndicator size="small" color={fg} style={{ width: 12, height: 12, transform: [{ scale: 0.7 }] }} />
+      ) : (
+        <SvgIcon name={state === 'done' ? feedbackIcon ?? icon : state === 'error' ? 'x' : icon} size={12} color={fg} />
+      )}
+      <Txt size={12} weight="med" color={fg}>{text}</Txt>
     </Pressable>
   );
 }

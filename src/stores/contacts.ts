@@ -1,3 +1,4 @@
+import { Linking } from 'react-native';
 import { create } from 'zustand';
 
 import * as db from '@/lib/db';
@@ -8,22 +9,59 @@ import type { Contact } from '@/lib/types';
 const hasScheme = (s: string) => /^[a-z][a-z0-9+.-]*:\/\//i.test(s);
 
 /**
- * Zoom → deep link เปิดแอป (zoommtg://)
- *  • ลิงก์เต็ม zoom.us/j/{id}(?pwd=...) → ดึง meeting id (+ รหัสผ่าน) มาประกอบ zoommtg://
- *  • Meeting ID ล้วน (มีเว้นวรรค/ขีดได้ เช่น "123 4567 8901") → เอาเฉพาะตัวเลขมาประกอบ
- *  • ลิงก์ที่มี scheme อื่นอยู่แล้ว → คืนตามเดิม
+ * แกะเลขห้อง + รหัสผ่านจากสิ่งที่ผู้ใช้กรอก
+ *  • ลิงก์เต็ม zoom.us/j|s|w/{id} (มี ?pwd= ได้)
+ *  • ลิงก์ deep link เดิมที่มี ?confno={id}
+ *  • Meeting ID ล้วน (เว้นวรรค/ขีดได้ เช่น "123 4567 8901")
+ * คืน null เมื่อแกะเลขห้องไม่ได้ (เช่นลิงก์ห้องส่วนตัว zoom.us/my/ชื่อ) — ให้ไปเปิดลิงก์เว็บแทน
  */
-export function zoomDeepLink(raw: string): string {
+function parseZoom(raw: string): { confno: string; pwd?: string } | null {
   const s = raw.trim();
-  const m = s.match(/zoom\.us\/(?:j|s|w|my)\/([^/?#]+)/i);
-  if (m) {
-    const confno = m[1].replace(/\D/g, '');
-    const pwd = s.match(/[?&]pwd=([^&\s]+)/i)?.[1];
-    if (confno) return `zoommtg://zoom.us/join?confno=${confno}${pwd ? `&pwd=${pwd}` : ''}`;
+  const pwd = s.match(/[?&]pwd=([^&\s]+)/i)?.[1];
+  const inUrl = s.match(/zoom\.us\/(?:j|s|w)\/(\d[\d\s-]*)/i) ?? s.match(/[?&]confno=(\d[\d\s-]*)/i);
+  if (inUrl) return { confno: inUrl[1].replace(/\D/g, ''), pwd };
+  if (hasScheme(s) || /[a-z]/i.test(s)) return null; // เป็นลิงก์/ข้อความ ไม่ใช่ Meeting ID ล้วน
+  const confno = s.replace(/\D/g, '');
+  return confno ? { confno, pwd } : null;
+}
+
+/**
+ * Zoom → deep link เปิดแอปบนมือถือ — scheme ของแอป iOS/Android คือ `zoomus://`
+ * (เดิมใช้ `zoommtg://` ซึ่งเป็นของโปรแกรมบนเดสก์ท็อป มือถือจึงเปิดไม่ขึ้น)
+ * คืน null เมื่อประกอบไม่ได้ → ให้ผู้เรียกใช้ zoomWebLink แทน
+ */
+export function zoomAppLink(raw: string): string | null {
+  const p = parseZoom(raw);
+  if (!p) return null;
+  return `zoomus://zoom.us/join?confno=${p.confno}${p.pwd ? `&pwd=${encodeURIComponent(p.pwd)}` : ''}`;
+}
+
+/** Zoom → ลิงก์เว็บสำรอง (ไม่มีแอปก็เปิดได้ · ถ้ามีแอป ระบบจะเด้งเข้าแอปให้เอง) */
+export function zoomWebLink(raw: string): string {
+  const s = raw.trim();
+  const p = parseZoom(s);
+  if (p) return `https://zoom.us/j/${p.confno}${p.pwd ? `?pwd=${encodeURIComponent(p.pwd)}` : ''}`;
+  if (/^https?:\/\//i.test(s)) return s; // ลิงก์ห้องส่วนตัว/ลิงก์เชิญ — ใช้ตามที่กรอกมา
+  return 'https://zoom.us/join';
+}
+
+/**
+ * เปิดลิงก์ — ลองตัวหลักก่อน (deep link ของแอป) ไม่มีแอปติดตั้ง openURL จะโยน error แล้วค่อยเปิดตัวสำรอง
+ * ไม่ใช้ canOpenURL เพราะบน iOS ต้องประกาศ scheme ใน LSApplicationQueriesSchemes ก่อน ไม่งั้นได้ false เสมอ
+ */
+export async function openLink(url: string, fallback?: string): Promise<'primary' | 'fallback' | 'fail'> {
+  try {
+    await Linking.openURL(url);
+    return 'primary';
+  } catch {
+    if (!fallback || fallback === url) return 'fail';
   }
-  if (hasScheme(s)) return s;
-  const id = s.replace(/\D/g, '');
-  return id ? `zoommtg://zoom.us/join?confno=${id}` : s;
+  try {
+    await Linking.openURL(fallback);
+    return 'fallback';
+  } catch {
+    return 'fail';
+  }
 }
 
 /**

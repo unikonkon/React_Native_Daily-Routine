@@ -5,13 +5,13 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindowDimensions, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
+import { useCaseNames } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, CATS, DANGER, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { addDays, fmtMin, fromISO, mondayOf, nowMin, todayISO, WD_TH } from '@/lib/dates';
 import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
 import { useDayReader } from '@/stores/activities';
-import { useContacts } from '@/stores/contacts';
 
 const GUTTER = 34; // แกนเวลาซ้าย
 const HPAD = 8;
@@ -26,13 +26,6 @@ const pct = (min: number) => {
   const u = min <= NIGHT_START ? min - DAY_START : DAY_SPAN + (min - NIGHT_START) * NIGHT_SQUEEZE;
   return (u / UNITS) * 100;
 };
-
-/** ป้ายชื่อของบล็อก "นัดเคส" — ชื่อคนในเคส (คนแรก + จำนวนที่เหลือ) ไม่มีรายชื่อ → ใช้ชื่อกิจกรรมแทน */
-function caseLabel(it: DayItem, nameById: Record<number, string>) {
-  const names = it.contactIds.map((id) => nameById[id]).filter((s) => !!s?.trim());
-  if (!names.length) return it.title.trim();
-  return names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0];
-}
 
 // แถบหัวสัปดาห์แบบปัดได้ (paging) — FlatList แนวนอน virtualized เลื่อนได้ ±~9 ปี
 const WK_SPAN = 500;
@@ -71,8 +64,7 @@ export function TodayWeekView({
 }: WeekViewProps) {
   const t = useTokens();
   const getDay = useDayReader();
-  const contacts = useContacts((s) => s.list);
-  const nameById = useMemo(() => Object.fromEntries(contacts.map((c) => [c.id, c.name])) as Record<number, string>, [contacts]);
+  const caseNamesOf = useCaseNames();
   const today = todayISO();
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
 
@@ -139,7 +131,7 @@ export function TodayWeekView({
                     const dim = it.ostatus === 'rescheduled' ? 0.5 : 1;
                     const dur = it.endMin - it.startMin;
                     // นัดเคส → โชว์ชื่อคนในเคส (หลายคน = ชื่อแรก +n) เฉพาะบล็อกที่สูง/กว้างพอ
-                    const caseName = cat.isCase ? caseLabel(it, nameById) : '';
+                    const caseName = cat.isCase ? caseNamesOf(it) || it.title.trim() : '';
                     const showName = !!caseName && dur >= 30 && n <= 2;
                     const showIcon = dur >= 45 && n <= 2 && (!showName || dur >= 75); // โชว์ไอคอนเฉพาะบล็อกที่สูง/กว้างพอ
                     // โหมดลบ: ที่เลือกไว้ = ขอบแดง + ติ๊กถูก · ที่ยังไม่เลือก = จางลงให้ตัวที่เลือกเด่น

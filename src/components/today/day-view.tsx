@@ -1,19 +1,60 @@
 // มุมมองวัน (ลุค mockup) — แถบสัปดาห์ + ป้ายวัน + ไทม์ไลน์ 06:00–30:00 ครบ 24 ชม.
-// แถวชั่วโมง + บล็อกกิจกรรมขอบซ้ายสี + เส้น "ตอนนี้" มีป้ายเวลา + auto-scroll ไปเวลาปัจจุบัน
+// แถวชั่วโมง + บล็อกกิจกรรมแบบ "คอลัมน์เวลาในบล็อก" + เส้น "ตอนนี้" มีป้ายเวลา + auto-scroll ไปเวลาปัจจุบัน
 import React, { useEffect, useMemo, useRef } from 'react';
 import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
-import { DrillBack, ViewSwitcher, type View3 } from '@/components/today/parts';
+import { DrillBack, useCaseNames, ViewSwitcher, type View3 } from '@/components/today/parts';
 import { PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { addDays, beYear, fmtMin, fmtRange, fromISO, hoursText, mondayOf, MONTH_TH_FULL, nowMin, thaiDate, todayISO, WD_TH } from '@/lib/dates';
 import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
-import type { DayItem } from '@/lib/types';
+import type { DayItem, OccStatus } from '@/lib/types';
 import { useDay } from '@/stores/activities';
 
 const PX = 1; // 1px/นาที = 60px/ชม. (สเปเชียลใกล้ mockup)
 const GUTTER = 52;
+const TIME_COL = 34; // คอลัมน์เวลาในบล็อก — พอดี "10:30" ที่ 10.5px ของ Space Grotesk
+const COMPACT_MIN = 40; // นาที — สั้นกว่านี้ยุบเหลือบรรทัดเดียว (ไม่มีที่พอสำหรับบรรทัดรอง)
+const SUB_MIN_H = 40; // px — ความสูงขั้นต่ำที่บรรทัดรอง (สถานที่/ชื่อคน) ลงได้โดยไม่โดนตัด
+const SKIP = '#8A8175'; // เทาอุ่น (= สีระดับ P6) สำหรับ "ข้าม" — ไม่ใช้ DANGER เพราะข้ามไม่ใช่ความผิดพลาด
+
+/**
+ * หน้าตาของสถานะรายวัน — planned ไม่มีในตาราง (= ไม่มีชิป ไม่จาง)
+ * cancelled ก็ไม่มี เพราะ engine.dayItems กรองทิ้งตั้งแต่ต้นทาง มุมมองวันจึงไม่มีทางเจอ
+ */
+const STATUS_UI: Partial<Record<OccStatus, { label: string; color: string; dashed?: boolean }>> = {
+  done: { label: 'เสร็จ', color: GREEN },
+  rescheduled: { label: 'เลื่อน', color: ACCENT, dashed: true },
+  skipped: { label: 'ข้าม', color: SKIP },
+};
+
+/**
+ * เส้นคั่นระหว่างคอลัมน์เวลากับเนื้อหา — วาดเป็น View ย่อยแทน borderStyle:'dashed'
+ * เพราะ RN ใช้ borderStyle กับ "ทั้งกล่อง" ไม่ใช่รายด้าน และเส้นประด้านเดียวเพี้ยนบน Android
+ */
+function ColDivider({ h, color, dashed }: { h: number; color: string; dashed?: boolean }) {
+  if (!dashed) return <View style={{ width: 1, alignSelf: 'stretch', backgroundColor: color }} />;
+  const n = Math.max(2, Math.floor(h / 6)); // ขีดละ 3px เว้น 3px
+  return (
+    <View style={{ width: 1, alignSelf: 'stretch', overflow: 'hidden' }}>
+      {Array.from({ length: n }, (_, i) => (
+        <View key={i} style={{ width: 1, height: 3, marginBottom: 3, backgroundColor: color }} />
+      ))}
+    </View>
+  );
+}
+
+/** ชิปสถานะ — คำอ่านออก ไม่ใช่ขีดฆ่า/ความจางอย่างเดียว */
+function StatusChip({ label, color }: { label: string; color: string }) {
+  return (
+    <View style={{ backgroundColor: color + '2b', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1, flexShrink: 0 }}>
+      <Txt size={9.5} weight="bold" color={color}>
+        {label}
+      </Txt>
+    </View>
+  );
+}
 
 interface DayViewProps {
   focus: string;
@@ -166,6 +207,7 @@ function DayTimeline({
 }) {
   const t = useTokens();
   const scRef = useRef<ScrollView>(null);
+  const caseNamesOf = useCaseNames();
   const height = (DAY_END - DAY_START) * PX;
   const lanes = useMemo(() => assignLanes(items), [items]);
   const slots = useMemo(() => (freeMode ? daytimeFreeSlots(items) : []), [freeMode, items]);
@@ -204,40 +246,69 @@ function DayTimeline({
           const { lane, n } = lanes[it.id] ?? { lane: 0, n: 1 };
           const top = (it.startMin - DAY_START) * PX;
           const h = Math.max((it.endMin - it.startMin) * PX - 4, 26);
-          const done = it.ostatus === 'done';
-          const dim = it.ostatus === 'rescheduled' ? 0.5 : 1;
+          const compact = it.endMin - it.startMin < COMPACT_MIN; // ยุบเหลือบรรทัดเดียว
+          const st = STATUS_UI[it.ostatus]; // undefined = planned (ยังไม่ทำ)
+          // นัดเคส → ชื่อผู้ติดต่อ เหมือนมุมมองสัปดาห์ · ไม่มีรายชื่อผูกไว้ → ถอยไปใช้สถานที่
+          const sub = (cat.isCase ? caseNamesOf(it) : '') || it.loc || '';
           return (
             <Pressable
               key={`${it.id}:${it.date}`}
               onPress={() => onPressItem(it)}
-              style={{ position: 'absolute', top, left: GUTTER + 6, right: 0, height: h, opacity: (freeMode ? 0.3 : 1) * dim }}>
+              style={{ position: 'absolute', top, left: GUTTER + 6, right: 0, height: h, opacity: freeMode ? 0.3 : 1 }}>
               <View
                 style={{
                   position: 'absolute',
                   left: `${(100 / n) * lane}%`,
                   width: `${100 / n}%`,
                   height: h,
-                  backgroundColor: cat.color + (done ? '26' : '1a'),
+                  backgroundColor: cat.color + '1a',
                   borderLeftWidth: 3,
-                  borderLeftColor: cat.color,
+                  borderLeftColor: st ? cat.color + '80' : cat.color,
                   borderRadius: 9,
-                  paddingHorizontal: 9,
-                  paddingVertical: 4,
+                  paddingLeft: 6,
+                  paddingRight: 9,
+                  paddingVertical: 3,
+                  flexDirection: 'row',
+                  gap: 7,
                   overflow: 'hidden',
                 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                  {it.cat === 'case' ? <PriBadge id={it.priority} /> : null}
-                  <Txt size={13} weight="med" numberOfLines={1} style={{ flexShrink: 1 }}>
-                    {it.title}
+                {/* คอลัมน์เวลา — อ่านช่วงเวลาจบในบล็อก ไม่ต้องกวาดตาไปแกนซ้าย (สำคัญตอนไม่ได้เริ่มตรงหัวชั่วโมง) */}
+                <View style={{ width: TIME_COL, alignItems: 'flex-end', justifyContent: compact ? 'center' : 'flex-start' }}>
+                  <Txt size={10.5} num weight="bold" color={st ? t.sub : t.ink}>
+                    {fmtMin(it.startMin)}
                   </Txt>
-                  {done ? <Icon name="check" size={13} color={GREEN} /> : null}
+                  {!compact ? (
+                    <Txt size={10.5} num color={t.faint}>
+                      {fmtMin(it.endMin)}
+                    </Txt>
+                  ) : null}
                 </View>
-                {h > 36 ? (
-                  <Txt size={11} num color={t.sub}>
-                    {fmtRange(it.startMin, it.endMin)}
-                    {it.loc ? ` · ${it.loc}` : ''}
-                  </Txt>
-                ) : null}
+
+                <ColDivider h={h} color={cat.color + '47'} dashed={st?.dashed} />
+
+                <View style={{ flex: 1, minWidth: 0, justifyContent: compact ? 'center' : 'flex-start' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <Icon name={cat.icon} size={13} color={st ? cat.color + '99' : cat.color} />
+                    {cat.isCase ? <PriBadge id={it.priority} /> : null}
+                    <Txt size={13} weight="med" numberOfLines={1} color={st ? t.sub : t.ink} style={{ flexShrink: 1 }}>
+                      {it.title}
+                    </Txt>
+                    {/* บล็อกยุบแล้วไม่มีที่พอใส่ชิป → เหลือจุดสีสถานะ (คำเต็มดูได้ในแผ่นรายละเอียด) */}
+                    {st ? (
+                      compact ? (
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: st.color, flexShrink: 0 }} />
+                      ) : (
+                        <StatusChip label={st.label} color={st.color} />
+                      )
+                    ) : null}
+                  </View>
+                  {/* กันบรรทัดรองโดนตัดครึ่ง: 40 นาทีพอดี = สูง 36px ซึ่งใส่ 2 บรรทัด (≈33px) + padding 6px ไม่ลง */}
+                  {!compact && h >= SUB_MIN_H && sub ? (
+                    <Txt size={11} color={t.sub} numberOfLines={1}>
+                      {sub}
+                    </Txt>
+                  ) : null}
+                </View>
               </View>
             </Pressable>
           );

@@ -1,7 +1,7 @@
 // หน้าสถิติ — "ใบรายงาน" (Layout B): ฟิลเตอร์แท็บขีดเส้นใต้ + การ์ดรายงานใหญ่ (% เด่น + สปาร์กไลน์ + แถวตัวชี้วัด)
 // เลือกช่วง: สัปดาห์/เดือน (เลื่อนช่วงได้) · ทั้งหมด — ดึงจาก store (series+occ) ผ่าน engine.rangeStats (pure)
 import { useMemo, useState } from 'react';
-import { Linking, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Svg, { Circle, Polygon, Polyline } from 'react-native-svg';
 
 import { Icon } from '@/components/icon';
@@ -13,7 +13,7 @@ import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hou
 import { rangeStats } from '@/lib/engine';
 import type { Contact, DayItem } from '@/lib/types';
 import { useActivities } from '@/stores/activities';
-import { meetLink, useContacts, zoomDeepLink } from '@/stores/contacts';
+import { meetLink, openLink, useContacts, zoomAppLink, zoomWebLink } from '@/stores/contacts';
 import { useUI } from '@/stores/ui';
 
 type Mode = 'week' | 'month' | 'all';
@@ -810,9 +810,10 @@ function ContactMethods({ contacts, showToast }: { contacts: Contact[]; showToas
   const t = useTokens();
 
   const methods = useMemo(() => {
-    const out: { label: string; icon: string; display: string; url: string }[] = [];
+    type M = { label: string; icon: string; display: string; url: string; fallback?: string };
+    const out: M[] = [];
     const seen = new Set<string>();
-    const add = (m: { label: string; icon: string; display: string; url: string }) => {
+    const add = (m: M) => {
       const k = `${m.label}:${m.display}`;
       if (seen.has(k)) return;
       seen.add(k);
@@ -822,32 +823,41 @@ function ContactMethods({ contacts, showToast }: { contacts: Contact[]; showToas
       if (c.phone) add({ label: 'เบอร์โทร', icon: 'phone', display: c.phone, url: `tel:${c.phone.replace(/[^0-9+]/g, '')}` });
       if (c.line) add({ label: 'LINE', icon: 'line', display: c.line, url: `https://line.me/R/ti/p/~${c.line.replace(/^@/, '')}` });
       if (c.email) add({ label: 'อีเมล', icon: 'mail', display: c.email, url: `mailto:${c.email}` });
-      if (c.zoom) add({ label: 'Zoom', icon: 'video', display: 'ห้อง Zoom', url: zoomDeepLink(c.zoom) });
+      // Zoom: เปิดแอปด้วย zoomus:// ก่อน ไม่มีแอปค่อยตกไปที่ลิงก์เว็บ
+      if (c.zoom) add({ label: 'Zoom', icon: 'video', display: 'ห้อง Zoom', url: zoomAppLink(c.zoom) ?? zoomWebLink(c.zoom), fallback: zoomWebLink(c.zoom) });
       if (c.googlemeet) add({ label: 'Google Meet', icon: 'video', display: 'ห้อง Google Meet', url: meetLink(c.googlemeet) });
     }
     return out;
   }, [contacts]);
 
   const notes = contacts.map((c) => c.note?.trim()).filter(Boolean) as string[];
+  const [opening, setOpening] = useState<string | null>(null); // ช่องทางที่กำลังเปิดอยู่ (key ของแถว)
 
-  const open = async (label: string, url: string) => {
-    showToast(`กำลังเปิด ${label}…`);
-    try {
-      await Linking.openURL(url);
-    } catch {
-      showToast('เปิดแอปไม่ได้');
-    }
+  const open = async (key: string, label: string, url: string, fallback?: string) => {
+    setOpening(key);
+    const res = await openLink(url, fallback);
+    setOpening(null);
+    if (res === 'fallback') showToast(`ไม่พบแอป ${label} — เปิดในเบราว์เซอร์แทน`);
+    if (res === 'fail') showToast(`เปิด ${label} ไม่ได้`);
   };
 
   return (
     <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: t.line, padding: 12, gap: 9 }}>
-      {methods.map((m) => (
-        <Pressable key={`${m.label}:${m.display}`} onPress={() => open(m.label, m.url)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <SvgIcon name={m.icon} size={14} color={t.sub} />
-          <Txt size={13} style={{ flex: 1 }} numberOfLines={1}>{m.display}</Txt>
-          <SvgIcon name="extLink" size={14} color={ACCENT} />
-        </Pressable>
-      ))}
+      {methods.map((m) => {
+        const key = `${m.label}:${m.display}`;
+        const busy = opening === key;
+        return (
+          <Pressable
+            key={key}
+            disabled={busy}
+            onPress={() => open(key, m.label, m.url, m.fallback)}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: busy ? 0.6 : 1 }}>
+            <SvgIcon name={m.icon} size={14} color={t.sub} />
+            <Txt size={13} style={{ flex: 1 }} numberOfLines={1}>{busy ? `กำลังเปิด ${m.label}…` : m.display}</Txt>
+            {busy ? <ActivityIndicator size="small" color={ACCENT} /> : <SvgIcon name="extLink" size={14} color={ACCENT} />}
+          </Pressable>
+        );
+      })}
       {notes.map((n, i) => (
         <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
           <View style={{ paddingTop: 1 }}><SvgIcon name="note" size={13} color={t.sub} /></View>
