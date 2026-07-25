@@ -38,9 +38,17 @@ const FEATHER: Record<string, React.ComponentProps<typeof Feather>['name']> = {
   extLink: 'external-link',
   search: 'search',
   clipboard: 'clipboard',
+  lock: 'lock',
+};
+
+// ไอคอนที่ Feather ไม่มี — ดึงจาก MaterialCommunityIcons แทน
+const MCI: Record<string, React.ComponentProps<typeof MaterialCommunityIcons>['name']> = {
+  dumbbell: 'dumbbell',
+  clockPlus: 'clock-plus-outline', // นาฬิกา + เครื่องหมายบวก = "ช่วงว่างที่กดเพิ่มกิจกรรมได้"
 };
 
 export function Icon({ name, size = 20, color }: { name: string; size?: number; color: string }) {
-  if (name === 'dumbbell') return <MaterialCommunityIcons name="dumbbell" size={size} color={color} />;
+  const mci = MCI[name];
+  if (mci) return <MaterialCommunityIcons name={mci} size={size} color={color} />;
   return <Feather name={FEATHER[name] ?? 'circle'} size={size} color={color} />;
 }

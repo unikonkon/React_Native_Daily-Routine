@@ -65,7 +65,11 @@ function ThemeToggle() {
   );
 }
 
-/** ปุ่มสลับโหมด "วันที่ว่าง" ↔ "ไม่นับวันที่ว่าง" — active = ดึงช่วงเวลาว่างออกมาให้แตะเพิ่มกิจกรรม */
+/**
+ * ปุ่มสลับโหมด "วันที่ว่าง" ↔ "ไม่นับวันที่ว่าง" — active = ดึงช่วงเวลาว่างออกมาให้แตะเพิ่มกิจกรรม
+ * ไอคอนเปลี่ยนตามโหมด: clock (ดูตารางตามปกติ) → clockPlus (นาฬิกา+บวก = แตะช่วงว่างเพื่อเพิ่มได้)
+ * เปลี่ยนทั้งไอคอนไม่ใช่แค่สี — ปุ่มยังอ่านออกตอนธีมมืด/ตาบอดสี ที่แยกเขียว-เทาไม่ออก
+ */
 function DayliyUseToggle() {
   const t = useTokens();
   const freeMode = useUI((s) => s.freeMode);
@@ -83,7 +87,7 @@ function DayliyUseToggle() {
         alignItems: 'center',
         justifyContent: 'center',
       }}>
-      <Icon name="clock" size={18} color={freeMode ? '#FFFFFF' : t.sub} />
+      <Icon name={freeMode ? 'clockPlus' : 'clock'} size={freeMode ? 20 : 18} color={freeMode ? '#FFFFFF' : t.sub} />
     </Pressable>
   );
 }

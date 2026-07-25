@@ -6,7 +6,7 @@ import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindow
 
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, CATS, DAY_END, DAY_START, GREEN } from '@/constants/theme';
+import { ACCENT, CAT_BY_ID, CATS, DANGER, DAY_END, DAY_START, GREEN } from '@/constants/theme';
 import { addDays, fmtMin, fromISO, mondayOf, nowMin, todayISO, WD_TH } from '@/lib/dates';
 import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
@@ -47,9 +47,28 @@ interface WeekViewProps {
   /** โหมด "วันที่ว่าง" — ดึงช่วงเวลาว่างออกมาให้แตะเพิ่มกิจกรรม (กิจกรรมเดิมจาง) */
   freeMode?: boolean;
   onPressSlot?: (date: string, start: number, end: number) => void;
+  /** โหมดลบ — แตะบล็อกเพื่อเลือก/ถอนเลือกแทนการเปิดแผ่นรายละเอียด */
+  delMode?: boolean;
+  /** คีย์ของรายการที่เลือกไว้ (`id:date`) */
+  selectedKeys?: Set<string>;
+  onToggleSelect?: (item: DayItem) => void;
 }
 
-export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay, bottomPad = 120, freeMode = false, onPressSlot }: WeekViewProps) {
+/** คีย์ประจำ occurrence หนึ่ง ๆ (กิจกรรมชุดทำซ้ำใช้ id เดียวกันหลายวัน) */
+export const itemKey = (it: DayItem) => `${it.id}:${it.date}`;
+
+export function TodayWeekView({
+  monday,
+  onChangeMonday,
+  onPressItem,
+  onPressDay,
+  bottomPad = 120,
+  freeMode = false,
+  onPressSlot,
+  delMode = false,
+  selectedKeys,
+  onToggleSelect,
+}: WeekViewProps) {
   const t = useTokens();
   const getDay = useDayReader();
   const contacts = useContacts((s) => s.list);
@@ -70,7 +89,17 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
   return (
     <View style={{ flex: 1 }}>
       {/* หัวคอลัมน์ (จันทร์นำ) — ปัดซ้าย/ขวาเพื่อเลื่อนสัปดาห์ย้อนหลัง/อนาคต */}
-      <WeekHeaderStrip monday={monday} onChangeMonday={onChangeMonday} onPressDay={onPressDay} freeMode={freeMode} />
+      {/* โหมดลบ — ล็อกการแตะหัววัน (กันหลุดออกจากมุมมองสัปดาห์ทั้งที่เลือกค้างไว้) */}
+      {/* ไอคอนโหมดในช่องแกนเวลาซ้ายมือของแถบหัววัน บอกว่าตอนนี้แตะหัววันได้/ไม่ได้ (ดู ModeGlyph) */}
+      <WeekHeaderStrip
+        monday={monday}
+        onChangeMonday={onChangeMonday}
+        onPressDay={(iso) => {
+          if (!delMode) onPressDay(iso);
+        }}
+        freeMode={freeMode && !delMode}
+        delMode={delMode}
+      />
 
       {/* เวที (definite height ผ่าน flex) — วางเส้นชั่วโมง + คอลัมน์ทับกันด้วย % */}
       <View style={{ flex: 1, marginHorizontal: HPAD, paddingBottom: bottomPad }}>
@@ -113,10 +142,12 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
                     const caseName = cat.isCase ? caseLabel(it, nameById) : '';
                     const showName = !!caseName && dur >= 30 && n <= 2;
                     const showIcon = dur >= 45 && n <= 2 && (!showName || dur >= 75); // โชว์ไอคอนเฉพาะบล็อกที่สูง/กว้างพอ
+                    // โหมดลบ: ที่เลือกไว้ = ขอบแดง + ติ๊กถูก · ที่ยังไม่เลือก = จางลงให้ตัวที่เลือกเด่น
+                    const picked = delMode && !!selectedKeys?.has(itemKey(it));
                     return (
                       <Pressable
-                        key={`${it.id}:${it.date}`}
-                        onPress={() => onPressItem(it)}
+                        key={itemKey(it)}
+                        onPress={() => (delMode ? onToggleSelect?.(it) : onPressItem(it))}
                         style={{
                           position: 'absolute',
                           top: `${top}%`,
@@ -126,13 +157,15 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
                           minHeight: 5,
                           borderRadius: 3,
                           backgroundColor: cat.color,
-                          opacity: (done ? 0.4 : 0.98) * dim * (freeMode ? 0.3 : 1),
+                          opacity: (done ? 0.4 : 0.98) * dim * (freeMode ? 0.3 : 1) * (delMode && !picked ? 0.45 : 1),
+                          borderWidth: picked ? 1.5 : 0,
+                          borderColor: DANGER,
                           alignItems: 'center',
                           justifyContent: 'center',
                           overflow: 'hidden',
                           paddingHorizontal: 1,
                         }}>
-                        {showIcon ? <Icon name={cat.icon} size={11} color="#FFFFFF" /> : null}
+                        {picked ? <Icon name="check" size={11} color="#FFFFFF" /> : showIcon ? <Icon name={cat.icon} size={11} color="#FFFFFF" /> : null}
                         {showName ? (
                           <Txt size={8} weight="med" color="#FFFFFF" numberOfLines={2} style={{ textAlign: 'center', lineHeight: 9.5 }}>
                             {caseName}
@@ -142,8 +175,8 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
                     );
                   })}
 
-                  {/* ช่วงเวลาว่าง (โหมดวันที่ว่าง) — แตะเพื่อเปิดฟอร์มเพิ่มพร้อมช่วงเวลา (ไม่นับ 00:00–06:00) */}
-                  {freeMode
+                  {/* ช่วงเวลาว่าง (โหมดวันที่ว่าง) — แตะเพื่อเปิดฟอร์มเพิ่มพร้อมช่วงเวลา (ไม่นับ 00:00–06:00) · ซ่อนตอนโหมดลบ */}
+                  {freeMode && !delMode
                     ? daytimeFreeSlots(items).map((s) => {
                         const top = pct(s.start);
                         const sh = Math.max(pct(s.end) - top, 1.8);
@@ -186,7 +219,15 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
 
         {/* คำอธิบายไอคอนหมวด (legend) — ถอดความหมายไอคอนในบล็อก */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 4, paddingHorizontal: HPAD + 4, paddingVertical: 8, marginTop: 4 }}>
-          {freeMode ? (
+          {delMode ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={{ width: 12, height: 12, borderRadius: 3, borderWidth: 1.5, borderColor: DANGER, backgroundColor: DANGER + '26' }} />
+              <Txt size={11} weight="med" color={DANGER}>
+                แตะบล็อกเพื่อเลือกที่จะลบ
+              </Txt>
+            </View>
+          ) : null}
+          {freeMode && !delMode ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <View style={{ width: 12, height: 12, borderRadius: 3, borderWidth: 1, borderColor: GREEN, backgroundColor: GREEN + '26' }} />
               <Txt size={11} weight="med" color={GREEN}>
@@ -214,7 +255,35 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
 // ชั่วโมงว่างแบบกระชับ (สำหรับหัวคอลัมน์แคบ) — 90→"1.5ชม", 120→"2ชม"
 const hCompact = (min: number) => `${Number((min / 60).toFixed(1))} ชม`;
 
-function WeekHeaderStrip({ monday, onChangeMonday, onPressDay, freeMode }: { monday: string; onChangeMonday: (m: string) => void; onPressDay: (iso: string) => void; freeMode?: boolean }) {
+/**
+ * ไอคอนบอกโหมดของแถบหัววัน — วางในช่องแกนเวลา (GUTTER) ที่ว่างอยู่ซ้ายมือ จึงตรงแนวกับป้ายเวลาด้านล่าง
+ * ลบ → lock (หัววันถูกล็อก แตะไม่ได้) · วันที่ว่าง → clockPlus (แตะช่วงว่างเพื่อเพิ่ม) · ปกติ → calendar (แตะเข้ามุมมองวัน)
+ * อยู่นอก FlatList เพราะเป็นสถานะของทั้งแถบ ไม่ใช่ของสัปดาห์ใดสัปดาห์หนึ่ง — ปัดเปลี่ยนสัปดาห์แล้วต้องไม่เลื่อนตาม
+ */
+function ModeGlyph({ freeMode, delMode }: { freeMode?: boolean; delMode?: boolean }) {
+  const t = useTokens();
+  const [name, color] = delMode ? (['lock', DANGER] as const) : freeMode ? (['clockPlus', GREEN] as const) : (['calendar', t.faint] as const);
+  // top 14 = ความสูงของบรรทัดชื่อวัน (10.5) + gap 2 → ไอคอนอยู่ระดับเดียวกับวงกลมวันที่ (สูง 22)
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', left: HPAD, top: 14, width: GUTTER, height: 22, alignItems: 'center', justifyContent: 'center' }}>
+      <Icon name={name} size={16} color={color} />
+    </View>
+  );
+}
+
+function WeekHeaderStrip({
+  monday,
+  onChangeMonday,
+  onPressDay,
+  freeMode,
+  delMode,
+}: {
+  monday: string;
+  onChangeMonday: (m: string) => void;
+  onPressDay: (iso: string) => void;
+  freeMode?: boolean;
+  delMode?: boolean;
+}) {
   const t = useTokens();
   const getDay = useDayReader();
   const today = todayISO();
@@ -292,6 +361,8 @@ function WeekHeaderStrip({ monday, onChangeMonday, onPressDay, freeMode }: { mon
           );
         }}
       />
+      {/* วางหลัง FlatList — พี่น้องที่ประกาศทีหลังจะวาดทับ ไอคอนจึงไม่ถูกลิสต์บัง (สำคัญบน Android ที่ไม่มี z-index จาก order เดียว) */}
+      <ModeGlyph freeMode={freeMode} delMode={delMode} />
     </View>
   );
 }
