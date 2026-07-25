@@ -1,18 +1,16 @@
 {
   "expo": {
-    "name": "daily-routine",
+    "name": "Daily Routine",
     "slug": "daily-routine",
+    "description": "แอปวางแผนกิจวัตรประจำวัน — จัดตารางกิจกรรม นัดเคส และงานประจำ ดูได้ทั้งราย วัน/สัปดาห์/เดือน/ปี พร้อมสรุปสถิติเวลา แจ้งเตือนสรุปตอนเช้า และนำเข้า/ส่งออก Time Table",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "dailyroutine",
     "userInterfaceStyle": "automatic",
-    "ios": {
-      "icon": "./assets/expo.icon"
-    },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#F4EFE6",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -30,7 +28,12 @@
         {
           "backgroundColor": "#F4EFE6",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 220,
+          "dark": {
+            "backgroundColor": "#141009",
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 220
+          }
         }
       ],
       "expo-sqlite"

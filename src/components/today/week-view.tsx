@@ -1,5 +1,5 @@
 // มุมมองสัปดาห์ (ไทม์ไลน์ 7 คอลัมน์) — ต่อยอดจากไทม์ไลน์ day-view
-// หัวคอลัมน์เป็นแถบปัดได้ (paging) เลื่อนสัปดาห์ + แกนเวลา 06:00–30:00 + บล็อกสีตามหมวด (แยก lane กันซ้อน)
+// หัวคอลัมน์เป็นแถบปัดได้ (paging) เลื่อนสัปดาห์ + แกนเวลา 06:00–30:00 (ช่วง 01:00–06:00 ย่อครึ่ง) + บล็อกสีตามหมวด (แยก lane กันซ้อน)
 // เต็มจอ ไม่ต้องเลื่อน — เห็นภาพรวม "ช่วงไหนของวันไหนยุ่ง" ทันที
 import React, { useEffect, useMemo, useRef } from 'react';
 import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindowDimensions, View } from 'react-native';
@@ -11,11 +11,28 @@ import { addDays, fmtMin, fromISO, mondayOf, nowMin, todayISO, WD_TH } from '@/l
 import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
 import { useDayReader } from '@/stores/activities';
+import { useContacts } from '@/stores/contacts';
 
 const GUTTER = 34; // แกนเวลาซ้าย
 const HPAD = 8;
-const SPAN = DAY_END - DAY_START; // 1440 นาที
-const pct = (min: number) => ((min - DAY_START) / SPAN) * 100;
+// แกนเวลาแบบ "ย่อช่วงดึก" — 01:00–06:00 (บนแกนคือ 25:00–30:00) สูงแค่ 50% ของสเกลปกติ
+// ความสูงที่เหลือถูกเฉลี่ยคืนให้ช่วง 06:00–01:00 อัตโนมัติ (เพราะรวมกันเป็น 100% เท่าเดิม)
+const NIGHT_START = 1500; // 01:00 ของวันถัดไป
+const NIGHT_SQUEEZE = 0.5;
+const DAY_SPAN = NIGHT_START - DAY_START; // 06:00–01:00 = 1140 นาที (สเกลเต็ม)
+const UNITS = DAY_SPAN + (DAY_END - NIGHT_START) * NIGHT_SQUEEZE; // หน่วยรวมของแกน = 1290
+/** นาที → % ความสูงบนแกน (เชิงเส้นเป็นช่วง: ก่อน 01:00 สเกลเต็ม, หลังจากนั้นสเกลครึ่งเดียว) */
+const pct = (min: number) => {
+  const u = min <= NIGHT_START ? min - DAY_START : DAY_SPAN + (min - NIGHT_START) * NIGHT_SQUEEZE;
+  return (u / UNITS) * 100;
+};
+
+/** ป้ายชื่อของบล็อก "นัดเคส" — ชื่อคนในเคส (คนแรก + จำนวนที่เหลือ) ไม่มีรายชื่อ → ใช้ชื่อกิจกรรมแทน */
+function caseLabel(it: DayItem, nameById: Record<number, string>) {
+  const names = it.contactIds.map((id) => nameById[id]).filter((s) => !!s?.trim());
+  if (!names.length) return it.title.trim();
+  return names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0];
+}
 
 // แถบหัวสัปดาห์แบบปัดได้ (paging) — FlatList แนวนอน virtualized เลื่อนได้ ±~9 ปี
 const WK_SPAN = 500;
@@ -35,12 +52,16 @@ interface WeekViewProps {
 export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay, bottomPad = 120, freeMode = false, onPressSlot }: WeekViewProps) {
   const t = useTokens();
   const getDay = useDayReader();
+  const contacts = useContacts((s) => s.list);
+  const nameById = useMemo(() => Object.fromEntries(contacts.map((c) => [c.id, c.name])) as Record<number, string>, [contacts]);
   const today = todayISO();
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
 
-  // เส้นชั่วโมงทุก 3 ชม.
+  // เส้นชั่วโมงทุก 3 ชม. + เส้น 01:00 (จุดเริ่มช่วงที่ย่อสเกล — ให้อ่านออกว่าด้านล่างนี้บีบลงครึ่งหนึ่ง)
   const hours: number[] = [];
   for (let m = DAY_START; m <= DAY_END; m += 180) hours.push(m);
+  if (!hours.includes(NIGHT_START)) hours.push(NIGHT_START);
+  hours.sort((a, b) => a - b);
 
   // เส้น "ตอนนี้" (เฉพาะคอลัมน์วันนี้ ถ้าอยู่ในสัปดาห์นี้)
   const now = nowMin();
@@ -87,7 +108,11 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
                     const h = Math.max(pct(it.endMin) - top, 1.6);
                     const done = it.ostatus === 'done';
                     const dim = it.ostatus === 'rescheduled' ? 0.5 : 1;
-                    const showIcon = it.endMin - it.startMin >= 45 && n <= 2; // โชว์ไอคอนเฉพาะบล็อกที่สูง/กว้างพอ
+                    const dur = it.endMin - it.startMin;
+                    // นัดเคส → โชว์ชื่อคนในเคส (หลายคน = ชื่อแรก +n) เฉพาะบล็อกที่สูง/กว้างพอ
+                    const caseName = cat.isCase ? caseLabel(it, nameById) : '';
+                    const showName = !!caseName && dur >= 30 && n <= 2;
+                    const showIcon = dur >= 45 && n <= 2 && (!showName || dur >= 75); // โชว์ไอคอนเฉพาะบล็อกที่สูง/กว้างพอ
                     return (
                       <Pressable
                         key={`${it.id}:${it.date}`}
@@ -105,8 +130,14 @@ export function TodayWeekView({ monday, onChangeMonday, onPressItem, onPressDay,
                           alignItems: 'center',
                           justifyContent: 'center',
                           overflow: 'hidden',
+                          paddingHorizontal: 1,
                         }}>
                         {showIcon ? <Icon name={cat.icon} size={11} color="#FFFFFF" /> : null}
+                        {showName ? (
+                          <Txt size={8} weight="med" color="#FFFFFF" numberOfLines={2} style={{ textAlign: 'center', lineHeight: 9.5 }}>
+                            {caseName}
+                          </Txt>
+                        ) : null}
                       </Pressable>
                     );
                   })}

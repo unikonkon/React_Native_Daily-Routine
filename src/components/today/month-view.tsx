@@ -7,7 +7,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Icon } from '@/components/icon';
 import { DrillBar, ViewSwitcher, type View3 } from '@/components/today/parts';
 import { PriBadge, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CATS, CAT_BY_ID, GREEN } from '@/constants/theme';
+import { ACCENT, CATS, CAT_BY_ID, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
 import { daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import { useDayReader } from '@/stores/activities';
@@ -44,8 +44,16 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
     else setPicked(d);
   };
 
+  // ตัวกรองหมวด — แตะจุดสีหมวด (legend) เพื่อดูเฉพาะหมวดนั้นทั้งในปฏิทินและรายการสรุป · แตะซ้ำ = ล้าง
+  const [catFilter, setCatFilter] = useState<CatId | null>(null);
+  const fcat = catFilter ? CAT_BY_ID[catFilter] : null;
+  const monthCount = catFilter
+    ? rows.flat().reduce((n, d) => (d.slice(0, 7) === ymKey ? n + getDay(d).filter((i) => i.cat === catFilter).length : n), 0)
+    : 0;
+
   const pickedInMonth = picked != null && picked.slice(0, 7) === ymKey;
-  const dayItems = pickedInMonth ? [...getDay(picked!)].sort((a, b) => a.startMin - b.startMin) : [];
+  const allDayItems = pickedInMonth ? [...getDay(picked!)].sort((a, b) => a.startMin - b.startMin) : [];
+  const dayItems = catFilter ? allDayItems.filter((it) => it.cat === catFilter) : allDayItems;
   const freeList = pickedInMonth && freeMode ? daytimeFreeSlots(getDay(picked!)) : [];
   const freeMin = freeMinutes(freeList); // เวลาว่างรวมของวันที่เลือก (06:00–24:00)
 
@@ -87,6 +95,9 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
               const cats = inMonth ? [...new Set(getDay(d).map((i) => i.cat))].slice(0, 4) : [];
               // โหมดวันที่ว่าง — แสดงจำนวนชั่วโมงที่ว่างแทนจุดสีหมวด
               const cellFreeMin = inMonth && freeMode ? freeMinutes(daytimeFreeSlots(getDay(d))) : 0;
+              // กรองหมวดอยู่ — นับเฉพาะหมวดนั้น, วันที่ไม่มีให้จางลง
+              const hitCount = catFilter && inMonth ? getDay(d).filter((i) => i.cat === catFilter).length : 0;
+              const dimCell = !!catFilter && inMonth && !freeMode && hitCount === 0;
               return (
                 <Pressable
                   key={d}
@@ -103,6 +114,7 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                     borderRightWidth: c === 6 ? 0 : StyleSheet.hairlineWidth,
                     borderRightColor: t.line,
                     backgroundColor: isSel && !isToday ? t.chip : 'transparent',
+                    opacity: dimCell ? 0.35 : 1,
                   }}>
                   <View
                     style={{
@@ -128,10 +140,22 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                       ) : null}
                     </View>
                   ) : (
-                    <View style={{ flexDirection: 'row', gap: 3, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 36, minHeight: 6 }}>
-                      {cats.map((cid) => (
-                        <View key={cid} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: CAT_BY_ID[cid].color }} />
-                      ))}
+                    <View style={{ flexDirection: 'row', gap: 3, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', maxWidth: 36, minHeight: 6 }}>
+                      {fcat ? (
+                        // กรองหมวดอยู่ — จุดเดียวของหมวดนั้น + จำนวนรายการ (ถ้ามีมากกว่า 1)
+                        hitCount > 0 ? (
+                          <>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: fcat.color }} />
+                            {hitCount > 1 ? (
+                              <Txt size={9} num weight="bold" color={fcat.color}>
+                                {hitCount}
+                              </Txt>
+                            ) : null}
+                          </>
+                        ) : null
+                      ) : (
+                        cats.map((cid) => <View key={cid} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: CAT_BY_ID[cid].color }} />)
+                      )}
                     </View>
                   )}
                 </Pressable>
@@ -140,17 +164,49 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
           </View>
         ))}
 
-        {/* คำอธิบายจุดสีหมวด (legend) */}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 6, paddingHorizontal: 18, paddingTop: 12 }}>
-          {CATS.map((cat) => (
-            <View key={cat.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: cat.color }} />
-              <Txt size={11} color={t.sub}>
-                {cat.short}
-              </Txt>
-            </View>
-          ))}
+        {/* คำอธิบายจุดสีหมวด (legend) — แตะเพื่อกรองเฉพาะหมวดนั้น (ปฏิทิน + รายการสรุป) · แตะซ้ำ = ล้าง */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 6, rowGap: 6, paddingHorizontal: 18, paddingTop: 12 }}>
+          {CATS.map((cat) => {
+            const on = catFilter === cat.id;
+            return (
+              <Pressable
+                key={cat.id}
+                onPress={() => setCatFilter(on ? null : cat.id)}
+                hitSlop={4}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  paddingVertical: 4,
+                  paddingHorizontal: 9,
+                  borderRadius: 9,
+                  borderWidth: 1,
+                  borderColor: on ? cat.color : t.line,
+                  backgroundColor: on ? cat.color + '1f' : 'transparent',
+                }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: cat.color }} />
+                <Txt size={11} weight={on ? 'med' : 'reg'} color={on ? cat.color : t.sub}>
+                  {cat.short}
+                </Txt>
+              </Pressable>
+            );
+          })}
         </View>
+
+        {/* แถบสถานะตัวกรอง — บอกว่ากำลังดูหมวดไหน + จำนวนรายการทั้งเดือน + ปุ่มล้าง */}
+        {fcat ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 18, marginTop: 8, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 10, backgroundColor: fcat.color + '14', borderWidth: 1, borderColor: fcat.color + '55' }}>
+            <Icon name={fcat.icon} size={14} color={fcat.color} />
+            <Txt size={12} weight="med" color={fcat.color} style={{ flex: 1 }}>
+              {fcat.name} · {monthCount} รายการในเดือนนี้
+            </Txt>
+            <Pressable onPress={() => setCatFilter(null)} hitSlop={8}>
+              <Txt size={12} weight="bold" color={ACCENT}>
+                ล้างตัวกรอง
+              </Txt>
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* รายการสรุปของวันที่เลือก */}
         {pickedInMonth ? (
@@ -163,6 +219,10 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                 {freeMode ? (
                   <Txt size={12} weight="med" color={GREEN}>
                     ว่างรวม {hoursText(freeMin)} · แตะเพื่อเพิ่ม
+                  </Txt>
+                ) : fcat ? (
+                  <Txt size={12} weight="med" color={fcat.color}>
+                    เฉพาะ{fcat.short} · {dayItems.length} รายการ
                   </Txt>
                 ) : null}
               </View>
@@ -224,7 +284,7 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
               )
             ) : dayItems.length === 0 ? (
               <Txt size={13} color={t.faint} style={{ paddingVertical: 4 }}>
-                ไม่มีรายการในวันนี้
+                {fcat ? `ไม่มีรายการหมวด${fcat.short}ในวันนี้` : 'ไม่มีรายการในวันนี้'}
               </Txt>
             ) : (
               dayItems.map((it, i) => {
