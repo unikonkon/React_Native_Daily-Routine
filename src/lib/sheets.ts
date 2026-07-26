@@ -2,13 +2,33 @@
 // ผู้ใช้วางโค้ดจาก google-apps-script.gs ลงชีตของตัวเอง แล้วนำ URL (…/exec) มาบันทึกในหน้า settings/data
 // payload: { sheets: [{ name, rows }] } — สคริปต์ฝั่งชีตจะสร้าง/ล้างแท็บตามชื่อแล้วเขียนแถวทับ
 
-import { ACCENT, CAT_BY_ID, DANGER, DAY_END, GREEN, type CatId } from '@/constants/theme';
-import { MONTH_TH_FULL, WD_TH, WD_TH_FULL, beYear, fmtMin, fromISO, toISO, todayISO, wdMon } from '@/lib/dates';
-import type { Activity, DayItem, OccMap, OccStatus } from '@/lib/types';
-import { buildTimeTableRows, listDataMonths } from '@/lib/timetable';
-import { mix } from '@/lib/xls';
+import { CAT_BY_ID, DAY_END, type CatId } from '@/constants/theme';
+import { MONTH_TH_FULL, WD_TH, WD_TH_FULL, beYear, fmtMin, fromISO, toISO, wdMon } from '@/lib/dates';
+import { EXPORT_PALETTES, type ExportPalette } from '@/lib/export-theme';
+import { reportTabs, type ReportData } from '@/lib/report';
+import type { DayItem, OccStatus } from '@/lib/types';
+import { buildTimeTableRows } from '@/lib/timetable';
 
-export type SheetsRange = 'month' | 'all';
+/** ขอบเขตเดือนที่จะส่ง — 'pick' = ติ๊กเลือกเองจากเดือนที่มีข้อมูล (หน้าจอแปลงเป็น anchors ก่อนเรียก) */
+export type SheetsScope = 'month' | 'pick' | 'all';
+
+/**
+ * ระดับการจัดรูปแบบในชีต (คู่ขนานกับรูปแบบไฟล์ตอนส่งออก)
+ * 'rich'  = เต็มรูปแบบ: กิจกรรมยาวถมสีต่อเนื่องโดยไม่พิมพ์ชื่อซ้ำ (มองเป็นบล็อกเดียวแบบเซลล์ merge) — เหมือน .xlsx/.xls
+ * 'color' = มีสี: พิมพ์ชื่อทุกช่องที่กิจกรรมคลุม (กริดเดียวกับ CSV — คัดลอกกลับเข้าแอปได้) + ระบายสีตามหมวด
+ * 'plain' = ค่าล้วน: ไม่มีสีเลย — ใช้กับ Apps Script รุ่นเก่าที่ยังไม่รองรับ setBackgrounds
+ */
+export type SheetsStyle = 'rich' | 'color' | 'plain';
+
+export interface SheetsBuild {
+  style: SheetsStyle;
+  /** โทนสีของชีต (ชุดเดียวกับไฟล์ส่งออก) — ไม่มีผลเมื่อ style = 'plain' */
+  pal?: ExportPalette;
+  /** ส่งตาราง Time Table รายเดือน + แท็บรายการกิจกรรม (false = เฉพาะแท็บรายงาน) */
+  grid?: boolean;
+  /** รายงานสรุป — ใส่เป็นแท็บแยกไว้หน้าสุด (null/undefined = ไม่ส่ง) */
+  report?: ReportData | null;
+}
 
 /** โค้ด Apps Script ให้ผู้ใช้คัดลอกไปวางในชีต (หน้า settings/sheets-setup) — ตรงกับไฟล์ google-apps-script.gs */
 export const APPS_SCRIPT_CODE = `function doGet() {
@@ -65,16 +85,12 @@ const STATUS_TH: Record<OccStatus, string> = {
   rescheduled: 'เลื่อนนัด',
 };
 
-/** เดือนทั้งหมดที่ต้องส่ง: 'month' = เดือนปัจจุบัน, 'all' = ตั้งแต่เดือนแรกถึงเดือนสุดท้ายที่มีข้อมูล */
-function monthAnchors(acts: Activity[], occ: OccMap, range: SheetsRange): string[] {
-  return range === 'month' ? [todayISO()] : listDataMonths(acts, occ);
-}
-
 /**
- * แท็บ grid รายเดือนแบบมีสี (แถวชื่อเดือน + หัววัน + ช่อง 30 นาที) — สไตล์เดียวกับ export .xls:
- * พื้นสีอ่อนตามหมวด (ช่องต่อเนื่องถมสีโดยไม่พิมพ์ชื่อซ้ำ) · ✓ เขียว = เสร็จ · ✗ แดงขีดฆ่า = ข้าม
+ * แท็บ grid รายเดือนแบบมีสี (แถวชื่อเดือน + หัววัน + ช่อง 30 นาที) — สีทุกจุดมาจากโทนที่เลือก
+ * พื้นสีอ่อนตามหมวด (หรือสีที่จำมาจากไฟล์ต้นฉบับ) · ✓ = เสร็จ · ✗ ขีดฆ่า = ข้าม
+ * rich = ช่องต่อเนื่องถมสีโดยไม่พิมพ์ชื่อซ้ำ (มองเป็นบล็อกเดียว) · ไม่ rich = พิมพ์ชื่อทุกช่องที่คลุม (คัดลอกกลับเข้าแอปได้)
  */
-function styledGridTab(read: (date: string) => DayItem[], anchor: string): SheetTab {
+function styledGridTab(read: (date: string) => DayItem[], anchor: string, pal: ExportPalette, rich: boolean): SheetTab {
   const d0 = fromISO(anchor);
   const y = d0.getFullYear();
   const m = d0.getMonth();
@@ -92,41 +108,54 @@ function styledGridTab(read: (date: string) => DayItem[], anchor: string): Sheet
 
   // แถวชื่อเดือน + แถวหัววัน
   rows.push([`Time Table ${MONTH_TH_FULL[m]} ${beYear(y)}`, ...Array<string>(nCols - 1).fill('')]);
-  bg.push(Array(nCols).fill(ACCENT));
-  fg.push(Array(nCols).fill('#FFFFFF'));
+  bg.push(Array(nCols).fill(pal.title));
+  fg.push(Array(nCols).fill(pal.titleInk));
   bold.push(Array(nCols).fill('bold'));
   line.push(Array(nCols).fill('none'));
 
+  const dayHead = pal.dayHead ?? pal.head;
   rows.push(['เวลา', ...dates.map((d, i) => `${i + 1} ${WD_TH[wdMon(d)]}`)]);
-  bg.push(['#6B6255', ...weekendCol.map((w) => (w ? '#8A6D55' : '#6B6255'))]);
-  fg.push(Array(nCols).fill('#FFFFFF'));
+  bg.push([pal.head, ...weekendCol.map((w) => (w ? (pal.dayHeadWeekend ?? pal.headWeekend) : dayHead))]);
+  fg.push([pal.headInk, ...Array<string>(nCols - 1).fill(pal.dayHead ? pal.dayHeadInk : pal.headInk)]);
   bold.push(Array(nCols).fill('bold'));
   line.push(Array(nCols).fill('none'));
 
   for (let t = 360; t < DAY_END; t += 30) {
     const vr: string[] = [fmtMin(t)];
-    const br: (string | null)[] = ['#F4EFE6'];
-    const fr: (string | null)[] = ['#6B6255'];
+    const br: (string | null)[] = [t % 60 === 0 ? pal.timeCol : (pal.timeColAlt ?? pal.timeCol)];
+    const fr: (string | null)[] = [pal.sub];
     const wr: ('bold' | 'normal')[] = ['bold'];
     const lr: ('line-through' | 'none')[] = ['none'];
     perDay.forEach((items, i) => {
       const startsHere = items.filter((it) => it.startMin >= t && it.startMin < t + 30);
       const covering = items.filter((it) => it.startMin < t && it.endMin > t);
       const anchorIt = covering[0] ?? startsHere[0];
-      const first = startsHere[0];
+      // rich: พิมพ์เฉพาะช่องที่กิจกรรมเริ่ม · color: พิมพ์ทุกช่องที่กิจกรรมคลุม (เหมือน buildTimeTableRows)
+      const shown = rich ? startsHere : [...covering, ...startsHere].sort((a, b) => a.startMin - b.startMin);
+      const first = shown[0];
       vr.push(
-        startsHere
+        shown
           .map((it) => (it.ostatus === 'done' ? `✓ ${it.title}` : it.ostatus === 'skipped' ? `✗ ${it.title}` : it.title))
           .join(' | '),
       );
-      br.push(anchorIt ? mix(CAT_BY_ID[anchorIt.cat].color, 255, 0.78) : weekendCol[i] ? '#FAF6EE' : null);
+      br.push(
+        anchorIt
+          ? anchorIt.color
+            ? pal.userFill(anchorIt.color)
+            : pal.catTint(CAT_BY_ID[anchorIt.cat].color)
+          : weekendCol[i]
+            ? pal.weekendCell
+            : pal.cellBg,
+      );
       fr.push(
         first
           ? first.ostatus === 'done'
-            ? GREEN
+            ? pal.ok
             : first.ostatus === 'skipped'
-              ? DANGER
-              : mix(CAT_BY_ID[first.cat].color, 0, 0.45)
+              ? pal.bad
+              : first.color
+                ? pal.userInk
+                : pal.catInk(CAT_BY_ID[first.cat].color)
           : null,
       );
       wr.push(first && first.ostatus !== 'skipped' ? 'bold' : 'normal');
@@ -142,21 +171,24 @@ function styledGridTab(read: (date: string) => DayItem[], anchor: string): Sheet
 }
 
 /**
- * สร้างแท็บทั้งหมด: grid Time Table ต่อเดือน (เฉพาะเดือนที่มีข้อมูล) + แท็บ "รายการกิจกรรม" แบบแถว
- * styled = ใส่สี/ตัวหนา (ต้องใช้ Apps Script รุ่นที่รองรับ — รุ่นเก่าจะลงแค่ค่า) · คืน [] เมื่อไม่มีข้อมูล
+ * สร้างแท็บทั้งหมดที่จะส่งขึ้นชีต — แท็บรายงานสรุป (ถ้าเลือก) มาก่อน แล้วตามด้วย
+ * grid Time Table ต่อเดือน (เฉพาะเดือนที่มีข้อมูล) + แท็บ "รายการกิจกรรม" แบบแถว
+ * anchors = first-of-month ISO ของเดือนที่จะส่ง (หน้าจอเป็นคนเลือกขอบเขต) · คืน [] เมื่อไม่มีอะไรให้ส่ง
  */
-export function buildSheetTabs(
-  read: (date: string) => DayItem[],
-  acts: Activity[],
-  occ: OccMap,
-  range: SheetsRange,
-  styled = false,
-): SheetTab[] {
-  const tabs: SheetTab[] = [];
+export function buildSheetTabs(read: (date: string) => DayItem[], anchors: string[], o: SheetsBuild): SheetTab[] {
+  const pal = o.pal ?? EXPORT_PALETTES.current;
+  const styled = o.style !== 'plain';
+  // 'plain' = ค่าล้วน จึงทิ้ง style arrays ของแท็บรายงานไปด้วย
+  const tabs: SheetTab[] = o.report
+    ? reportTabs(o.report, pal).map((r) => (styled ? r : { name: r.name, rows: r.rows }))
+    : [];
+  if (o.grid === false) return rectangle(tabs);
+
+  const gridTabs: SheetTab[] = [];
   const listRows: string[][] = [['วันที่', 'วัน', 'เริ่ม', 'สิ้นสุด', 'กิจกรรม', 'หมวด', 'สถานะ', 'สถานที่']];
   const listMeta: { cat: CatId; status: OccStatus }[] = []; // ขนานกับ listRows (ข้ามหัวตาราง) — ไว้ระบายสี
 
-  for (const anchor of monthAnchors(acts, occ, range)) {
+  for (const anchor of anchors) {
     const d0 = fromISO(anchor);
     const y = d0.getFullYear();
     const m = d0.getMonth();
@@ -180,26 +212,31 @@ export function buildSheetTabs(
       }
     }
     if (hasData) {
-      tabs.push(styled ? styledGridTab(read, anchor) : { name: `Time Table ${anchor.slice(0, 7)}`, rows: buildTimeTableRows(read, anchor) });
+      gridTabs.push(
+        styled
+          ? styledGridTab(read, anchor, pal, o.style === 'rich')
+          : { name: `Time Table ${anchor.slice(0, 7)}`, rows: buildTimeTableRows(read, anchor) },
+      );
     }
   }
 
-  if (listRows.length === 1) return []; // ไม่มีข้อมูลเลย
+  if (listRows.length === 1) return rectangle(tabs); // ไม่มีข้อมูลในช่วงที่เลือกเลย — เหลือแค่แท็บรายงาน (ถ้ามี)
+  tabs.push(...gridTabs);
 
   const listTab: SheetTab = { name: 'รายการกิจกรรม', rows: listRows };
   if (styled) {
     const w = listRows[0].length;
-    const plain = () => Array<string | null>(w).fill(null);
-    listTab.bg = [Array(w).fill('#6B6255'), ...listMeta.map((mt) => {
-      const r = plain();
-      r[5] = mix(CAT_BY_ID[mt.cat].color, 255, 0.78); // คอลัมน์หมวด
+    const blank = () => Array<string | null>(w).fill(null);
+    listTab.bg = [Array(w).fill(pal.head), ...listMeta.map((mt) => {
+      const r = blank();
+      r[5] = pal.catTint(CAT_BY_ID[mt.cat].color); // คอลัมน์หมวด
       return r;
     })];
-    listTab.fg = [Array(w).fill('#FFFFFF'), ...listMeta.map((mt) => {
-      const r = plain();
-      r[5] = mix(CAT_BY_ID[mt.cat].color, 0, 0.45);
-      if (mt.status === 'done') r[6] = GREEN; // คอลัมน์สถานะ
-      else if (mt.status === 'skipped' || mt.status === 'cancelled') r[6] = DANGER;
+    listTab.fg = [Array(w).fill(pal.headInk), ...listMeta.map((mt) => {
+      const r = blank();
+      r[5] = pal.catInk(CAT_BY_ID[mt.cat].color);
+      if (mt.status === 'done') r[6] = pal.ok; // คอลัมน์สถานะ
+      else if (mt.status === 'skipped' || mt.status === 'cancelled') r[6] = pal.bad;
       return r;
     })];
     listTab.bold = [Array(w).fill('bold'), ...listMeta.map(() => {
@@ -210,10 +247,13 @@ export function buildSheetTabs(
     })];
   }
   tabs.push(listTab);
+  return rectangle(tabs);
+}
 
-  // ทำทุกแถว (รวม style arrays) ให้กว้างเท่ากัน — setValues/setBackgrounds ฝั่ง Apps Script ต้องการสี่เหลี่ยม
+/** ทำทุกแถว (รวม style arrays) ของทุกแท็บให้กว้างเท่ากัน — setValues/setBackgrounds ฝั่ง Apps Script ต้องการสี่เหลี่ยม */
+function rectangle(tabs: SheetTab[]): SheetTab[] {
   for (const tab of tabs) {
-    const w = Math.max(...tab.rows.map((r) => r.length));
+    const w = Math.max(0, ...tab.rows.map((r) => r.length));
     const pad = <T,>(a: T[][] | undefined, fill: T) =>
       a?.map((r) => (r.length === w ? r : [...r, ...Array<T>(w - r.length).fill(fill)]));
     tab.rows = pad(tab.rows, '')!;

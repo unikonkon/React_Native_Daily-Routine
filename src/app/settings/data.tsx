@@ -15,7 +15,7 @@ import { MONTH_TH, beYear, nowMin, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
 import { EXPORT_PALETTES, EXPORT_TONES, type ExportTone } from '@/lib/export-theme';
 import { buildReport, reportCsv, reportHtml, reportSheets } from '@/lib/report';
-import { buildSheetTabs, pushToSheets, type SheetsRange } from '@/lib/sheets';
+import { buildSheetTabs, pushToSheets, type SheetsScope, type SheetsStyle } from '@/lib/sheets';
 import { buildTimeTableCsvMulti, listDataMonths, parseTimeTableCsv, type TimeTableImport } from '@/lib/timetable';
 import { buildTimeTableXlsx, parseTimeTableXlsx } from '@/lib/timetableXlsx';
 import { buildTimeTableXlsMulti } from '@/lib/xls';
@@ -38,7 +38,7 @@ export default function DataScreen() {
   const sheetsUrls = useSettings((s) => s.sheetsUrls);
   const setSheetsUrl = useSettings((s) => s.setSheetsUrl);
   const removeSheetsUrl = useSettings((s) => s.removeSheetsUrl);
-  const [sending, setSending] = useState<SheetsRange | null>(null);
+  const [sending, setSending] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [showSwitch, setShowSwitch] = useState(false);
   /** URL อื่นที่บันทึกไว้ (ไม่รวมตัวที่ใช้งานอยู่) */
@@ -58,34 +58,6 @@ export default function DataScreen() {
   const deleteUrl = (url: string) => {
     removeSheetsUrl(url);
     showToast('ลบ URL ออกจากรายการแล้ว');
-  };
-
-  /** ช่วงที่รอเลือกรูปแบบก่อนส่งขึ้นชีต (มีสี / ค่าล้วน) */
-  const [sheetsPick, setSheetsPick] = useState<SheetsRange | null>(null);
-
-  const sendToSheets = async (range: SheetsRange, styled: boolean) => {
-    if (sending) return;
-    setSending(range);
-    try {
-      const { acts, occ } = useActivities.getState();
-      const tabs = buildSheetTabs(getDay, acts, occ, range, styled);
-      if (!tabs.length) {
-        showToast('ไม่มีข้อมูลให้ส่ง');
-        return;
-      }
-      await pushToSheets(sheetsUrl, tabs);
-      showToast(`ส่งขึ้น Sheets ${styled ? 'แบบมีสี' : ''}แล้ว ✓ (${tabs.length} แท็บ)`);
-    } catch (err) {
-      showToast(`ส่งไม่สำเร็จ — ${err instanceof Error ? err.message : 'ลองใหม่อีกครั้ง'}`);
-    } finally {
-      setSending(null);
-    }
-  };
-
-  const pickAndSend = (styled: boolean) => {
-    const range = sheetsPick;
-    setSheetsPick(null);
-    if (range) sendToSheets(range, styled);
   };
 
   const pickDocument = async (type: string[]) => {
@@ -142,9 +114,9 @@ export default function DataScreen() {
   const toggleMonth = (anchor: string) =>
     setPickedMonths((cur) => (cur.includes(anchor) ? cur.filter((x) => x !== anchor) : [...cur, anchor]));
 
-  /** เดือนที่จะส่งออกตามขอบเขตที่เลือก (เรียงเวลา) */
-  const exportAnchors = (): string[] =>
-    (ttScope === 'month' ? [thisMonthAnchor()] : ttScope === 'all' ? dataMonths : [...pickedMonths]).sort();
+  /** เดือนที่จะส่งตามขอบเขตที่เลือก (เรียงเวลา) — ใช้ร่วมทั้งส่งออกไฟล์และส่งขึ้นชีต */
+  const anchorsOf = (scope: SheetsScope, picked: string[]): string[] =>
+    (scope === 'month' ? [thisMonthAnchor()] : scope === 'all' ? dataMonths : [...picked]).sort();
 
   /**
    * ส่งออก Time Table + รายงานสรุป หลายเดือนในไฟล์เดียว
@@ -152,7 +124,7 @@ export default function DataScreen() {
    * 'xls'  = HTML table มีสี (เปิดดูอย่างเดียว) · 'csv' = ข้อความล้วน (นำกลับเข้าแอปได้ — บล็อกรายงานถูกมองข้ามตอนนำเข้า)
    */
   const doExportTT = async (format: TtFormat) => {
-    const anchors = exportAnchors();
+    const anchors = anchorsOf(ttScope, pickedMonths);
     if (!anchors.length) {
       showToast('ยังไม่ได้เลือกเดือน');
       return;
@@ -189,6 +161,66 @@ export default function DataScreen() {
     }
   };
 
+  // ---------- ส่งขึ้น Google Sheets (ตัวเลือกชุดเดียวกับส่งออกไฟล์: ขอบเขต · เนื้อหา · รูปแบบ · โทนสี) ----------
+  /** แผงตั้งค่าก่อนส่งเปิดอยู่ไหม */
+  const [shOpen, setShOpen] = useState(false);
+  const [shScope, setShScope] = useState<SheetsScope>('month');
+  const [shMonths, setShMonths] = useState<string[]>([]);
+  const [shStyle, setShStyle] = useState<SheetsStyle>('rich');
+  const [shTone, setShTone] = useState<ExportTone>('current');
+  /** แนบแท็บรายงานสรุป (ชุดเดียวกับหน้าสถิติ) */
+  const [shReport, setShReport] = useState(true);
+  /** ส่งแท็บ Time Table + รายการกิจกรรม (ปิด = ส่งเฉพาะรายงาน) */
+  const [shGrid, setShGrid] = useState(true);
+
+  const openSheets = () => {
+    setShScope('month');
+    setShMonths([]);
+    setShStyle('rich');
+    setShTone('current');
+    setShReport(true);
+    setShGrid(true);
+    setConfirmDisconnect(false);
+    setShowSwitch(false);
+    setShOpen(true);
+  };
+
+  const toggleShMonth = (anchor: string) =>
+    setShMonths((cur) => (cur.includes(anchor) ? cur.filter((x) => x !== anchor) : [...cur, anchor]));
+
+  const sendToSheets = async () => {
+    if (sending) return;
+    const anchors = anchorsOf(shScope, shMonths);
+    if (!anchors.length) {
+      showToast('ยังไม่ได้เลือกเดือน');
+      return;
+    }
+    if (!shReport && !shGrid) {
+      showToast('เลือกอย่างน้อยหนึ่งอย่าง: ตาราง Time Table หรือรายงานสรุป');
+      return;
+    }
+    setShOpen(false);
+    setSending(true);
+    try {
+      const report = shReport ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin()) : null;
+      const tabs = buildSheetTabs(getDay, anchors, {
+        style: shStyle,
+        pal: EXPORT_PALETTES[shTone],
+        grid: shGrid,
+        report,
+      });
+      if (!tabs.length) {
+        showToast('ไม่มีข้อมูลให้ส่ง');
+        return;
+      }
+      await pushToSheets(sheetsUrl, tabs);
+      showToast(`ส่งขึ้น Sheets แล้ว ✓ (${tabs.length} แท็บ)`);
+    } catch (err) {
+      showToast(`ส่งไม่สำเร็จ — ${err instanceof Error ? err.message : 'ลองใหม่อีกครั้ง'}`);
+    } finally {
+      setSending(false);
+    }
+  };
 
   const exportJson = async () => {
     try {
@@ -270,63 +302,16 @@ export default function DataScreen() {
           <Txt size={14} weight="bold">ส่งออก Time Table & รายงานสรุป — เลือกช่วงข้อมูล</Txt>
 
           {/* ขอบเขต 3 แบบ */}
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {([['month', 'เดือนนี้'], ['pick', 'เลือกเดือน'], ['all', 'ทั้งหมด']] as const).map(([k, lb]) => {
-              const on = ttScope === k;
-              return (
-                <Pressable key={k} onPress={() => setTtScope(k)} style={{ flex: 1 }}>
-                  <View
-                    style={{
-                      paddingVertical: 8,
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      alignItems: 'center',
-                      borderColor: on ? ACCENT : t.line,
-                      backgroundColor: on ? t.chip : 'transparent',
-                    }}>
-                    <Txt size={12} weight="bold" color={on ? ACCENT : t.sub}>{lb}</Txt>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
+          <Seg options={SCOPE_OPTIONS} value={ttScope} onChange={setTtScope} />
 
           {/* รายละเอียดขอบเขต / ตัวเลือกเดือน */}
-          {ttScope === 'pick' ? (
-            <View style={{ gap: 6 }}>
-              <Txt size={11} color={t.faint}>ติ๊กเดือนที่จะส่งออก — เลือกได้ ({pickedMonths.length} เดือน)</Txt>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {dataMonths.map((mo) => {
-                  const on = pickedMonths.includes(mo);
-                  return (
-                    <Pressable key={mo} onPress={() => toggleMonth(mo)}>
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 4,
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 8,
-                          borderWidth: 1,
-                          borderColor: on ? ACCENT : t.line,
-                          backgroundColor: on ? t.chip : 'transparent',
-                        }}>
-                        <Icon name={on ? 'check' : 'plus'} size={13} color={on ? ACCENT : t.faint} />
-                        <Txt size={12} color={on ? ACCENT : t.sub}>{ttMonthLabel(mo)}</Txt>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-          ) : (
-            <Txt size={12} color={t.sub}>
-              {ttScope === 'month'
-                ? `ส่งออกเฉพาะเดือนนี้ (${ttMonthLabel(thisMonthAnchor())})`
-                : `ส่งออกทุกเดือนที่มีข้อมูล — ${dataMonths.length} เดือน (${ttMonthLabel(dataMonths[0])} – ${ttMonthLabel(dataMonths[dataMonths.length - 1])})`}
-            </Txt>
-          )}
+          <ScopeDetail
+            scope={ttScope}
+            months={dataMonths}
+            picked={pickedMonths}
+            onToggle={toggleMonth}
+            verb="ส่งออก"
+          />
 
           {/* เนื้อหาในไฟล์ — ตาราง Time Table / รายงานสรุป (ชุดเดียวกับหน้าสถิติ) */}
           <View style={{ gap: 6 }}>
@@ -353,26 +338,11 @@ export default function DataScreen() {
           {/* เลือกรูปแบบไฟล์ */}
           <View style={{ gap: 6 }}>
             <Txt size={11} color={t.faint}>รูปแบบไฟล์</Txt>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {([['xlsx', 'Excel (.xlsx)'], ['xls', 'มีสี (.xls)'], ['csv', 'CSV']] as const).map(([k, lb]) => {
-                const on = ttFormat === k;
-                return (
-                  <Pressable key={k} onPress={() => setTtFormat(k)} style={{ flex: 1 }}>
-                    <View
-                      style={{
-                        paddingVertical: 8,
-                        borderRadius: 10,
-                        borderWidth: 1,
-                        alignItems: 'center',
-                        borderColor: on ? ACCENT : t.line,
-                        backgroundColor: on ? t.chip : 'transparent',
-                      }}>
-                      <Txt size={12} weight="bold" color={on ? ACCENT : t.sub}>{lb}</Txt>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <Seg
+              options={[['xlsx', 'Excel (.xlsx)'], ['xls', 'มีสี (.xls)'], ['csv', 'CSV']]}
+              value={ttFormat}
+              onChange={setTtFormat}
+            />
             <Txt size={11} color={t.faint}>
               {ttFormat === 'xlsx'
                 ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้${withReport ? ' · รายงานอยู่ในชีตแยก 3 ชีตแรก' : ''}`
@@ -384,42 +354,16 @@ export default function DataScreen() {
 
           {/* โทนสีของไฟล์ — CSV ไม่มีสีจึงไม่ต้องเลือก */}
           {ttFormat !== 'csv' ? (
-            <View style={{ gap: 6 }}>
-              <Txt size={11} color={t.faint}>โทนสีของไฟล์</Txt>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                {EXPORT_TONES.map((p) => {
-                  const on = ttTone === p.id;
-                  return (
-                    <Pressable key={p.id} onPress={() => setTtTone(p.id)} style={{ flex: 1 }}>
-                      <View
-                        style={{
-                          gap: 6,
-                          paddingVertical: 8,
-                          paddingHorizontal: 6,
-                          borderRadius: 10,
-                          borderWidth: 1,
-                          alignItems: 'center',
-                          borderColor: on ? ACCENT : t.line,
-                          backgroundColor: on ? t.chip : 'transparent',
-                        }}>
-                        <View style={{ flexDirection: 'row', borderRadius: 5, overflow: 'hidden' }}>
-                          {p.swatch.map((c) => (
-                            <View key={c} style={{ width: 13, height: 13, backgroundColor: c }} />
-                          ))}
-                        </View>
-                        <Txt size={11.5} weight="bold" color={on ? ACCENT : t.sub}>{p.name}</Txt>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              <Txt size={11} color={t.faint}>
-                {EXPORT_PALETTES[ttTone].desc}
-                {ttTone !== 'current'
-                  ? `\nสีที่จำมาจากไฟล์ต้นฉบับถูกปรับตามโทนนี้ด้วย — ถ้านำไฟล์กลับเข้าแอป สีที่จำไว้จะกลายเป็นสีโทนนี้ (เลือก “ปัจจุบัน” ถ้าอยากได้สีเดิมเป๊ะ)`
-                  : ''}
-              </Txt>
-            </View>
+            <TonePicks
+              label="โทนสีของไฟล์"
+              value={ttTone}
+              onChange={setTtTone}
+              note={
+                ttTone !== 'current'
+                  ? 'สีที่จำมาจากไฟล์ต้นฉบับถูกปรับตามโทนนี้ด้วย — ถ้านำไฟล์กลับเข้าแอป สีที่จำไว้จะกลายเป็นสีโทนนี้ (เลือก “ปัจจุบัน” ถ้าอยากได้สีเดิมเป๊ะ)'
+                  : undefined
+              }
+            />
           ) : null}
 
           {/* ปุ่มส่งออก */}
@@ -516,20 +460,67 @@ export default function DataScreen() {
               right={<Chip small icon="edit" label="แก้ URL" onPress={() => router.push('/settings/sheets-setup')} />}
             />
 
-            {/* แสดงทีละบล็อก: เลือกรูปแบบส่ง → ยืนยันยกเลิก → ปุ่มปกติ (ไม่ซ้อนกันให้รก) */}
-            {sheetsPick ? (
-              <View style={{ gap: 8 }}>
-                <Txt size={14} weight="bold">
-                  {sheetsPick === 'month' ? 'ส่งเดือนนี้' : 'ส่งทั้งหมด'} — เลือกรูปแบบ
-                </Txt>
-                <Txt size={12} color={t.sub}>
-                  มีสี: พื้นสีตามหมวด ตัวหนา ✓/✗ ในชีตเลย (ต้องใช้สคริปต์เวอร์ชันล่าสุด — ถ้ายังไม่อัปเดต
-                  ข้อมูลจะลงแบบค่าล้วน){'\n'}แบบเดิม: ค่าล้วนไม่จัดรูปแบบ
-                </Txt>
+            {/* แสดงทีละบล็อก: ตั้งค่าก่อนส่ง → ยืนยันยกเลิก → ปุ่มปกติ (ไม่ซ้อนกันให้รก) */}
+            {shOpen ? (
+              <View style={{ gap: 12 }}>
+                <Txt size={14} weight="bold">ส่งขึ้น Google Sheets — เลือกช่วงข้อมูล</Txt>
+
+                {/* ขอบเขต 3 แบบ (ชุดเดียวกับส่งออกไฟล์) */}
+                <Seg options={SCOPE_OPTIONS} value={shScope} onChange={setShScope} />
+                <ScopeDetail scope={shScope} months={dataMonths} picked={shMonths} onToggle={toggleShMonth} verb="ส่ง" />
+
+                {/* เนื้อหาที่จะลงในชีต */}
+                <View style={{ gap: 6 }}>
+                  <Txt size={11} color={t.faint}>เนื้อหาในชีต</Txt>
+                  <CheckRow
+                    label="รายงานสรุปจากที่บันทึกไว้"
+                    sub="แท็บแยกไว้หน้าสุด: ภาพรวม/แนวโน้ม · สรุปเคส & รายชื่อ · รายการนัด"
+                    on={shReport}
+                    onPress={() => {
+                      const next = !shReport;
+                      setShReport(next);
+                      if (!next) setShGrid(true); // ไม่เอารายงานแล้วต้องเหลือตารางไว้อย่างน้อยหนึ่งอย่าง
+                    }}
+                  />
+                  <CheckRow
+                    label="ตาราง Time Table + รายการกิจกรรม"
+                    sub="แท็บ grid ช่องเวลา 30 นาที ต่อเดือน + แท็บรายการกิจกรรมแบบแถว"
+                    on={shGrid}
+                    disabled={!shReport}
+                    onPress={() => setShGrid(!shGrid)}
+                  />
+                </View>
+
+                {/* ระดับการจัดรูปแบบในชีต */}
+                <View style={{ gap: 6 }}>
+                  <Txt size={11} color={t.faint}>รูปแบบข้อมูลในชีต</Txt>
+                  <Seg
+                    options={[['rich', 'เต็มรูปแบบ'], ['color', 'มีสี'], ['plain', 'ค่าล้วน']]}
+                    value={shStyle}
+                    onChange={setShStyle}
+                  />
+                  <Txt size={11} color={t.faint}>
+                    {shStyle === 'rich'
+                      ? 'เต็มรูปแบบ: กิจกรรมยาวถมสีต่อเนื่องโดยไม่พิมพ์ชื่อซ้ำ (มองเป็นบล็อกเดียวเหมือนเซลล์ merge) ✓/✗ ตามสถานะ — อ่านสวยที่สุด'
+                      : shStyle === 'color'
+                        ? 'มีสี: พิมพ์ชื่อทุกช่องที่กิจกรรมคลุม (กริดเดียวกับ CSV — คัดลอกจากชีตกลับเข้าแอปได้) พร้อมพื้นสีตามหมวด'
+                        : 'ค่าล้วน: ข้อความอย่างเดียวไม่จัดรูปแบบ — ใช้กับสคริปต์รุ่นเก่าที่ยังไม่รองรับการลงสี'}
+                    {shStyle !== 'plain' ? '\n(สี/ตัวหนาต้องใช้ Apps Script เวอร์ชันล่าสุด — รุ่นเก่าจะลงเฉพาะค่า)' : ''}
+                  </Txt>
+                </View>
+
+                {/* โทนสีของชีต — ค่าล้วนไม่มีสีจึงไม่ต้องเลือก */}
+                {shStyle !== 'plain' ? <TonePicks label="โทนสีของชีต" value={shTone} onChange={setShTone} /> : null}
+
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setSheetsPick(null)} />
-                  <Btn style={{ flex: 1 }} label="มีสี" onPress={() => pickAndSend(true)} />
-                  <Btn style={{ flex: 1 }} kind="ghost" label="แบบเดิม" onPress={() => pickAndSend(false)} />
+                  <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setShOpen(false)} />
+                  <Btn
+                    style={{ flex: 2 }}
+                    icon="cloud"
+                    label={!shGrid ? 'ส่งรายงานขึ้นชีต' : shReport ? 'ส่งตาราง + รายงาน' : 'ส่งตารางขึ้นชีต'}
+                    disabled={shScope === 'pick' && !shMonths.length}
+                    onPress={sendToSheets}
+                  />
                 </View>
               </View>
             ) : confirmDisconnect ? (
@@ -553,27 +544,21 @@ export default function DataScreen() {
               </View>
             ) : (
               <>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Btn
-                    style={{ flex: 1 }}
-                    label={sending === 'month' ? 'กำลังส่ง…' : 'ส่งเดือนนี้'}
-                    disabled={sending !== null}
-                    onPress={() => setSheetsPick('month')}
-                  />
-                  <Btn
-                    style={{ flex: 1 }}
-                    kind="ghost"
-                    label={sending === 'all' ? 'กำลังส่ง…' : 'ส่งทั้งหมด'}
-                    disabled={sending !== null}
-                    onPress={() => setSheetsPick('all')}
-                  />
-                </View>
+                <Btn
+                  icon="cloud"
+                  label={sending ? 'กำลังส่ง…' : 'ส่งขึ้น Google Sheets'}
+                  disabled={sending}
+                  onPress={openSheets}
+                />
+                <Txt size={11} color={t.faint}>
+                  เลือกช่วง (เดือนนี้ / เลือกเดือน / ทั้งหมด) · เนื้อหา (ตาราง / รายงานสรุป) · รูปแบบและโทนสีได้ก่อนส่ง
+                </Txt>
                 {savedOthers.length ? (
                   <Btn
                     kind="ghost"
                     icon="cloud"
                     label={`สลับ URL อื่น (${savedOthers.length})`}
-                    disabled={sending !== null}
+                    disabled={sending}
                     onPress={() => setShowSwitch(true)}
                   />
                 ) : null}
@@ -581,7 +566,7 @@ export default function DataScreen() {
                   kind="ghost"
                   icon="x"
                   label="ยกเลิกการเชื่อมต่อ"
-                  disabled={sending !== null}
+                  disabled={sending}
                   onPress={() => setConfirmDisconnect(true)}
                 />
               </>
@@ -591,7 +576,8 @@ export default function DataScreen() {
       </Card>
 
       <Txt size={11} color={t.faint} style={{ textAlign: 'center' }}>
-        ส่งขึ้น Google Sheets ทางเดียว (แอป → Sheets): grid Time Table รายเดือน + แท็บรายการกิจกรรม
+        ส่งขึ้น Google Sheets ทางเดียว (แอป → Sheets): แท็บรายงานสรุป + grid Time Table รายเดือน + แท็บรายการกิจกรรม
+        {'\n'}ชีตถูกเขียนทับทุกครั้งที่ส่ง (แท็บชื่อเดิม) — แท็บอื่นในไฟล์เดียวกันไม่ถูกแตะ
       </Txt>
     </Screen>
   );
@@ -600,6 +586,151 @@ export default function DataScreen() {
 /** ตัดข้อความยาวเกิน max ตัวอักษร แล้วปิดท้ายด้วย … */
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s;
+}
+
+/** ขอบเขตเดือน 3 แบบ — ใช้ทั้งส่งออกไฟล์และส่งขึ้นชีต */
+const SCOPE_OPTIONS = [['month', 'เดือนนี้'], ['pick', 'เลือกเดือน'], ['all', 'ทั้งหมด']] as const;
+
+/** แถบเลือกแบบแบ่งช่องเท่า ๆ กัน (ขอบเขต / รูปแบบไฟล์ / รูปแบบชีต) */
+function Seg<K extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: readonly (readonly [K, string])[];
+  value: K;
+  onChange: (k: K) => void;
+}) {
+  const t = useTokens();
+  return (
+    <View style={{ flexDirection: 'row', gap: 8 }}>
+      {options.map(([k, lb]) => {
+        const on = value === k;
+        return (
+          <Pressable key={k} onPress={() => onChange(k)} style={{ flex: 1 }}>
+            <View
+              style={{
+                paddingVertical: 8,
+                paddingHorizontal: 4,
+                borderRadius: 10,
+                borderWidth: 1,
+                alignItems: 'center',
+                borderColor: on ? ACCENT : t.line,
+                backgroundColor: on ? t.chip : 'transparent',
+              }}>
+              <Txt size={12} weight="bold" color={on ? ACCENT : t.sub}>{lb}</Txt>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** รายละเอียดของขอบเขตที่เลือก — โหมด "เลือกเดือน" จะกลายเป็นชิปติ๊กเลือกจากเดือนที่มีข้อมูล */
+function ScopeDetail({
+  scope,
+  months,
+  picked,
+  onToggle,
+  verb,
+}: {
+  scope: SheetsScope;
+  months: string[];
+  picked: string[];
+  onToggle: (anchor: string) => void;
+  verb: string;
+}) {
+  const t = useTokens();
+  if (scope !== 'pick') {
+    return (
+      <Txt size={12} color={t.sub}>
+        {scope === 'month'
+          ? `${verb}เฉพาะเดือนนี้ (${ttMonthLabel(thisMonthAnchor())})`
+          : `${verb}ทุกเดือนที่มีข้อมูล — ${months.length} เดือน (${ttMonthLabel(months[0])} – ${ttMonthLabel(months[months.length - 1])})`}
+      </Txt>
+    );
+  }
+  return (
+    <View style={{ gap: 6 }}>
+      <Txt size={11} color={t.faint}>ติ๊กเดือนที่จะ{verb} — เลือกได้ ({picked.length} เดือน)</Txt>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {months.map((mo) => {
+          const on = picked.includes(mo);
+          return (
+            <Pressable key={mo} onPress={() => onToggle(mo)}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  paddingVertical: 6,
+                  paddingHorizontal: 10,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: on ? ACCENT : t.line,
+                  backgroundColor: on ? t.chip : 'transparent',
+                }}>
+                <Icon name={on ? 'check' : 'plus'} size={13} color={on ? ACCENT : t.faint} />
+                <Txt size={12} color={on ? ACCENT : t.sub}>{ttMonthLabel(mo)}</Txt>
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/** เลือกโทนสี (ชุดเดียวกันทั้งไฟล์ส่งออกและชีต) พร้อมพรีวิวแถบสี */
+function TonePicks({
+  label,
+  value,
+  onChange,
+  note,
+}: {
+  label: string;
+  value: ExportTone;
+  onChange: (v: ExportTone) => void;
+  note?: string;
+}) {
+  const t = useTokens();
+  return (
+    <View style={{ gap: 6 }}>
+      <Txt size={11} color={t.faint}>{label}</Txt>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {EXPORT_TONES.map((p) => {
+          const on = value === p.id;
+          return (
+            <Pressable key={p.id} onPress={() => onChange(p.id)} style={{ flex: 1 }}>
+              <View
+                style={{
+                  gap: 6,
+                  paddingVertical: 8,
+                  paddingHorizontal: 6,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  alignItems: 'center',
+                  borderColor: on ? ACCENT : t.line,
+                  backgroundColor: on ? t.chip : 'transparent',
+                }}>
+                <View style={{ flexDirection: 'row', borderRadius: 5, overflow: 'hidden' }}>
+                  {p.swatch.map((c) => (
+                    <View key={c} style={{ width: 13, height: 13, backgroundColor: c }} />
+                  ))}
+                </View>
+                <Txt size={11.5} weight="bold" color={on ? ACCENT : t.sub}>{p.name}</Txt>
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Txt size={11} color={t.faint}>
+        {EXPORT_PALETTES[value].desc}
+        {note ? `\n${note}` : ''}
+      </Txt>
+    </View>
+  );
 }
 
 /** first-of-month ISO ของเดือนปัจจุบัน (anchor สำหรับ Time Table) */

@@ -598,3 +598,143 @@ export function reportHtml(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
   }
   return s + '</div>';
 }
+
+// ---------- Google Sheets (แถวข้อความ + สีส่งผ่าน Apps Script) ----------
+
+/**
+ * แท็บรายงานสำหรับส่งขึ้น Google Sheets — โครงตรงกับ SheetTab ใน lib/sheets
+ * (ชีตรับได้แค่ค่า + สีพื้น/สีอักษร/ตัวหนา จึงไม่มี merge/ความกว้างคอลัมน์เหมือน .xlsx)
+ */
+export interface ReportTab {
+  name: string;
+  rows: string[][];
+  bg: (string | null)[][];
+  fg: (string | null)[][];
+  bold: ('bold' | 'normal')[][];
+}
+
+/** เซลล์หนึ่งช่องระหว่างประกอบแท็บ (bg/fg = null → ปล่อยตามค่าเริ่มต้นของชีต) */
+interface SCell {
+  v: string | number;
+  bg?: string | null;
+  fg?: string | null;
+  b?: boolean;
+}
+
+type Acc = { rows: string[][]; bg: (string | null)[][]; fg: (string | null)[][]; bold: ('bold' | 'normal')[][] };
+
+const newAcc = (): Acc => ({ rows: [], bg: [], fg: [], bold: [] });
+
+function pushRow(a: Acc, cells: SCell[]): void {
+  a.rows.push(cells.map((c) => String(c.v)));
+  a.bg.push(cells.map((c) => c.bg ?? null));
+  a.fg.push(cells.map((c) => c.fg ?? null));
+  a.bold.push(cells.map((c) => (c.b ? 'bold' : 'normal')));
+}
+
+/** ตารางหนึ่งชุดในแท็บ: แถบหัวข้อ (กว้างเต็มตาราง) + หัวคอลัมน์ + ข้อมูล + บรรทัดว่างคั่น */
+function sheetBlock(a: Acc, pal: ExportPalette, title: string, head: string[], body: SCell[][]): void {
+  pushRow(a, [
+    { v: title, bg: pal.head, fg: pal.headInk, b: true },
+    ...head.slice(1).map(() => ({ v: '', bg: pal.head })),
+  ]);
+  pushRow(a, head.map((h) => ({ v: h, bg: pal.head2, fg: pal.headInk, b: true })));
+  for (const r of body) pushRow(a, r);
+  pushRow(a, []);
+}
+
+/** แปลงค่าดิบเป็นเซลล์ — คอลัมน์ priIdx เป็นป้ายระดับพื้นสี, คอลัมน์แรกตัวหนา */
+function sheetCells(vals: (string | number)[], priIdx: number, pal: ExportPalette): SCell[] {
+  return vals.map((v, i) => {
+    if (i === priIdx) return priSCell(String(v), pal);
+    return { v, bg: pal.cellBg, fg: pal.ink, b: i === 0 };
+  });
+}
+
+function priSCell(id: PriorityId | null | string, pal: ExportPalette): SCell {
+  const p = typeof id === 'string' && id in PRI_BY_ID ? PRI_BY_ID[id as PriorityId] : null;
+  return p
+    ? { v: p.id, bg: pal.priFill(p.color), fg: pal.priInk, b: true }
+    : { v: '–', bg: pal.cellBg, fg: pal.faint };
+}
+
+/** ชีตรายงานทั้งชุดสำหรับส่งขึ้น Google Sheets — ชุดเนื้อหาเดียวกับ reportSheets (.xlsx) */
+export function reportTabs(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.current): ReportTab[] {
+  const plain = (v: string | number): SCell => ({ v, bg: pal.cellBg, fg: pal.ink });
+
+  // --- แท็บ 1: ภาพรวม / แนวโน้ม / ชั่วโมงตามหมวด / ระดับความสำคัญ ---
+  const a = newAcc();
+  pushRow(a, [
+    { v: 'รายงานสรุปจากที่บันทึกไว้', bg: pal.title, fg: pal.titleInk, b: true },
+    ...Array.from({ length: 3 }, () => ({ v: '', bg: pal.title })),
+  ]);
+  pushRow(a, [{ v: `ช่วง ${d.label} · ${d.from} ถึง ${d.to}`, fg: pal.sub }]);
+  pushRow(a, [{ v: `ออกรายงาน ${thaiDate(d.madeOn)} — นับเฉพาะรายการที่ถึงกำหนดแล้ว`, fg: pal.sub }]);
+  pushRow(a, []);
+
+  sheetBlock(a, pal, 'ภาพรวม', ['ตัวชี้วัด', 'ค่า', 'คำอธิบาย'],
+    overviewRows(d).map(([k, v, note]) => [
+      { v: k, bg: pal.cellBg, fg: pal.ink },
+      { v, bg: pal.cellBg, fg: pal.ink, b: true },
+      { v: note, bg: pal.cellBg, fg: pal.faint },
+    ]));
+
+  sheetBlock(a, pal, `แนวโน้ม${d.bucketTitle}`, ['ช่วง', 'ทำเสร็จ', 'ถึงกำหนด', 'อัตราสำเร็จ', 'ชั่วโมง'],
+    d.buckets.map((b) => [
+      plain(b.label),
+      plain(b.done),
+      plain(b.scheduled),
+      { v: ratePct(b.done, b.scheduled), bg: pal.cellBg, fg: b.scheduled && b.rate >= 0.7 ? pal.ok : pal.ink, b: true },
+      plain(h1(b.hours)),
+    ]));
+
+  sheetBlock(a, pal, 'ชั่วโมงตามหมวด', ['หมวด', 'ชั่วโมง', 'สัดส่วน'],
+    d.cats.length
+      ? d.cats.map((c) => [
+          { v: c.name, bg: pal.catTint(c.color), fg: pal.catInk(c.color), b: true },
+          { v: h1(c.hours), bg: pal.cellBg, fg: pal.ink, b: true },
+          plain(pct(c.pct)),
+        ])
+      : [[{ v: 'ยังไม่มีรายการที่ทำเสร็จในช่วงนี้', bg: pal.cellBg, fg: pal.faint }]]);
+
+  sheetBlock(a, pal, 'นัดเคสตามระดับความสำคัญ', ['ระดับ', 'ความหมาย', 'จำนวนนัด', 'สัดส่วน'],
+    d.pris.length
+      ? d.pris.map((p) => [
+          priSCell(p.id, pal),
+          plain(p.label),
+          plain(p.count),
+          plain(pct(d.items.length ? p.count / d.items.length : 0)),
+        ])
+      : [[priSCell(null, pal), plain('ไม่มีนัดเคสในช่วงนี้')]]);
+
+  if (d.unnamed) pushRow(a, [{ v: `อีก ${d.unnamed} นัดในช่วงนี้ไม่ได้ระบุผู้ติดต่อ`, fg: pal.sub }]);
+
+  const out: ReportTab[] = [{ name: 'รายงานสรุป', ...a }];
+  if (!d.items.length) return out;
+
+  // --- แท็บ 2: สรุปตามเคส + รายชื่อคน ---
+  const b = newAcc();
+  sheetBlock(b, pal, `สรุปตามเคส (${d.cases.length} เคส)`, CASE_HEAD, d.cases.map((c) => sheetCells(caseRow(c), 1, pal)));
+  sheetBlock(b, pal, `รายชื่อคน (${d.people.length} คน)`, PEOPLE_HEAD,
+    d.people.length
+      ? d.people.map((p) => sheetCells(personRow(p), 1, pal))
+      : [[{ v: 'ไม่มีนัดเคสที่ระบุผู้ติดต่อในช่วงนี้', bg: pal.cellBg, fg: pal.faint }]]);
+  out.push({ name: 'สรุปเคส & รายชื่อ', ...b });
+
+  // --- แท็บ 3: รายการนัดเคสทุกครั้ง (สถานะย้อมสีเหมือนไฟล์ .xlsx) ---
+  const c = newAcc();
+  sheetBlock(c, pal, `รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD,
+    d.items.map((it) => {
+      const cells = sheetCells(itemRow(it, d.nameById), 4, pal);
+      const st = it.ostatus;
+      cells[7] = {
+        v: STATUS_TH[st],
+        bg: pal.cellBg,
+        fg: st === 'done' ? pal.ok : st === 'skipped' || st === 'cancelled' ? pal.bad : pal.ink,
+        b: st === 'done' || st === 'skipped',
+      };
+      return cells;
+    }));
+  out.push({ name: 'รายการนัดเคส', ...c });
+  return out;
+}
