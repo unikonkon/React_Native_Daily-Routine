@@ -1,13 +1,13 @@
 // มุมมองสัปดาห์ (ไทม์ไลน์ 7 คอลัมน์) — ต่อยอดจากไทม์ไลน์ day-view
 // หัวคอลัมน์เป็นแถบปัดได้ (paging) เลื่อนสัปดาห์ + แกนเวลา 06:00–30:00 (ช่วง 01:00–06:00 ย่อครึ่ง) + บล็อกสีตามหมวด (แยก lane กันซ้อน)
 // เต็มจอ ไม่ต้องเลื่อน — เห็นภาพรวม "ช่วงไหนของวันไหนยุ่ง" ทันที
-import React, { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindowDimensions, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { useCaseNames } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, CATS, DANGER, DAY_END, DAY_START, GREEN } from '@/constants/theme';
+import { ACCENT, CAT_BY_ID, CATS, DANGER, DAY_END, DAY_START, GREEN, type CatId } from '@/constants/theme';
 import { addDays, fmtMin, fromISO, mondayOf, nowMin, todayISO, WD_TH } from '@/lib/dates';
 import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
@@ -67,6 +67,15 @@ export function TodayWeekView({
   const caseNamesOf = useCaseNames();
   const today = todayISO();
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+
+  // หมวดที่ "เปิดชื่อ" ไว้ — แตะหมวดใน legend เพื่อสลับ (เปิดพร้อมกันหลายหมวดได้) · นัดเคสโชว์ชื่ออยู่แล้วเป็นค่าปกติ
+  const [nameCats, setNameCats] = useState<Set<CatId>>(() => new Set());
+  const toggleNameCat = (id: CatId) =>
+    setNameCats((cur) => {
+      const next = new Set(cur);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
 
   // เส้นชั่วโมงทุก 3 ชม. + เส้น 01:00 (จุดเริ่มช่วงที่ย่อสเกล — ให้อ่านออกว่าด้านล่างนี้บีบลงครึ่งหนึ่ง)
   const hours: number[] = [];
@@ -130,9 +139,12 @@ export function TodayWeekView({
                     const done = it.ostatus === 'done';
                     const dim = it.ostatus === 'rescheduled' ? 0.5 : 1;
                     const dur = it.endMin - it.startMin;
-                    // นัดเคส → โชว์ชื่อคนในเคส (หลายคน = ชื่อแรก +n) เฉพาะบล็อกที่สูง/กว้างพอ
-                    const caseName = cat.isCase ? caseNamesOf(it) || it.title.trim() : '';
-                    const showName = !!caseName && dur >= 30 && n <= 2;
+                    // ป้ายชื่อในบล็อก — นัดเคสโชว์ชื่อคน (หลายคน = ชื่อแรก +n) เป็นค่าปกติ · หมวดอื่นโชว์ชื่อกิจกรรมเมื่อเปิดหมวดนั้นจาก legend
+                    const onCat = nameCats.has(it.cat);
+                    const label = cat.isCase ? caseNamesOf(it) || it.title.trim() : it.title.trim();
+                    // เปิดเองจาก legend → ผ่อนเกณฑ์ลง (บล็อกสั้น/ซ้อน 3 เลนก็ยังโชว์) แล้วตัดจำนวนบรรทัดตามความสูงจริง
+                    const showName = !!label && (cat.isCase || onCat) && dur >= (onCat ? 20 : 30) && n <= (onCat ? 3 : 2);
+                    const nameLines = dur >= 60 ? 3 : dur >= 40 ? 2 : 1;
                     const showIcon = dur >= 45 && n <= 2 && (!showName || dur >= 75); // โชว์ไอคอนเฉพาะบล็อกที่สูง/กว้างพอ
                     // โหมดลบ: ที่เลือกไว้ = ขอบแดง + ติ๊กถูก · ที่ยังไม่เลือก = จางลงให้ตัวที่เลือกเด่น
                     const picked = delMode && !!selectedKeys?.has(itemKey(it));
@@ -149,7 +161,7 @@ export function TodayWeekView({
                           minHeight: 5,
                           borderRadius: 3,
                           backgroundColor: cat.color,
-                          opacity: (done ? 0.4 : 0.98) * dim * (freeMode ? 0.3 : 1) * (delMode && !picked ? 0.45 : 1),
+                          opacity: (done ? 0.7 : 0.98) * dim * (freeMode ? 0.3 : 1) * (delMode && !picked ? 0.45 : 1),
                           borderWidth: picked ? 1.5 : 0,
                           borderColor: DANGER,
                           alignItems: 'center',
@@ -159,8 +171,8 @@ export function TodayWeekView({
                         }}>
                         {picked ? <Icon name="check" size={11} color="#FFFFFF" /> : showIcon ? <Icon name={cat.icon} size={11} color="#FFFFFF" /> : null}
                         {showName ? (
-                          <Txt size={8} weight="med" color="#FFFFFF" numberOfLines={2} style={{ textAlign: 'center', lineHeight: 9.5 }}>
-                            {caseName}
+                          <Txt size={8} weight="med" color="#FFFFFF" numberOfLines={nameLines} style={{ textAlign: 'center', lineHeight: 9.5 }}>
+                            {label}
                           </Txt>
                         ) : null}
                       </Pressable>
@@ -227,14 +239,41 @@ export function TodayWeekView({
               </Txt>
             </View>
           ) : null}
-          {CATS.map((cat) => (
-            <View key={cat.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Icon name={cat.icon} size={12} color={cat.color} />
-              <Txt size={11} color={t.sub}>
-                {cat.short}
+          {/* แตะหมวด = สลับโชว์ชื่อกิจกรรมของหมวดนั้นในบล็อก (เปิดได้หลายหมวด) */}
+          {CATS.map((cat) => {
+            const on = nameCats.has(cat.id);
+            return (
+              <Pressable
+                key={cat.id}
+                onPress={() => toggleNameCat(cat.id)}
+                hitSlop={4}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  paddingVertical: 2,
+                  paddingHorizontal: on ? 7 : 0,
+                  borderRadius: 99,
+                  backgroundColor: on ? cat.color + '26' : 'transparent',
+                }}>
+                <Icon name={cat.icon} size={12} color={cat.color} />
+                <Txt size={11} weight={on ? 'bold' : 'reg'} color={on ? cat.color : t.sub}>
+                  {cat.short}
+                </Txt>
+              </Pressable>
+            );
+          })}
+          {nameCats.size ? (
+            <Pressable onPress={() => setNameCats(new Set())} hitSlop={4} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <Icon name="x" size={11} color={ACCENT} />
+              <Txt size={11} weight="med" color={ACCENT}>
+                ซ่อนชื่อ
               </Txt>
-            </View>
-          ))}
+            </Pressable>
+          ) : (
+            // <Txt size={10.5} color={t.faint}>แตะหมวดเพื่อโชว์ชื่อ</Txt>
+            <></>
+          )}
         </View>
       </View>
 

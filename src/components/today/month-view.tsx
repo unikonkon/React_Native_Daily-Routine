@@ -270,7 +270,8 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                         style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4, paddingHorizontal: 2, opacity: row.it.ostatus === 'rescheduled' ? 0.5 : 0.85 }}>
                         <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: CAT_BY_ID[row.it.cat].color }} />
                         {row.it.cat === 'case' ? <PriBadge id={row.it.priority} /> : null}
-                        <Txt size={14} weight="med" numberOfLines={1} color={row.it.ostatus === 'done' ? t.faint : t.ink} style={{ flex: 1, textDecorationLine: row.it.ostatus === 'done' ? 'line-through' : 'none' }}>
+                        {/* ทำแล้ว = ตัวอักษรจางลงอย่างเดียว (ไม่ขีดฆ่า) — มีไอคอน ✓ ท้ายแถวบอกสถานะอยู่แล้ว */}
+                        <Txt size={14} weight="med" numberOfLines={1} color={row.it.ostatus === 'done' ? t.faint : t.ink} style={{ flex: 1 }}>
                           {row.it.title}
                         </Txt>
                         {row.it.ostatus === 'done' ? <Icon name="check" size={14} color={GREEN} /> : null}
@@ -304,7 +305,8 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                     }}>
                     <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: cat.color }} />
                     {it.cat === 'case' ? <PriBadge id={it.priority} /> : null}
-                    <Txt size={14} weight="med" numberOfLines={1} color={done ? t.faint : t.ink} style={{ flex: 1, textDecorationLine: done ? 'line-through' : 'none' }}>
+                    {/* ทำแล้ว = ตัวอักษรจางลงอย่างเดียว (ไม่ขีดฆ่า) — มีไอคอน ✓ ท้ายแถวบอกสถานะอยู่แล้ว */}
+                    <Txt size={14} weight="med" numberOfLines={1} color={done ? t.faint : t.ink} style={{ flex: 1 }}>
                       {it.title}
                     </Txt>
                     {done ? <Icon name="check" size={14} color={GREEN} /> : null}
