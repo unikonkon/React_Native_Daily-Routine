@@ -10,6 +10,7 @@ import { PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CATS, CAT_BY_ID, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
 import { daytimeFreeSlots, freeMinutes } from '@/lib/engine';
+import type { DayItem } from '@/lib/types';
 import { useDayReader } from '@/stores/activities';
 
 interface MonthViewProps {
@@ -26,9 +27,11 @@ interface MonthViewProps {
   /** โหมด "วันที่ว่าง" — การ์ดสรุปแสดงช่วงเวลาว่าง แตะเพื่อเพิ่มกิจกรรม */
   freeMode?: boolean;
   onPressSlot?: (date: string, start: number, end: number) => void;
+  /** แตะรายการในการ์ดสรุป → เปิดแผ่นรายละเอียด/แก้ไขกิจกรรมนั้น */
+  onPressItem?: (item: DayItem) => void;
 }
 
-export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, onPressDay, bottomPad = 140, view, onChangeView, freeMode = false, onPressSlot }: MonthViewProps) {
+export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, onPressDay, bottomPad = 140, view, onChangeView, freeMode = false, onPressSlot, onPressItem }: MonthViewProps) {
   const t = useTokens();
   const getDay = useDayReader();
   const today = todayISO();
@@ -224,6 +227,10 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                   <Txt size={12} weight="med" color={fcat.color}>
                     เฉพาะ{fcat.short} · {dayItems.length} รายการ
                   </Txt>
+                ) : onPressItem && dayItems.length ? (
+                  <Txt size={12} color={t.faint}>
+                    แตะรายการเพื่อดู/แก้ไข
+                  </Txt>
                 ) : null}
               </View>
               <Pressable onPress={() => onPressDay(picked!)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
@@ -264,10 +271,21 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                         </Txt>
                       </Pressable>
                     ) : (
-                      // กิจกรรมเดิม — บริบท (จางลงเล็กน้อยให้ช่วงว่างเด่นกว่า)
-                      <View
+                      // กิจกรรมเดิม — บริบท (จางลงเล็กน้อยให้ช่วงว่างเด่นกว่า) · แตะเพื่อเปิดแผ่นรายละเอียด/แก้ไข
+                      <Pressable
                         key={`${row.it.id}:${row.it.date}`}
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4, paddingHorizontal: 2, opacity: row.it.ostatus === 'rescheduled' ? 0.5 : 0.85 }}>
+                        onPress={onPressItem ? () => onPressItem(row.it) : undefined}
+                        disabled={!onPressItem}
+                        style={({ pressed }) => ({
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 10,
+                          paddingVertical: 4,
+                          paddingHorizontal: 2,
+                          borderRadius: 8,
+                          backgroundColor: pressed ? t.chip : 'transparent',
+                          opacity: row.it.ostatus === 'rescheduled' ? 0.5 : 0.85,
+                        })}>
                         <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: CAT_BY_ID[row.it.cat].color }} />
                         {row.it.cat === 'case' ? <PriBadge id={row.it.priority} /> : null}
                         {/* ทำแล้ว = ตัวอักษรจางลงอย่างเดียว (ไม่ขีดฆ่า) — มีไอคอน ✓ ท้ายแถวบอกสถานะอยู่แล้ว */}
@@ -278,7 +296,7 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                         <Txt size={12} num color={t.sub}>
                           {fmtRange(row.it.startMin, row.it.endMin)}
                         </Txt>
-                      </View>
+                      </Pressable>
                     ),
                   )}
                 </View>
@@ -292,17 +310,24 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                 const cat = CAT_BY_ID[it.cat];
                 const done = it.ostatus === 'done';
                 return (
-                  <View
+                  // แตะแถว → เปิดแผ่นรายละเอียด (แก้ไข/ทำแล้ว/เลื่อน/ลบ) ของกิจกรรมนั้น
+                  <Pressable
                     key={`${it.id}:${it.date}`}
-                    style={{
+                    onPress={onPressItem ? () => onPressItem(it) : undefined}
+                    disabled={!onPressItem}
+                    style={({ pressed }) => ({
                       flexDirection: 'row',
                       alignItems: 'center',
                       gap: 10,
                       paddingVertical: 9,
+                      paddingHorizontal: pressed ? 6 : 0,
+                      marginHorizontal: pressed ? -6 : 0,
+                      borderRadius: pressed ? 8 : 0,
+                      backgroundColor: pressed ? t.chip : 'transparent',
                       borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
                       borderTopColor: t.line,
                       opacity: it.ostatus === 'rescheduled' ? 0.5 : 1,
-                    }}>
+                    })}>
                     <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: cat.color }} />
                     {it.cat === 'case' ? <PriBadge id={it.priority} /> : null}
                     {/* ทำแล้ว = ตัวอักษรจางลงอย่างเดียว (ไม่ขีดฆ่า) — มีไอคอน ✓ ท้ายแถวบอกสถานะอยู่แล้ว */}
@@ -313,7 +338,8 @@ export function TodayMonthView({ year, month, selected, onBack, onPrev, onNext, 
                     <Txt size={12} num color={t.sub}>
                       {fmtRange(it.startMin, it.endMin)}
                     </Txt>
-                  </View>
+                    {onPressItem ? <Icon name="chevR" size={14} color={t.faint} /> : null}
+                  </Pressable>
                 );
               })
             )}

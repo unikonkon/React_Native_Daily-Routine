@@ -200,6 +200,7 @@ export default function TodayScreen() {
           onChangeView={setView}
           freeMode={freeMode}
           onPressSlot={openSlot}
+          onPressItem={(it) => openSheet(it.id, it.date)}
         />
       ) : null}
 
