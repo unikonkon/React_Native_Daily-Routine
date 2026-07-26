@@ -38,6 +38,8 @@ export default function DataScreen() {
   const sheetsUrls = useSettings((s) => s.sheetsUrls);
   const setSheetsUrl = useSettings((s) => s.setSheetsUrl);
   const removeSheetsUrl = useSettings((s) => s.removeSheetsUrl);
+  /** ตัวเลือกย่อยต่อหมวดที่ตั้งไว้ — ส่งเข้ารายงานเพื่อให้เห็นตัวที่ตั้งไว้แต่ยังไม่ได้ใช้ด้วย */
+  const catOptions = useSettings((s) => s.catOptions);
   const [sending, setSending] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [showSwitch, setShowSwitch] = useState(false);
@@ -136,7 +138,7 @@ export default function DataScreen() {
     setTtOpen(false);
     try {
       const report = withReport
-        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin())
+        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions)
         : null;
       const pal = EXPORT_PALETTES[ttTone];
       const ttAnchors = reportOnly ? [] : anchors;
@@ -202,7 +204,9 @@ export default function DataScreen() {
     setShOpen(false);
     setSending(true);
     try {
-      const report = shReport ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin()) : null;
+      const report = shReport
+        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions)
+        : null;
       const tabs = buildSheetTabs(getDay, anchors, {
         style: shStyle,
         pal: EXPORT_PALETTES[shTone],
@@ -318,7 +322,7 @@ export default function DataScreen() {
             <Txt size={11} color={t.faint}>เนื้อหาในไฟล์</Txt>
             <CheckRow
               label="รายงานสรุปจากที่บันทึกไว้"
-              sub="ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · นัดเคส (ระดับ/ตามเคส/รายชื่อคน) · รายการนัด"
+              sub="ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · สรุปหมวดหมู่ (ใช้มากสุด/กิจกรรมยอดฮิต/ตัวเลือกย่อย) · นัดเคส · รายการนัด"
               on={withReport}
               onPress={() => {
                 const next = !withReport;
@@ -345,7 +349,7 @@ export default function DataScreen() {
             />
             <Txt size={11} color={t.faint}>
               {ttFormat === 'xlsx'
-                ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้${withReport ? ' · รายงานอยู่ในชีตแยก 3 ชีตแรก' : ''}`
+                ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้${withReport ? ' · รายงานอยู่ในชีตแยก 2 ชีตแรก (รายงานสรุป + สรุปเคส & รายชื่อ)' : ''}`
                 : ttFormat === 'xls'
                   ? 'มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ — เปิดดูใน Excel/Sheets ได้ แต่นำกลับเข้าแอปไม่ได้'
                   : `CSV: ข้อความล้วน นำกลับเข้าแอปนี้ได้${withReport ? ' (บล็อกรายงานถูกข้ามตอนนำเข้า)' : ''}`}
@@ -474,7 +478,7 @@ export default function DataScreen() {
                   <Txt size={11} color={t.faint}>เนื้อหาในชีต</Txt>
                   <CheckRow
                     label="รายงานสรุปจากที่บันทึกไว้"
-                    sub="แท็บแยกไว้หน้าสุด: ภาพรวม/แนวโน้ม · สรุปเคส & รายชื่อ · รายการนัด"
+                    sub="2 แท็บหน้าสุด: “รายงานสรุป” (ภาพรวม/แนวโน้ม/สรุปหมวดหมู่) · “สรุปเคส & รายชื่อ” (รวมรายการนัด)"
                     on={shReport}
                     onPress={() => {
                       const next = !shReport;
@@ -576,8 +580,9 @@ export default function DataScreen() {
       </Card>
 
       <Txt size={11} color={t.faint} style={{ textAlign: 'center' }}>
-        ส่งขึ้น Google Sheets ทางเดียว (แอป → Sheets): แท็บรายงานสรุป + grid Time Table รายเดือน + แท็บรายการกิจกรรม
+        ส่งขึ้น Google Sheets ทางเดียว (แอป → Sheets): 2 แท็บรายงาน + grid Time Table รายเดือน + แท็บรายการกิจกรรม
         {'\n'}ชีตถูกเขียนทับทุกครั้งที่ส่ง (แท็บชื่อเดิม) — แท็บอื่นในไฟล์เดียวกันไม่ถูกแตะ
+        {'\n'}เคยส่งด้วยเวอร์ชันก่อน: แท็บ “สรุปหมวดหมู่” และ “รายการนัดเคส” ย้ายไปรวมกับ 2 แท็บนี้แล้ว ลบแท็บเก่าทิ้งได้เลย
       </Txt>
     </Screen>
   );

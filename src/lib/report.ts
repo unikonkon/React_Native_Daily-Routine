@@ -2,7 +2,7 @@
 // เนื้อหาตรงกับหน้าสถิติ (app/settings/stats.tsx): ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · นัดเคส (ระดับ/ตามเคส/รายชื่อคน) · รายการนัด
 // ตัวเลขทุกตัวคำนวณจาก engine.rangeStats ตัวเดียวกับหน้าจอ — เลขในไฟล์กับในแอปจึงตรงกันเสมอ
 
-import { CATS, PRI, PRI_BY_ID, type PriorityId } from '@/constants/theme';
+import { CATS, CAT_OPTIONS, PRI, PRI_BY_ID, type CatId, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, WD_TH_FULL, addDays, beYear, fmtRange, fromISO, hoursText, thaiDate, toISO, wdMon } from '@/lib/dates';
 import { rangeStats, type RangeStats } from '@/lib/engine';
 import { EXPORT_PALETTES, type ExportPalette } from '@/lib/export-theme';
@@ -58,6 +58,31 @@ export interface ReportCase {
   last: string;
 }
 
+/** ตัวเลือกย่อยหนึ่งค่าของหมวด (สถานที่/ประเภท/สื่อ) — configured = อยู่ในรายการที่ตั้งไว้, ไม่ใช่ค่าที่พิมพ์เอง */
+export interface ReportCatOpt {
+  name: string;
+  count: number;
+  configured: boolean;
+}
+
+/** สรุปหมวดหนึ่ง — ชุดเดียวกับการ์ด "สรุปหมวดหมู่" หน้าสถิติ (มีครบทุกหมวด รวมหมวดที่ยังไม่ได้ใช้) */
+export interface ReportCat {
+  id: CatId;
+  name: string; // ชื่อเต็ม
+  short: string;
+  color: string;
+  count: number; // รายการที่ถึงกำหนดในช่วง
+  done: number;
+  hours: number; // ชั่วโมงเฉพาะที่ทำเสร็จ
+  share: number; // สัดส่วนจำนวนรายการเทียบทั้งหมด
+  rate: number; // done / count
+  /** ชื่อกิจกรรม → จำนวนครั้ง เรียงมากไปน้อย */
+  titles: [string, number][];
+  /** ชื่อชุดตัวเลือกย่อยของหมวด (null = หมวดนี้ไม่มีตัวเลือกย่อย) */
+  optTitle: string | null;
+  opts: ReportCatOpt[];
+}
+
 export interface ReportData {
   /** ป้ายช่วง เช่น "ก.ค. 2569" หรือ "ก.ค. 2569 – ก.ย. 2569" */
   label: string;
@@ -69,6 +94,12 @@ export interface ReportData {
   bucketTitle: string;
   buckets: ReportBucket[];
   cats: { name: string; color: string; hours: number; pct: number }[];
+  /** สรุปหมวดหมู่ครบทุกหมวด — เรียงตามจำนวนรายการ หมวดที่ยังไม่ได้ใช้อยู่ท้ายสุด */
+  catSummary: ReportCat[];
+  /** หมวดที่ใช้มากสุด (จำนวนรายการ) — null เมื่อไม่มีรายการในช่วง */
+  topCat: ReportCat | null;
+  /** จำนวนหมวดที่มีรายการในช่วง */
+  usedCats: number;
   pris: { id: PriorityId; label: string; color: string; count: number }[];
   cases: ReportCase[];
   people: ReportPerson[];
@@ -104,6 +135,8 @@ export function buildReport(
   anchors: string[],
   today: string,
   now: number,
+  /** ตัวเลือกย่อยต่อหมวดที่ผู้ใช้ตั้งไว้ (settings store) — ไม่ส่งมาก็ใช้ค่าเริ่มต้นของแอป */
+  catOptions?: Partial<Record<CatId, string[]>>,
 ): ReportData {
   const first = fromISO(anchors[0]);
   const lastA = fromISO(anchors[anchors.length - 1]);
@@ -149,6 +182,35 @@ export function buildReport(
     hours: stats.hoursByCat[c.id],
     pct: stats.doneHours ? stats.hoursByCat[c.id] / stats.doneHours : 0,
   }));
+
+  // ---------- สรุปหมวดหมู่ (ชุดเดียวกับการ์ด "สรุปหมวดหมู่" หน้าสถิติ) ----------
+  const catSummary: ReportCat[] = CATS.map((c) => {
+    const s = stats.byCat[c.id];
+    const optSet = CAT_OPTIONS[c.id];
+    const used = s?.opts ?? {};
+    const listed = catOptions?.[c.id] ?? optSet?.defaults ?? [];
+    // ค่าที่พิมพ์เองนอกรายการที่ตั้งไว้ต่อท้าย — จะได้ไม่หายไปจากรายงาน
+    const names = optSet ? [...listed, ...Object.keys(used).filter((o) => !listed.includes(o))] : [];
+    return {
+      id: c.id,
+      name: c.name,
+      short: c.short,
+      color: c.color,
+      count: s?.count ?? 0,
+      done: s?.done ?? 0,
+      hours: s?.hours ?? 0,
+      share: stats.scheduled ? (s?.count ?? 0) / stats.scheduled : 0,
+      rate: s?.count ? s.done / s.count : 0,
+      titles: Object.entries(s?.titles ?? {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th')),
+      optTitle: optSet?.title ?? null,
+      opts: names.map((n) => ({ name: n, count: used[n] ?? 0, configured: listed.includes(n) })),
+    };
+  }).sort((a, b) => {
+    if (!a.count !== !b.count) return a.count ? -1 : 1; // หมวดที่ยังไม่ได้ใช้ไปท้ายสุด
+    return b.count - a.count || b.hours - a.hours;
+  });
+  const usedCats = catSummary.filter((c) => c.count).length;
+  const topCat = catSummary.find((c) => c.count) ?? null;
 
   const pris = PRI.filter((p) => stats.caseByPriority[p.id]).map((p) => ({
     id: p.id,
@@ -244,6 +306,9 @@ export function buildReport(
     bucketTitle,
     buckets,
     cats,
+    catSummary,
+    topCat,
+    usedCats,
     pris,
     cases,
     people,
@@ -273,8 +338,51 @@ function overviewRows(d: ReportData): [string, string, string][] {
     ['เวลาว่างรวม', hoursText(s.freeTotalMin), `เฉลี่ย ${hoursText(s.freeAvgMin)}/วัน · หน้าต่าง 06:00–24:00`],
     ['เลื่อนนัด', `${s.rescheduled} ครั้ง`, 'จำนวนครั้งที่เลื่อนในช่วงนี้'],
     ['นัดเคสทั้งหมด', `${s.caseItems.length} นัด`, `${d.cases.length} เคส · ${d.people.length} คน`],
+    [
+      'หมวดที่ใช้งาน',
+      `${d.usedCats} / ${CATS.length} หมวด`,
+      d.catSummary.filter((c) => c.count).map((c) => c.short).join(' · ') || 'ยังไม่มีรายการในช่วงนี้',
+    ],
+    [
+      'หมวดที่ใช้มากสุด',
+      d.topCat ? d.topCat.short : '–',
+      d.topCat
+        ? `${d.topCat.count} รายการ · ${pct(d.topCat.share)} ของทั้งหมด · เสร็จ ${d.topCat.done}`
+        : 'ยังไม่มีรายการที่ถึงกำหนด',
+    ],
   ];
 }
+
+const CAT_HEAD = ['หมวด', 'รายการ', 'สัดส่วน', 'เสร็จ', 'อัตราสำเร็จ', 'ชั่วโมง', 'กิจกรรมยอดฮิต (3 อันดับ)', 'ตัวเลือกย่อยที่ตั้งไว้'];
+
+/** กิจกรรมยอดฮิตของหมวดเป็นข้อความบรรทัดเดียว — "ตื่นนอน 12 · อาบน้ำ 9 (+4 ชื่อ)" */
+function topTitlesText(c: ReportCat): string {
+  if (!c.titles.length) return 'ยังไม่ได้ใช้ในช่วงนี้';
+  const head = c.titles.slice(0, 3).map(([n, k]) => `${n} ${k}`).join(' · ');
+  return c.titles.length > 3 ? `${head} (+${c.titles.length - 3} ชื่อ)` : head;
+}
+
+/** ตัวเลือกย่อยของหมวดเป็นข้อความบรรทัดเดียว — ตัวที่ตั้งไว้แต่ยังไม่ถูกใช้ก็แสดงไว้ด้วย */
+function optsText(c: ReportCat): string {
+  if (!c.optTitle) return '';
+  if (!c.opts.length) return `${c.optTitle}: ยังไม่ได้ตั้งตัวเลือก`;
+  return `${c.optTitle}: ${c.opts.map((o) => (o.count ? `${o.name} ${o.count}` : `${o.name} (ยังไม่ใช้)`)).join(' · ')}`;
+}
+
+const catRow = (c: ReportCat): (string | number)[] => [
+  c.short,
+  c.count,
+  c.count ? pct(c.share) : '–',
+  c.done,
+  c.count ? ratePct(c.done, c.count) : '–',
+  c.hours ? h1(c.hours) : '–',
+  topTitlesText(c),
+  optsText(c),
+];
+
+/** หัวข้อตารางสรุปหมวดหมู่ (ใช้ตรงกันทุกฟอร์แมต) */
+const catTitle = (d: ReportData): string =>
+  `สรุปหมวดหมู่ — ใช้ ${d.usedCats}/${CATS.length} หมวด · ${d.stats.scheduled} รายการ${d.topCat ? ` · ใช้มากสุด: ${d.topCat.short}` : ''}`;
 
 const CASE_HEAD = ['เคส', 'ระดับ', 'นัด', 'เสร็จ', 'อัตราสำเร็จ', 'ชั่วโมง', 'ออนไลน์', 'พบตัว', 'ช่วงวัน', 'ผู้ติดต่อ'];
 const caseRow = (c: ReportCase): (string | number)[] => [
@@ -380,11 +488,17 @@ function colLetter(n: number): string {
   return s;
 }
 
-/** ชีตรายงานสรุป (ภาพรวม + แนวโน้ม + ชั่วโมงตามหมวด + เคสตามระดับ) */
+/**
+ * ชีต "รายงานสรุป" — ภาพรวม + แนวโน้ม + ชั่วโมงตามหมวด + เคสตามระดับ + สรุปหมวดหมู่ (ตารางเรียงลงมาในชีตเดียว)
+ * กว้าง 8 คอลัมน์เท่าตารางสรุปหมวดหมู่ — ตารางอื่นที่แคบกว่าถูกเติมช่องว่างให้เต็มความกว้าง
+ */
 function summarySheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
   const rows: (XWriteCell | null)[][] = [];
   const merges: string[] = [];
-  const W = 4;
+  const W = CAT_HEAD.length; // 8
+  /** เติมเซลล์ว่าง (มีพื้น/เส้นตามโทน) ให้แถวยาวเท่าความกว้างชีต */
+  const wide = (cs: (XWriteCell | null)[]): (XWriteCell | null)[] =>
+    cs.length >= W ? cs : [...cs, ...Array.from({ length: W - cs.length }, () => ({ s: S.note }))];
 
   rows[0] = [cell('รายงานสรุปจากที่บันทึกไว้', S.title), ...Array<XWriteCell | null>(W - 1).fill({ s: S.title })];
   merges.push(`A1:${colLetter(W)}1`);
@@ -393,77 +507,82 @@ function summarySheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet
   rows[3] = [];
   let r = 4;
 
-  r = table(rows, merges, r, W, 'ภาพรวม', ['ตัวชี้วัด', 'ค่า', 'คำอธิบาย', ''],
-    overviewRows(d).map(([k, v, note]) => [cell(k, S.key), cell(v, S.val), cell(note, S.note), { s: S.note }]), S);
+  r = table(rows, merges, r, W, 'ภาพรวม', pad(['ตัวชี้วัด', 'ค่า', 'คำอธิบาย'], W),
+    overviewRows(d).map(([k, v, note]) => wide([cell(k, S.key), cell(v, S.val), cell(note, S.note)])), S);
 
-  r = table(rows, merges, r, W, `แนวโน้ม${d.bucketTitle}`, ['ช่วง', 'ทำเสร็จ', 'ถึงกำหนด', 'อัตราสำเร็จ'],
-    d.buckets.map((b) => [
+  r = table(rows, merges, r, W, `แนวโน้ม${d.bucketTitle}`, pad(['ช่วง', 'ทำเสร็จ', 'ถึงกำหนด', 'อัตราสำเร็จ'], W),
+    d.buckets.map((b) => wide([
       cell(b.label, S.key),
       cell(b.done, S.num),
       cell(b.scheduled, S.num),
       { v: ratePct(b.done, b.scheduled), s: { ...S.num, bold: true, color: b.scheduled && b.rate >= 0.7 ? pal.ok : S.num.color } },
-    ]), S);
+    ])), S);
 
-  r = table(rows, merges, r, W, 'ชั่วโมงตามหมวด', ['หมวด', 'ชั่วโมง', 'สัดส่วน', ''],
+  r = table(rows, merges, r, W, 'ชั่วโมงตามหมวด', pad(['หมวด', 'ชั่วโมง', 'สัดส่วน'], W),
     d.cats.length
-      ? d.cats.map((c) => [
+      ? d.cats.map((c) => wide([
           { v: c.name, s: { ...S.key, bold: true, fill: pal.catTint(c.color), color: pal.catInk(c.color) } },
           cell(h1(c.hours), S.val),
           cell(pct(c.pct), S.num),
-          { s: S.note },
-        ])
-      : [[cell('ยังไม่มีรายการที่ทำเสร็จในช่วงนี้', S.note), { s: S.note }, { s: S.note }, { s: S.note }]], S);
+        ]))
+      : [wide([cell('ยังไม่มีรายการที่ทำเสร็จในช่วงนี้', S.note)])], S);
 
-  r = table(rows, merges, r, W, 'นัดเคสตามระดับความสำคัญ', ['ระดับ', 'ความหมาย', 'จำนวนนัด', 'สัดส่วน'],
+  r = table(rows, merges, r, W, 'นัดเคสตามระดับความสำคัญ', pad(['ระดับ', 'ความหมาย', 'จำนวนนัด', 'สัดส่วน'], W),
     d.pris.length
-      ? d.pris.map((p) => [
+      ? d.pris.map((p) => wide([
           priCell(p.id, pal, S),
           cell(p.label, S.key),
           cell(p.count, S.num),
           cell(pct(d.items.length ? p.count / d.items.length : 0), S.num),
-        ])
-      : [[cell('–', S.num), cell('ไม่มีนัดเคสในช่วงนี้', S.key), { s: S.note }, { s: S.note }]], S);
+        ]))
+      : [wide([cell('–', S.num), cell('ไม่มีนัดเคสในช่วงนี้', S.key)])], S);
+
+  // สรุปหมวดหมู่ (ชุดเดียวกับการ์ดในหน้าสถิติ) — อยู่ในชีตเดียวกัน ต่อจากตารางด้านบน
+  r = table(rows, merges, r, W, catTitle(d), CAT_HEAD, d.catSummary.map((c) => catCells(c, pal, S)), S);
 
   if (d.unnamed) rows[r++] = [cell(`อีก ${d.unnamed} นัดในช่วงนี้ไม่ได้ระบุผู้ติดต่อ`, S.sub)];
 
   return {
     name: 'รายงานสรุป',
     rows: normalize(rows, W),
-    colWidths: [22, 16, 42, 12],
+    colWidths: [22, 16, 42, 12, 12, 12, 46, 46],
     merges,
     freeze: { cols: 0, rows: 3 },
   };
 }
 
-/** ชีตสรุปเคส + รายชื่อคน (สองตารางเรียงลงมา) */
+/** แถวหนึ่งของตารางสรุปหมวดหมู่ในไฟล์ .xlsx — คอลัมน์แรกพื้นสีตามหมวด, หมวดที่ยังไม่ได้ใช้จางลง */
+function catCells(c: ReportCat, pal: ExportPalette, S: Styles): (XWriteCell | null)[] {
+  return catRow(c).map((v, i) => {
+    if (i === 0) return { v, s: { ...S.key, bold: true, fill: pal.catTint(c.color), color: pal.catInk(c.color) } };
+    if (!c.count) return cell(v, S.note);
+    return cell(v, i >= 6 ? S.cell : S.num);
+  });
+}
+
+/** ชีต "สรุปเคส & รายชื่อ" — สรุปตามเคส + รายชื่อคน + รายการนัดเคสทุกครั้ง (สามตารางเรียงลงมาในชีตเดียว) */
 function caseSheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
   const rows: (XWriteCell | null)[][] = [];
   const merges: string[] = [];
-  const W = Math.max(CASE_HEAD.length, PEOPLE_HEAD.length);
+  const W = Math.max(CASE_HEAD.length, PEOPLE_HEAD.length, ITEM_HEAD.length);
   let r = 0;
 
   r = table(rows, merges, r, W, `สรุปตามเคส (${d.cases.length} เคส)`, pad(CASE_HEAD, W),
     d.cases.map((c) => rowCells(caseRow(c), 1, pal, S)), S);
 
-  table(rows, merges, r, W, `รายชื่อคน (${d.people.length} คน)`, pad(PEOPLE_HEAD, W),
+  r = table(rows, merges, r, W, `รายชื่อคน (${d.people.length} คน)`, pad(PEOPLE_HEAD, W),
     d.people.length ? d.people.map((p) => rowCells(personRow(p), 1, pal, S)) : [[cell('ไม่มีนัดเคสที่ระบุผู้ติดต่อในช่วงนี้', S.note)]], S);
 
-  return { name: 'สรุปเคส & รายชื่อ', rows: normalize(rows, W), colWidths: [30, 8, 7, 7, 11, 10, 10, 9, 20, 30], merges, freeze: { cols: 0, rows: 2 } };
-}
-
-/** ชีตรายการนัดเคสทุกครั้ง */
-function itemSheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
-  const rows: (XWriteCell | null)[][] = [];
-  const merges: string[] = [];
-  const W = ITEM_HEAD.length;
-  table(rows, merges, 0, W, `รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD,
+  table(rows, merges, r, W, `รายการนัดเคส (${d.items.length} นัด)`, pad(ITEM_HEAD, W),
     d.items.map((it) => {
       const cs = rowCells(itemRow(it, d.nameById), 4, pal, S);
       const st = it.ostatus;
       cs[7] = { v: STATUS_TH[st], s: { ...S.num, bold: st === 'done' || st === 'skipped', color: st === 'done' ? pal.ok : st === 'skipped' || st === 'cancelled' ? pal.bad : S.num.color, strike: st === 'skipped' } };
       return cs;
     }), S);
-  return { name: 'รายการนัดเคส', rows: normalize(rows, W), colWidths: [13, 12, 16, 34, 8, 11, 28, 12], merges, freeze: { cols: 0, rows: 2 } };
+
+  // ความกว้างคอลัมน์เอาค่ามากสุดของทั้งสามตาราง (คอลัมน์ D ต้องพอสำหรับชื่อเคสในตารางรายการนัด)
+  return { name: 'สรุปเคส & รายชื่อ', rows: normalize(rows, W), colWidths: [30, 12, 16, 34, 11, 11, 28, 30, 20, 30], merges, freeze: { cols: 0, rows: 2 } };
 }
 
 /** แปลงค่าดิบเป็นเซลล์ — คอลัมน์ priIdx ใช้ป้ายระดับสีพื้น, ตัวเลข/ข้อความสั้นจัดกลาง */
@@ -490,11 +609,11 @@ function normalize(rows: (XWriteCell | null)[][], w: number): (XWriteCell | null
   return out;
 }
 
-/** ชีตรายงานทั้งชุดสำหรับไฟล์ .xlsx */
+/** ชีตรายงานทั้งชุดสำหรับไฟล์ .xlsx — 2 ชีต: รายงานสรุป (รวมสรุปหมวดหมู่) · สรุปเคส & รายชื่อ (รวมรายการนัด) */
 export function reportSheets(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.current): XWriteSheet[] {
   const S = styles(pal);
   const out = [summarySheet(d, pal, S)];
-  if (d.items.length) out.push(caseSheet(d, pal, S), itemSheet(d, pal, S));
+  if (d.items.length) out.push(caseSheet(d, pal, S));
   return out;
 }
 
@@ -524,6 +643,10 @@ export function reportCsv(d: ReportData): string {
     line(['นัดเคสตามระดับความสำคัญ']),
     line(['ระดับ', 'ความหมาย', 'จำนวนนัด']),
     ...d.pris.map((p) => line([p.id, p.label, p.count])),
+    '',
+    line([catTitle(d)]),
+    line(CAT_HEAD),
+    ...d.catSummary.map((c) => line(catRow(c))),
   ];
   if (d.items.length) {
     out.push(
@@ -591,6 +714,11 @@ export function reportHtml(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
     });
   s += T('นัดเคสตามระดับความสำคัญ', ['ระดับ', 'ความหมาย', 'จำนวนนัด'], d.pris.map((p) => [p.id, p.label, p.count]),
     (v, i) => priTint(v, i, 0));
+  s += T(catTitle(d), CAT_HEAD, d.catSummary.map(catRow), (v, i) => {
+    if (i !== 0) return '';
+    const c = CATS.find((x) => x.short === v);
+    return c ? `background:${pal.catTint(c.color)};color:${pal.catInk(c.color)};font-weight:bold;white-space:nowrap;` : '';
+  });
   if (d.items.length) {
     s += T(`สรุปตามเคส (${d.cases.length} เคส)`, CASE_HEAD, d.cases.map(caseRow), (v, i) => priTint(v, i, 1));
     s += T(`รายชื่อคน (${d.people.length} คน)`, PEOPLE_HEAD, d.people.map(personRow), (v, i) => priTint(v, i, 1));
@@ -658,11 +786,15 @@ function priSCell(id: PriorityId | null | string, pal: ExportPalette): SCell {
     : { v: '–', bg: pal.cellBg, fg: pal.faint };
 }
 
-/** ชีตรายงานทั้งชุดสำหรับส่งขึ้น Google Sheets — ชุดเนื้อหาเดียวกับ reportSheets (.xlsx) */
+/**
+ * ชีตรายงานทั้งชุดสำหรับส่งขึ้น Google Sheets — ชุดเนื้อหา/การแบ่งแท็บเดียวกับ reportSheets (.xlsx)
+ * 2 แท็บ: "รายงานสรุป" (ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · ระดับความสำคัญ · สรุปหมวดหมู่)
+ *        "สรุปเคส & รายชื่อ" (สรุปตามเคส · รายชื่อคน · รายการนัดเคส)
+ */
 export function reportTabs(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.current): ReportTab[] {
   const plain = (v: string | number): SCell => ({ v, bg: pal.cellBg, fg: pal.ink });
 
-  // --- แท็บ 1: ภาพรวม / แนวโน้ม / ชั่วโมงตามหมวด / ระดับความสำคัญ ---
+  // --- แท็บ 1: ภาพรวม / แนวโน้ม / ชั่วโมงตามหมวด / ระดับความสำคัญ / สรุปหมวดหมู่ ---
   const a = newAcc();
   pushRow(a, [
     { v: 'รายงานสรุปจากที่บันทึกไว้', bg: pal.title, fg: pal.titleInk, b: true },
@@ -707,23 +839,28 @@ export function reportTabs(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
         ])
       : [[priSCell(null, pal), plain('ไม่มีนัดเคสในช่วงนี้')]]);
 
+  // สรุปหมวดหมู่ — อยู่ในแท็บเดียวกับรายงานสรุป ต่อจากบล็อกด้านบน
+  sheetBlock(a, pal, catTitle(d), CAT_HEAD,
+    d.catSummary.map((c) =>
+      catRow(c).map((v, i) => {
+        if (i === 0) return { v, bg: pal.catTint(c.color), fg: pal.catInk(c.color), b: true };
+        return { v, bg: pal.cellBg, fg: c.count ? pal.ink : pal.faint };
+      }),
+    ));
+
   if (d.unnamed) pushRow(a, [{ v: `อีก ${d.unnamed} นัดในช่วงนี้ไม่ได้ระบุผู้ติดต่อ`, fg: pal.sub }]);
 
   const out: ReportTab[] = [{ name: 'รายงานสรุป', ...a }];
   if (!d.items.length) return out;
 
-  // --- แท็บ 2: สรุปตามเคส + รายชื่อคน ---
+  // --- แท็บ 2: สรุปตามเคส + รายชื่อคน + รายการนัดเคสทุกครั้ง (สถานะย้อมสีเหมือนไฟล์ .xlsx) ---
   const b = newAcc();
   sheetBlock(b, pal, `สรุปตามเคส (${d.cases.length} เคส)`, CASE_HEAD, d.cases.map((c) => sheetCells(caseRow(c), 1, pal)));
   sheetBlock(b, pal, `รายชื่อคน (${d.people.length} คน)`, PEOPLE_HEAD,
     d.people.length
       ? d.people.map((p) => sheetCells(personRow(p), 1, pal))
       : [[{ v: 'ไม่มีนัดเคสที่ระบุผู้ติดต่อในช่วงนี้', bg: pal.cellBg, fg: pal.faint }]]);
-  out.push({ name: 'สรุปเคส & รายชื่อ', ...b });
-
-  // --- แท็บ 3: รายการนัดเคสทุกครั้ง (สถานะย้อมสีเหมือนไฟล์ .xlsx) ---
-  const c = newAcc();
-  sheetBlock(c, pal, `รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD,
+  sheetBlock(b, pal, `รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD,
     d.items.map((it) => {
       const cells = sheetCells(itemRow(it, d.nameById), 4, pal);
       const st = it.ostatus;
@@ -735,6 +872,6 @@ export function reportTabs(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
       };
       return cells;
     }));
-  out.push({ name: 'รายการนัดเคส', ...c });
+  out.push({ name: 'สรุปเคส & รายชื่อ', ...b });
   return out;
 }
