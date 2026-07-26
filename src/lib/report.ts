@@ -65,6 +65,16 @@ export interface ReportCatOpt {
   configured: boolean;
 }
 
+/** กิจกรรมหนึ่งชื่อในหมวด — รวมทุกครั้งที่ชื่อเดียวกันในช่วงที่ส่งออก */
+export interface ReportCatItem {
+  name: string;
+  count: number; // จำนวนครั้งที่ถึงกำหนด
+  done: number;
+  hours: number; // ชั่วโมงเฉพาะครั้งที่ทำเสร็จ
+  first: string; // ISO วันแรกที่พบในช่วง
+  last: string;
+}
+
 /** สรุปหมวดหนึ่ง — ชุดเดียวกับการ์ด "สรุปหมวดหมู่" หน้าสถิติ (มีครบทุกหมวด รวมหมวดที่ยังไม่ได้ใช้) */
 export interface ReportCat {
   id: CatId;
@@ -75,9 +85,11 @@ export interface ReportCat {
   done: number;
   hours: number; // ชั่วโมงเฉพาะที่ทำเสร็จ
   share: number; // สัดส่วนจำนวนรายการเทียบทั้งหมด
+  /** สัดส่วนชั่วโมงเทียบชั่วโมงที่ทำเสร็จทั้งหมด (เกณฑ์ "ชั่วโมง" ของแถบเทียบในหน้าสถิติ) */
+  hourShare: number;
   rate: number; // done / count
-  /** ชื่อกิจกรรม → จำนวนครั้ง เรียงมากไปน้อย */
-  titles: [string, number][];
+  /** กิจกรรมทุกชื่อในหมวดนี้ (ไม่ตัดทอน) เรียงจำนวนครั้งมากไปน้อย */
+  items: ReportCatItem[];
   /** ชื่อชุดตัวเลือกย่อยของหมวด (null = หมวดนี้ไม่มีตัวเลือกย่อย) */
   optTitle: string | null;
   opts: ReportCatOpt[];
@@ -200,8 +212,19 @@ export function buildReport(
       done: s?.done ?? 0,
       hours: s?.hours ?? 0,
       share: stats.scheduled ? (s?.count ?? 0) / stats.scheduled : 0,
+      hourShare: stats.doneHours ? (s?.hours ?? 0) / stats.doneHours : 0,
       rate: s?.count ? s.done / s.count : 0,
-      titles: Object.entries(s?.titles ?? {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th')),
+      // กิจกรรมทุกชื่อในหมวด (ไม่ตัด 3 อันดับ) — เรียงครั้งมากไปน้อย แล้วชื่อไทย
+      items: Object.entries(s?.titles ?? {})
+        .map(([name, count]) => ({
+          name,
+          count,
+          done: s?.titleDone[name] ?? 0,
+          hours: s?.titleHours[name] ?? 0,
+          first: s?.titleFirst[name] ?? '',
+          last: s?.titleLast[name] ?? '',
+        }))
+        .sort((a, b) => b.count - a.count || b.hours - a.hours || a.name.localeCompare(b.name, 'th')),
       optTitle: optSet?.title ?? null,
       opts: names.map((n) => ({ name: n, count: used[n] ?? 0, configured: listed.includes(n) })),
     };
@@ -358,19 +381,81 @@ function overviewRows(d: ReportData): [string, string, string][] {
   ];
 }
 
-/** ตารางสรุปหมวดหมู่ — list ทุกหมวดที่มีในแอป พร้อมบอกสถานะใช้งาน/ไม่ใช้งานในช่วงที่ส่งออก */
-const CAT_HEAD = ['หมวด', 'ชื่อเต็ม', 'สถานะ', 'รายการ', 'สัดส่วน', 'เสร็จ', 'อัตราสำเร็จ', 'ชั่วโมง', 'กิจกรรมยอดฮิต (3 อันดับ)', 'ตัวเลือกย่อยที่ตั้งไว้'];
+/**
+ * ตารางสรุปหมวดหมู่ — ชุดข้อมูลเดียวกับการ์ด "สรุปหมวดหมู่" หน้าสถิติ:
+ * list ทุกหมวดที่มีในแอป · สถานะใช้งาน/ไม่ใช้งาน · เกณฑ์เทียบทั้งจำนวนและชั่วโมง (แถบสลับเกณฑ์ในหน้าจอ)
+ * · กิจกรรมยอดฮิต 3 อันดับ · ตัวเลือกย่อยที่ตั้งไว้พร้อมตัวที่ยังไม่ถูกใช้
+ */
+const CAT_HEAD = ['หมวด', 'ชื่อเต็ม', 'สถานะ', 'รายการ', 'สัดส่วนรายการ', 'เสร็จ', 'อัตราสำเร็จ', 'ชั่วโมง', 'สัดส่วนชั่วโมง', 'กิจกรรมยอดฮิต (3 อันดับ)', 'ตัวเลือกย่อยที่ตั้งไว้'];
 /** คอลัมน์ "สถานะ" ในตารางสรุปหมวดหมู่ (ไว้ย้อมสีให้ตรงกันทุกฟอร์แมต) */
 const CAT_STATUS_COL = 2;
 /** คอลัมน์แรกที่เป็นข้อความยาว (ต้อง wrap ในไฟล์ .xlsx) */
-const CAT_TEXT_COL = 8;
+const CAT_TEXT_COL = 9;
 
-/** กิจกรรมยอดฮิตของหมวดเป็นข้อความบรรทัดเดียว — "ตื่นนอน 12 · อาบน้ำ 9 (+4 ชื่อ)" */
-function topTitlesText(c: ReportCat): string {
-  if (!c.titles.length) return 'ยังไม่ได้ใช้ในช่วงนี้';
-  const head = c.titles.slice(0, 3).map(([n, k]) => `${n} ${k}`).join(' · ');
-  return c.titles.length > 3 ? `${head} (+${c.titles.length - 3} ชื่อ)` : head;
+/** แถบ "หมวดที่ใช้มากสุด" — ชุดเดียวกับแถบเด่นบนสุดของการ์ดในหน้าสถิติ */
+const TOP_CAT_HEAD = ['หมวด', 'สัดส่วน', 'รายละเอียด'];
+
+/** แถวของแถบเด่น — [ชื่อหมวด, ค่าเด่น, รายละเอียด] · แจ้งด้วยเมื่อมีหลายหมวดใช้เท่ากัน */
+function topCatRows(d: ReportData): [string, string, string][] {
+  const c = d.topCat;
+  if (!c) return [['–', '–', 'ยังไม่มีรายการที่ถึงกำหนดในช่วงนี้']];
+  const tied = d.catSummary.filter((x) => x.count === c.count);
+  const rows: [string, string, string][] = [
+    [
+      c.name,
+      pct(c.share),
+      `${c.count} รายการจากทั้งหมด ${d.stats.scheduled} · ทำเสร็จ ${c.done} (${ratePct(c.done, c.count)})${c.hours ? ` · ลงมือไป ${h1(c.hours)}` : ''}`,
+    ],
+  ];
+  if (tied.length > 1) {
+    rows.push(['ใช้มากสุดเท่ากัน', `${tied.length} หมวด`, tied.map((x) => x.short).join(' · ')]);
+  }
+  return rows;
 }
+
+/** กิจกรรมยอดฮิตของหมวดเป็นข้อความบรรทัดเดียว — รายชื่อครบอยู่ในตาราง "รายการกิจกรรมทั้งหมดตามหมวด" */
+function topTitlesText(c: ReportCat): string {
+  if (!c.items.length) return 'ยังไม่ได้ใช้ในช่วงนี้';
+  const head = c.items.slice(0, 3).map((it) => `${it.name} ${it.count} ครั้ง`).join(' · ');
+  return c.items.length > 3 ? `${head} (ทั้งหมด ${c.items.length} ชื่อ — ดูตารางถัดไป)` : head;
+}
+
+/** ตาราง "รายการกิจกรรมทั้งหมดตามหมวด" — ทุกกิจกรรมในทั้ง 6 หมวด ไม่ตัดทอน */
+const ACT_HEAD = ['หมวด', 'กิจกรรม', 'ครั้ง', 'เสร็จ', 'อัตราสำเร็จ', 'ชั่วโมง', 'สัดส่วนในหมวด', 'ครั้งแรก', 'ครั้งล่าสุด'];
+
+/** ทุกกิจกรรมของทุกหมวด (หมวดที่ไม่มีรายการก็มีแถวบอกไว้) — คู่กับหมวดต้นทางไว้ย้อมสี */
+function catItemRows(d: ReportData): { cat: ReportCat; vals: (string | number)[] }[] {
+  const out: { cat: ReportCat; vals: (string | number)[] }[] = [];
+  for (const c of d.catSummary) {
+    if (!c.items.length) {
+      out.push({ cat: c, vals: [c.short, 'ไม่มีรายการในช่วงนี้', 0, 0, '–', '–', '–', '–', '–'] });
+      continue;
+    }
+    for (const it of c.items) {
+      out.push({
+        cat: c,
+        vals: [
+          c.short,
+          it.name,
+          it.count,
+          it.done,
+          ratePct(it.done, it.count),
+          it.hours ? h1(it.hours) : '–',
+          c.count ? pct(it.count / c.count) : '–',
+          it.first ? dayLabel(it.first) : '–',
+          it.last ? dayLabel(it.last) : '–',
+        ],
+      });
+    }
+  }
+  return out;
+}
+
+/** หัวข้อตารางรายการกิจกรรม — บอกจำนวนชื่อทั้งหมดและจำนวนครั้งรวม */
+const actTitle = (d: ReportData): string => {
+  const names = d.catSummary.reduce((n, c) => n + c.items.length, 0);
+  return `รายการกิจกรรมทั้งหมดตามหมวด — ${names} ชื่อ · ${d.stats.scheduled} ครั้ง (ครบทั้ง ${CATS.length} หมวด)`;
+};
 
 /** ตัวเลือกย่อยของหมวดเป็นข้อความบรรทัดเดียว — ตัวที่ตั้งไว้แต่ยังไม่ถูกใช้ก็แสดงไว้ด้วย */
 function optsText(c: ReportCat): string {
@@ -388,6 +473,7 @@ const catRow = (c: ReportCat): (string | number)[] => [
   c.done,
   c.count ? ratePct(c.done, c.count) : '–',
   c.hours ? h1(c.hours) : '–',
+  c.hours ? pct(c.hourShare) : '–',
   topTitlesText(c),
   optsText(c),
 ];
@@ -553,15 +639,35 @@ function summarySheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet
         ]))
       : [wide([cell('–', S.num), cell('ไม่มีนัดเคสในช่วงนี้', S.key)])], S);
 
-  // สรุปหมวดหมู่ (ชุดเดียวกับการ์ดในหน้าสถิติ) — อยู่ในชีตเดียวกัน ต่อจากตารางด้านบน
+  // สรุปหมวดหมู่ (ชุดเดียวกับการ์ดในหน้าสถิติ) — แถบเด่นหมวดที่ใช้มากสุด แล้วตามด้วยตารางทุกหมวด
+  r = table(rows, merges, r, W, 'หมวดที่ใช้มากสุดในช่วงนี้', pad(TOP_CAT_HEAD, W),
+    topCatRows(d).map(([k, v, note], i) => wide([
+      {
+        v: k,
+        s: i === 0 && d.topCat
+          ? { ...S.key, bold: true, fill: pal.catTint(d.topCat.color), color: pal.catInk(d.topCat.color) }
+          : { ...S.key, bold: true },
+      },
+      cell(v, S.val),
+      cell(note, S.note),
+    ])), S);
+
   r = table(rows, merges, r, W, catTitle(d), CAT_HEAD, d.catSummary.map((c) => catCells(c, pal, S)), S);
+
+  // รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด (ไม่ตัดทอน) — ชุดเดียวกับที่กางดูได้ในการ์ดหน้าสถิติ
+  r = table(rows, merges, r, W, actTitle(d), pad(ACT_HEAD, W),
+    catItemRows(d).map(({ cat, vals }) => wide(vals.map((v, i) => {
+      if (i === 0) return { v, s: { ...S.key, bold: true, fill: pal.catTint(cat.color), color: pal.catInk(cat.color) } };
+      if (!cat.items.length) return cell(v, S.note); // หมวดที่ยังไม่ได้ใช้ — จางทั้งแถว
+      return cell(v, i === 1 ? { ...S.cell, bold: true } : S.num);
+    }))), S);
 
   if (d.unnamed) rows[r++] = [cell(`อีก ${d.unnamed} นัดในช่วงนี้ไม่ได้ระบุผู้ติดต่อ`, S.sub)];
 
   return {
     name: 'รายงานสรุป',
     rows: normalize(rows, W),
-    colWidths: [22, 22, 42, 12, 10, 10, 11, 10, 46, 46],
+    colWidths: [22, 22, 42, 12, 12, 10, 11, 10, 12, 46, 46],
     merges,
     freeze: { cols: 0, rows: 3 },
   };
@@ -664,9 +770,17 @@ export function reportCsv(d: ReportData): string {
     line(['ระดับ', 'ความหมาย', 'จำนวนนัด']),
     ...d.pris.map((p) => line([p.id, p.label, p.count])),
     '',
+    line(['หมวดที่ใช้มากสุดในช่วงนี้']),
+    line(TOP_CAT_HEAD),
+    ...topCatRows(d).map(line),
+    '',
     line([catTitle(d)]),
     line(CAT_HEAD),
     ...d.catSummary.map((c) => line(catRow(c))),
+    '',
+    line([actTitle(d)]),
+    line(ACT_HEAD),
+    ...catItemRows(d).map(({ vals }) => line(vals)),
   ];
   if (d.items.length) {
     out.push(
@@ -734,10 +848,22 @@ export function reportHtml(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
     });
   s += T('นัดเคสตามระดับความสำคัญ', ['ระดับ', 'ความหมาย', 'จำนวนนัด'], d.pris.map((p) => [p.id, p.label, p.count]),
     (v, i) => priTint(v, i, 0));
+  s += T('หมวดที่ใช้มากสุดในช่วงนี้', TOP_CAT_HEAD, topCatRows(d).map((r) => [...r]), (v, i) => {
+    if (i !== 0) return '';
+    const c = CATS.find((x) => x.name === v);
+    return c
+      ? `background:${pal.catTint(c.color)};color:${pal.catInk(c.color)};font-weight:bold;white-space:nowrap;`
+      : 'font-weight:bold;';
+  });
   s += T(catTitle(d), CAT_HEAD, d.catSummary.map(catRow), (v, i) => {
     if (i === CAT_STATUS_COL) {
       return `color:${v === 'ใช้งาน' ? pal.ok : pal.faint};font-weight:bold;text-align:center;white-space:nowrap;`;
     }
+    if (i !== 0) return '';
+    const c = CATS.find((x) => x.short === v);
+    return c ? `background:${pal.catTint(c.color)};color:${pal.catInk(c.color)};font-weight:bold;white-space:nowrap;` : '';
+  });
+  s += T(actTitle(d), ACT_HEAD, catItemRows(d).map(({ vals }) => vals), (v, i) => {
     if (i !== 0) return '';
     const c = CATS.find((x) => x.short === v);
     return c ? `background:${pal.catTint(c.color)};color:${pal.catInk(c.color)};font-weight:bold;white-space:nowrap;` : '';
@@ -862,13 +988,31 @@ export function reportTabs(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
         ])
       : [[priSCell(null, pal), plain('ไม่มีนัดเคสในช่วงนี้')]]);
 
-  // สรุปหมวดหมู่ — อยู่ในแท็บเดียวกับรายงานสรุป ต่อจากบล็อกด้านบน
+  // สรุปหมวดหมู่ — อยู่ในแท็บเดียวกับรายงานสรุป: แถบเด่นหมวดที่ใช้มากสุด แล้วตามด้วยตารางทุกหมวด
+  sheetBlock(a, pal, 'หมวดที่ใช้มากสุดในช่วงนี้', TOP_CAT_HEAD,
+    topCatRows(d).map(([k, v, note], i) => [
+      i === 0 && d.topCat
+        ? { v: k, bg: pal.catTint(d.topCat.color), fg: pal.catInk(d.topCat.color), b: true }
+        : { v: k, bg: pal.cellBg, fg: pal.ink, b: true },
+      { v, bg: pal.cellBg, fg: pal.ink, b: true },
+      { v: note, bg: pal.cellBg, fg: pal.sub },
+    ]));
+
   sheetBlock(a, pal, catTitle(d), CAT_HEAD,
     d.catSummary.map((c) =>
       catRow(c).map((v, i) => {
         if (i === 0) return { v, bg: pal.catTint(c.color), fg: pal.catInk(c.color), b: true };
         if (i === CAT_STATUS_COL) return { v, bg: pal.cellBg, fg: c.count ? pal.ok : pal.faint, b: true };
         return { v, bg: pal.cellBg, fg: c.count ? pal.ink : pal.faint };
+      }),
+    ));
+
+  // รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด (ไม่ตัดทอน)
+  sheetBlock(a, pal, actTitle(d), ACT_HEAD,
+    catItemRows(d).map(({ cat, vals }) =>
+      vals.map((v, i) => {
+        if (i === 0) return { v, bg: pal.catTint(cat.color), fg: pal.catInk(cat.color), b: true };
+        return { v, bg: pal.cellBg, fg: cat.items.length ? pal.ink : pal.faint, b: i === 1 };
       }),
     ));
 

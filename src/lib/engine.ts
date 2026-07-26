@@ -231,6 +231,11 @@ export interface CatStat {
   titles: Record<string, number>;
   /** ชื่อกิจกรรม → ชั่วโมงที่ทำเสร็จ (นิยามเดียวกับ hours — ยังไม่ทำ = ไม่นับ) */
   titleHours: Record<string, number>;
+  /** ชื่อกิจกรรม → จำนวนครั้งที่ทำเสร็จ */
+  titleDone: Record<string, number>;
+  /** ชื่อกิจกรรม → วันแรก / วันล่าสุดที่ถึงกำหนดในช่วง (ISO) */
+  titleFirst: Record<string, string>;
+  titleLast: Record<string, string>;
   /** ค่าตัวเลือกย่อยของหมวด (สถานที่/ประเภท/สื่อ ตาม CAT_OPTIONS) → จำนวนครั้งที่ใช้จริง */
   opts: Record<string, number>;
   /** ค่าตัวเลือกย่อย → ชั่วโมงที่ทำเสร็จ */
@@ -287,10 +292,18 @@ export function rangeStats(acts: Activity[], occ: OccMap, from: string, to: stri
         if (it.priority) caseByPriority[it.priority] = (caseByPriority[it.priority] ?? 0) + 1;
       }
 
-      const cs = (byCat[it.cat] ??= { count: 0, done: 0, hours: 0, titles: {}, titleHours: {}, opts: {}, optHours: {} });
+      const cs = (byCat[it.cat] ??= {
+        count: 0, done: 0, hours: 0,
+        titles: {}, titleHours: {}, titleDone: {}, titleFirst: {}, titleLast: {},
+        opts: {}, optHours: {},
+      });
       cs.count++;
       const title = it.title.trim().replace(/\s+/g, ' ');
-      if (title) cs.titles[title] = (cs.titles[title] ?? 0) + 1;
+      if (title) {
+        cs.titles[title] = (cs.titles[title] ?? 0) + 1;
+        if (!cs.titleFirst[title] || d < cs.titleFirst[title]) cs.titleFirst[title] = d;
+        if (!cs.titleLast[title] || d > cs.titleLast[title]) cs.titleLast[title] = d;
+      }
       // ตัวเลือกย่อยเก็บอยู่คนละฟิลด์แล้วแต่หมวด (งาน = สถานที่, ออกกำลัง/เรียนรู้ = ประเภท/สื่อ)
       const field = CAT_OPTIONS[it.cat]?.field;
       const raw = field ? (field === 'loc' ? it.loc : it.sub)?.trim() : null;
@@ -305,7 +318,10 @@ export function rangeStats(acts: Activity[], occ: OccMap, from: string, to: stri
         cs.done++;
         cs.hours += h;
         // ชั่วโมงรายกิจกรรม/รายตัวเลือกย่อย — ให้การ์ดสรุปหมวดหมู่กางดูได้ว่าเวลาหมดไปกับอะไร
-        if (title) cs.titleHours[title] = (cs.titleHours[title] ?? 0) + h;
+        if (title) {
+          cs.titleHours[title] = (cs.titleHours[title] ?? 0) + h;
+          cs.titleDone[title] = (cs.titleDone[title] ?? 0) + 1;
+        }
         if (opt) cs.optHours[opt] = (cs.optHours[opt] ?? 0) + h;
       }
     }
