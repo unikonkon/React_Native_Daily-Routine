@@ -229,8 +229,12 @@ export interface CatStat {
   hours: number; // ชั่วโมงเฉพาะรายการที่ทำเสร็จ (ค่าเดียวกับ hoursByCat)
   /** ชื่อกิจกรรม (ตัดช่องว่างซ้ำแล้ว) → จำนวนครั้งที่ถึงกำหนด */
   titles: Record<string, number>;
+  /** ชื่อกิจกรรม → ชั่วโมงที่ทำเสร็จ (นิยามเดียวกับ hours — ยังไม่ทำ = ไม่นับ) */
+  titleHours: Record<string, number>;
   /** ค่าตัวเลือกย่อยของหมวด (สถานที่/ประเภท/สื่อ ตาม CAT_OPTIONS) → จำนวนครั้งที่ใช้จริง */
   opts: Record<string, number>;
+  /** ค่าตัวเลือกย่อย → ชั่วโมงที่ทำเสร็จ */
+  optHours: Record<string, number>;
 }
 
 export interface RangeStats {
@@ -283,17 +287,15 @@ export function rangeStats(acts: Activity[], occ: OccMap, from: string, to: stri
         if (it.priority) caseByPriority[it.priority] = (caseByPriority[it.priority] ?? 0) + 1;
       }
 
-      const cs = (byCat[it.cat] ??= { count: 0, done: 0, hours: 0, titles: {}, opts: {} });
+      const cs = (byCat[it.cat] ??= { count: 0, done: 0, hours: 0, titles: {}, titleHours: {}, opts: {}, optHours: {} });
       cs.count++;
       const title = it.title.trim().replace(/\s+/g, ' ');
       if (title) cs.titles[title] = (cs.titles[title] ?? 0) + 1;
       // ตัวเลือกย่อยเก็บอยู่คนละฟิลด์แล้วแต่หมวด (งาน = สถานที่, ออกกำลัง/เรียนรู้ = ประเภท/สื่อ)
       const field = CAT_OPTIONS[it.cat]?.field;
       const raw = field ? (field === 'loc' ? it.loc : it.sub)?.trim() : null;
-      if (raw) {
-        const opt = LEGACY_SUB[raw] ?? raw; // ค่ารุ่นเก่าที่เก็บเป็นรหัส → ข้อความที่ผู้ใช้เห็น
-        cs.opts[opt] = (cs.opts[opt] ?? 0) + 1;
-      }
+      const opt = raw ? LEGACY_SUB[raw] ?? raw : null; // ค่ารุ่นเก่าที่เก็บเป็นรหัส → ข้อความที่ผู้ใช้เห็น
+      if (opt) cs.opts[opt] = (cs.opts[opt] ?? 0) + 1;
 
       if (it.ostatus === 'done') {
         done++;
@@ -302,6 +304,9 @@ export function rangeStats(acts: Activity[], occ: OccMap, from: string, to: stri
         hoursByCat[it.cat] = (hoursByCat[it.cat] ?? 0) + h;
         cs.done++;
         cs.hours += h;
+        // ชั่วโมงรายกิจกรรม/รายตัวเลือกย่อย — ให้การ์ดสรุปหมวดหมู่กางดูได้ว่าเวลาหมดไปกับอะไร
+        if (title) cs.titleHours[title] = (cs.titleHours[title] ?? 0) + h;
+        if (opt) cs.optHours[opt] = (cs.optHours[opt] ?? 0) + h;
       }
     }
   }

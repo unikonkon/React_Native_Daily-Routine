@@ -344,6 +344,11 @@ function overviewRows(d: ReportData): [string, string, string][] {
       d.catSummary.filter((c) => c.count).map((c) => c.short).join(' · ') || 'ยังไม่มีรายการในช่วงนี้',
     ],
     [
+      'หมวดที่ไม่ใช้งาน',
+      `${CATS.length - d.usedCats} / ${CATS.length} หมวด`,
+      idleCatNames(d) || 'ใช้ครบทุกหมวดในช่วงนี้',
+    ],
+    [
       'หมวดที่ใช้มากสุด',
       d.topCat ? d.topCat.short : '–',
       d.topCat
@@ -353,7 +358,12 @@ function overviewRows(d: ReportData): [string, string, string][] {
   ];
 }
 
-const CAT_HEAD = ['หมวด', 'รายการ', 'สัดส่วน', 'เสร็จ', 'อัตราสำเร็จ', 'ชั่วโมง', 'กิจกรรมยอดฮิต (3 อันดับ)', 'ตัวเลือกย่อยที่ตั้งไว้'];
+/** ตารางสรุปหมวดหมู่ — list ทุกหมวดที่มีในแอป พร้อมบอกสถานะใช้งาน/ไม่ใช้งานในช่วงที่ส่งออก */
+const CAT_HEAD = ['หมวด', 'ชื่อเต็ม', 'สถานะ', 'รายการ', 'สัดส่วน', 'เสร็จ', 'อัตราสำเร็จ', 'ชั่วโมง', 'กิจกรรมยอดฮิต (3 อันดับ)', 'ตัวเลือกย่อยที่ตั้งไว้'];
+/** คอลัมน์ "สถานะ" ในตารางสรุปหมวดหมู่ (ไว้ย้อมสีให้ตรงกันทุกฟอร์แมต) */
+const CAT_STATUS_COL = 2;
+/** คอลัมน์แรกที่เป็นข้อความยาว (ต้อง wrap ในไฟล์ .xlsx) */
+const CAT_TEXT_COL = 8;
 
 /** กิจกรรมยอดฮิตของหมวดเป็นข้อความบรรทัดเดียว — "ตื่นนอน 12 · อาบน้ำ 9 (+4 ชื่อ)" */
 function topTitlesText(c: ReportCat): string {
@@ -371,6 +381,8 @@ function optsText(c: ReportCat): string {
 
 const catRow = (c: ReportCat): (string | number)[] => [
   c.short,
+  c.name,
+  c.count ? 'ใช้งาน' : 'ไม่ใช้งาน',
   c.count,
   c.count ? pct(c.share) : '–',
   c.done,
@@ -382,7 +394,11 @@ const catRow = (c: ReportCat): (string | number)[] => [
 
 /** หัวข้อตารางสรุปหมวดหมู่ (ใช้ตรงกันทุกฟอร์แมต) */
 const catTitle = (d: ReportData): string =>
-  `สรุปหมวดหมู่ — ใช้ ${d.usedCats}/${CATS.length} หมวด · ${d.stats.scheduled} รายการ${d.topCat ? ` · ใช้มากสุด: ${d.topCat.short}` : ''}`;
+  `สรุปหมวดหมู่ — หมวดทั้งหมด ${CATS.length} หมวด · ใช้งาน ${d.usedCats} · ไม่ใช้งาน ${CATS.length - d.usedCats}${d.topCat ? ` · ใช้มากสุด: ${d.topCat.short}` : ''}`;
+
+/** ชื่อหมวดที่ไม่มีรายการเลยในช่วงนี้ (คั่นด้วย ·) */
+const idleCatNames = (d: ReportData): string =>
+  d.catSummary.filter((c) => !c.count).map((c) => c.short).join(' · ');
 
 const CASE_HEAD = ['เคส', 'ระดับ', 'นัด', 'เสร็จ', 'อัตราสำเร็จ', 'ชั่วโมง', 'ออนไลน์', 'พบตัว', 'ช่วงวัน', 'ผู้ติดต่อ'];
 const caseRow = (c: ReportCase): (string | number)[] => [
@@ -545,18 +561,22 @@ function summarySheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet
   return {
     name: 'รายงานสรุป',
     rows: normalize(rows, W),
-    colWidths: [22, 16, 42, 12, 12, 12, 46, 46],
+    colWidths: [22, 22, 42, 12, 10, 10, 11, 10, 46, 46],
     merges,
     freeze: { cols: 0, rows: 3 },
   };
 }
 
-/** แถวหนึ่งของตารางสรุปหมวดหมู่ในไฟล์ .xlsx — คอลัมน์แรกพื้นสีตามหมวด, หมวดที่ยังไม่ได้ใช้จางลง */
+/**
+ * แถวหนึ่งของตารางสรุปหมวดหมู่ในไฟล์ .xlsx
+ * คอลัมน์แรกพื้นสีตามหมวด · คอลัมน์สถานะเขียว = ใช้งาน / จาง = ไม่ใช้งาน · หมวดที่ไม่ใช้งานจางทั้งแถว
+ */
 function catCells(c: ReportCat, pal: ExportPalette, S: Styles): (XWriteCell | null)[] {
   return catRow(c).map((v, i) => {
     if (i === 0) return { v, s: { ...S.key, bold: true, fill: pal.catTint(c.color), color: pal.catInk(c.color) } };
+    if (i === CAT_STATUS_COL) return { v, s: { ...S.num, bold: true, color: c.count ? pal.ok : pal.faint } };
     if (!c.count) return cell(v, S.note);
-    return cell(v, i >= 6 ? S.cell : S.num);
+    return cell(v, i >= CAT_TEXT_COL ? S.cell : i === 1 ? S.key : S.num);
   });
 }
 
@@ -715,6 +735,9 @@ export function reportHtml(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
   s += T('นัดเคสตามระดับความสำคัญ', ['ระดับ', 'ความหมาย', 'จำนวนนัด'], d.pris.map((p) => [p.id, p.label, p.count]),
     (v, i) => priTint(v, i, 0));
   s += T(catTitle(d), CAT_HEAD, d.catSummary.map(catRow), (v, i) => {
+    if (i === CAT_STATUS_COL) {
+      return `color:${v === 'ใช้งาน' ? pal.ok : pal.faint};font-weight:bold;text-align:center;white-space:nowrap;`;
+    }
     if (i !== 0) return '';
     const c = CATS.find((x) => x.short === v);
     return c ? `background:${pal.catTint(c.color)};color:${pal.catInk(c.color)};font-weight:bold;white-space:nowrap;` : '';
@@ -844,6 +867,7 @@ export function reportTabs(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
     d.catSummary.map((c) =>
       catRow(c).map((v, i) => {
         if (i === 0) return { v, bg: pal.catTint(c.color), fg: pal.catInk(c.color), b: true };
+        if (i === CAT_STATUS_COL) return { v, bg: pal.cellBg, fg: c.count ? pal.ok : pal.faint, b: true };
         return { v, bg: pal.cellBg, fg: c.count ? pal.ink : pal.faint };
       }),
     ));

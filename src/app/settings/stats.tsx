@@ -504,13 +504,20 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
   const rows = useMemo(() => {
     const list = CATS.map((c) => {
       const s = stats.byCat[c.id];
+      // กิจกรรมทุกชื่อในหมวด — เรียงตามเกณฑ์ที่เลือก (ชั่วโมง = เวลาที่ทำเสร็จ, จำนวน = ครั้งที่ถึงกำหนด)
+      const titles = Object.entries(s?.titles ?? {})
+        .map(([name, n]) => ({ name, n, hours: s?.titleHours[name] ?? 0 }))
+        .sort((a, b) =>
+          metric === 'hours' ? b.hours - a.hours || b.n - a.n || a.name.localeCompare(b.name, 'th') : b.n - a.n || b.hours - a.hours || a.name.localeCompare(b.name, 'th'),
+        );
       return {
         c,
         count: s?.count ?? 0,
         done: s?.done ?? 0,
         hours: s?.hours ?? 0,
-        titles: Object.entries(s?.titles ?? {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th')),
+        titles,
         opts: s?.opts ?? {},
+        optHours: s?.optHours ?? {},
       };
     });
     // เรียงตามเกณฑ์ที่เลือก — หมวดที่ยังไม่ได้ใช้ไปท้ายสุดเสมอ
@@ -606,14 +613,24 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
                 <View style={{ flex: 1, height: 8, borderRadius: 4, backgroundColor: t.chip }}>
                   <View style={{ width: `${Math.min(100, (v / max) * 100)}%`, height: 8, borderRadius: 4, backgroundColor: r.c.color }} />
                 </View>
-                <View style={{ width: 84, alignItems: 'flex-end' }}>
+                <View style={{ width: 110, alignItems: 'flex-end' }}>
                   {r.count ? (
-                    <>
-                      <Txt size={12} num weight="bold">{r.count} รายการ</Txt>
-                      <Txt size={10} num color={t.faint} numberOfLines={1}>
-                        เสร็จ {r.done}{r.hours ? ` · ${r.hours.toFixed(1)}ช` : ''}
-                      </Txt>
-                    </>
+                    /* เกณฑ์ที่เลือกอยู่ = ตัวเลขเด่น (ชั่วโมง → ชม.ที่ทำเสร็จ, จำนวน → รายการที่ถึงกำหนด) */
+                    metric === 'hours' ? (
+                      <>
+                        <Txt size={12} num weight="bold" color={r.hours ? t.ink : t.faint}>{hoursText(r.hours * 60)}</Txt>
+                        <Txt size={10} num color={t.faint} numberOfLines={1}>
+                          {r.count} รายการ · เสร็จ {r.done}
+                        </Txt>
+                      </>
+                    ) : (
+                      <>
+                        <Txt size={12} num weight="bold">{r.count} รายการ</Txt>
+                        <Txt size={10} num color={t.faint} numberOfLines={1}>
+                          เสร็จ {r.done}{r.hours ? ` · ${hoursText(r.hours * 60)}` : ''}
+                        </Txt>
+                      </>
+                    )
                   ) : (
                     <Txt size={10.5} color={t.faint}>ยังไม่ได้ใช้</Txt>
                   )}
@@ -624,13 +641,20 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
               {on ? (
                 <View style={{ gap: 8, paddingBottom: 10, paddingLeft: 28 }}>
                   {r.titles.length ? (
+                    /* กิจกรรมทุกชื่อในหมวดนี้ (ไม่ตัดรายการ) — เรียงตามเกณฑ์ที่เลือกอยู่ */
                     <View style={{ gap: 3 }}>
-                      <Txt size={10.5} color={t.faint}>กิจกรรมยอดฮิตในหมวดนี้ ({r.titles.length} ชื่อ)</Txt>
-                      {r.titles.slice(0, 3).map(([name, n]) => (
+                      <Txt size={10.5} color={t.faint}>
+                        กิจกรรมในหมวดนี้ทั้งหมด ({r.titles.length} ชื่อ){metric === 'hours' ? ' · ชั่วโมงนับเฉพาะที่ทำเสร็จ' : ''}
+                      </Txt>
+                      {r.titles.map(({ name, n, hours }) => (
                         <View key={name} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: r.c.color }} />
                           <Txt size={12} style={{ flex: 1 }} numberOfLines={1}>{name}</Txt>
-                          <Txt size={11} num color={t.sub}>{n} ครั้ง</Txt>
+                          {/* ชั่วโมงของกิจกรรมนั้น — เด่นเมื่อกำลังดูเกณฑ์ชั่วโมง, ยังไม่ทำเสร็จ = ขีดจาง */}
+                          <Txt size={11} num weight={metric === 'hours' ? 'bold' : 'reg'} color={hours ? (metric === 'hours' ? r.c.color : t.sub) : t.faint}>
+                            {hours ? hoursText(hours * 60) : '–'}
+                          </Txt>
+                          <Txt size={11} num color={t.sub} style={{ minWidth: 46, textAlign: 'right' }}>{n} ครั้ง</Txt>
                         </View>
                       ))}
                     </View>
@@ -644,6 +668,7 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
                         {[...optList, ...extra].map((o) => {
                           const n = r.opts[o] ?? 0;
+                          const oh = r.optHours[o] ?? 0;
                           return (
                             <View
                               key={o}
@@ -659,7 +684,10 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
                                 borderColor: t.line2,
                               }}>
                               <Txt size={11} color={n ? t.ink : t.faint}>{o}</Txt>
-                              <Txt size={10} num color={n ? r.c.color : t.faint}>{n ? `${n}` : 'ยังไม่ใช้'}</Txt>
+                              {/* เกณฑ์ชั่วโมง → ต่อท้ายชั่วโมงที่ทำเสร็จของตัวเลือกนั้น */}
+                              <Txt size={10} num color={n ? r.c.color : t.faint}>
+                                {n ? (metric === 'hours' ? `${n} · ${hoursText(oh * 60)}` : `${n}`) : 'ยังไม่ใช้'}
+                              </Txt>
                             </View>
                           );
                         })}
