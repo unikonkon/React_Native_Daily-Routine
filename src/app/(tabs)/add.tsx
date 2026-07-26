@@ -11,8 +11,8 @@ import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
 import { TimeRangeModal } from '@/components/time-range-modal';
 import { Btn, Card, Chip, ChipRow, PriBadge, Toggle, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CATS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
-import { MONTH_TH_FULL, addDays, beYear, fmtMin, fromISO, hoursText, thaiDate, todayISO } from '@/lib/dates';
+import { ACCENT, CATS, DANGER, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
+import { MONTH_TH_FULL, addDays, beYear, durText, fmtMin, fromISO, hoursText, thaiDate, todayISO } from '@/lib/dates';
 import { conflictsOn, freeSlots, maskFromDates } from '@/lib/engine';
 import { HORIZON_DAYS, type Contact, type Horizon, type RepeatRule } from '@/lib/types';
 import { getDay, useActivities, useDayReader } from '@/stores/activities';
@@ -534,22 +534,24 @@ function ScheduleSection() {
             <Chip small label="เลือกเอง" active={periodStart === null} onPress={() => setTimePickerOpen(true)} />
           </ChipRow>
 
-          {periodStart !== null ? (
-            <>
-              <Txt size={13} weight="med" color={t.sub}>ระยะเวลา</Txt>
-              <ChipRow>
-                {[1, 2, 3, 4, 5, 7].map((n) => (
-                  <Chip
-                    key={n}
-                    small
-                    label={`${n} ชม.`}
-                    active={duration === n * 60}
-                    onPress={() => d.set({ end: Math.min(d.start + n * 60, DAY_END) })}
-                  />
-                ))}
-              </ChipRow>
-            </>
-          ) : null}
+          {/* ระยะเวลา — แสดงตลอด (ทั้งโหมดพรีเซ็ต เลือกเอง และหลังแตะช่วงว่าง) พร้อมบอกความยาวปัจจุบัน */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Txt size={13} weight="med" color={t.sub} style={{ flex: 1 }}>ระยะเวลา</Txt>
+            <Txt size={13} num weight="bold" color={timeInvalid ? DANGER : ACCENT}>
+              {timeInvalid ? 'เวลาไม่ถูกต้อง' : durText(duration)}
+            </Txt>
+          </View>
+          <ChipRow>
+            {[1, 2, 3, 4, 5, 7].map((n) => (
+              <Chip
+                key={n}
+                small
+                label={`${n} ชม.`}
+                active={duration === n * 60}
+                onPress={() => d.set({ end: Math.min(d.start + n * 60, DAY_END) })}
+              />
+            ))}
+          </ChipRow>
 
           <Txt size={13} weight="med" color={t.sub}>ปรับละเอียด (ทีละ 15 นาที)</Txt>
           <TimeStepper label="เริ่ม" value={d.start} onChange={(v) => d.set({ start: v })} />
