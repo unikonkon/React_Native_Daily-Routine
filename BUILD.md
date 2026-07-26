@@ -14,6 +14,30 @@
 
 ---
 
+## 0. ทางลัด — Build ไฟล์ APK ของ Android
+
+สถานะโปรเจกต์ตอนนี้ **ตั้งค่าครบแล้ว** (`eas.json` มีโปรไฟล์ `preview` แบบ APK, `app.json` มี `android.package`,
+`eas init` ผูกกับ project `09e3dd8d-976f-492c-86c1-2c01e41e0cb3` เรียบร้อย) เหลือแค่สั่ง build:
+
+```bash
+eas build --platform android --profile preview
+```
+
+| ขั้นตอน | เกิดอะไรขึ้น |
+|---|---|
+| 1. Keystore | ครั้งแรกจะถาม *"Generate a new Android Keystore?"* → ตอบ **Yes** (EAS เก็บให้บนคลาวด์ ใช้ซ้ำทุก build) |
+| 2. อัปโหลด | บีบอัดโค้ดส่งขึ้น EAS |
+| 3. เข้าคิว + build | รอประมาณ 10–20 นาที ดูสถานะได้ที่ลิงก์ที่ CLI พิมพ์ออกมา |
+| 4. ได้ไฟล์ | ดาวน์โหลด `.apk` จากลิงก์ หรือ `eas build:run -p android --latest` เพื่อลง emulator/เครื่องทันที |
+
+ติดตั้งลงมือถือจริง: เปิดลิงก์ดาวน์โหลดบนเครื่อง Android แล้วกดติดตั้ง (ต้องเปิด "อนุญาตติดตั้งจากแหล่งที่ไม่รู้จัก")
+หรือต่อสาย USB แล้ว `adb install path/to/app.apk`
+
+> APK นี้เป็นบิลด์ **release แบบเต็ม** ทำงานได้เองโดยไม่ต้องต่อ Metro — ใช้แจกทดสอบได้เลย
+> แต่ถ้าจะขึ้น Google Play ต้องใช้ `--profile production` ซึ่งได้เป็นไฟล์ `.aab` แทน
+
+---
+
 ## 1. เตรียมเครื่อง (ทำครั้งเดียว)
 
 ```bash
@@ -64,29 +88,25 @@ npx tsc --noEmit                # ตรวจ TypeScript
 
 ## 3. ตั้งค่าที่ "ต้องทำก่อน build ครั้งแรก"
 
-### 3.1 ใส่ Bundle ID / Package name ใน `app.json`
+### 3.1 Package name / Bundle ID ใน `app.json`
 
-ตอนนี้ [app.json](app.json) **ยังไม่มี** `ios.bundleIdentifier` และ `android.package` ซึ่งเป็นค่าบังคับสำหรับการ build
-ถ้าไม่ใส่ EAS จะถามและเติมให้อัตโนมัติตอนรันครั้งแรก แต่แนะนำให้กำหนดเองเพื่อคุมชื่อ (เปลี่ยนทีหลังยากมากถ้าขึ้นสโตร์ไปแล้ว)
-
-เพิ่มลงใน `expo` ของ `app.json`:
+- ✅ **Android** — ตั้งไว้แล้ว: `android.package = "com.faradaybanana.dailyroutine"`
+  > ⚠️ เปลี่ยนได้อิสระ**ก่อน**ขึ้น Google Play เท่านั้น หลังจากนั้นเปลี่ยนไม่ได้แล้ว (ถือเป็นคนละแอป)
+- ⬜ **iOS** — ยังไม่ได้ตั้ง ถ้าจะ build iOS ต้องเพิ่มใน `expo` ของ `app.json`:
 
 ```jsonc
-{
-  "expo": {
-    "ios": {
-      "bundleIdentifier": "com.faradaybanana.dailyroutine",
-      "supportsTablet": true
-    },
-    "android": {
-      "package": "com.faradaybanana.dailyroutine"
-      // ...adaptiveIcon เดิมคงไว้
-    }
-  }
+"ios": {
+  "bundleIdentifier": "com.faradaybanana.dailyroutine",
+  "supportsTablet": true
 }
 ```
 
 ### 3.2 ผูกโปรเจกต์กับ EAS
+
+✅ ทำแล้ว — `app.json` มี `extra.eas.projectId` และ `owner: "faradaybanana"`
+หน้าโปรเจกต์: https://expo.dev/accounts/faradaybanana/projects/daily-routine
+
+ถ้าย้ายบัญชี/สร้างใหม่ ให้รัน:
 
 ```bash
 eas init          # สร้าง project บน expo.dev + เติม extra.eas.projectId ลง app.json
