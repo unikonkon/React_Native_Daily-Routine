@@ -11,7 +11,7 @@ import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
 import { TimeRangeModal } from '@/components/time-range-modal';
 import { Btn, Card, Chip, ChipRow, PriBadge, Toggle, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CATS, DANGER, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
+import { ACCENT, CATS, CAT_OPTIONS, DANGER, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, addDays, beYear, durText, fmtMin, fromISO, hoursText, thaiDate, todayISO } from '@/lib/dates';
 import { conflictsOn, freeSlots, maskFromDates } from '@/lib/engine';
 import { HORIZON_DAYS, type Contact, type Horizon, type RepeatRule } from '@/lib/types';
@@ -134,6 +134,8 @@ function DetailsSection() {
   const contacts = useContacts((s) => s.list);
   const upsertContact = useContacts((s) => s.upsert);
   const quickPicks = useSettings((s) => s.quickPicks);
+  const catOptions = useSettings((s) => s.catOptions);
+  const optionSet = d.cat ? CAT_OPTIONS[d.cat] : undefined; // สถานที่ (งาน) · ประเภท (ออกกำลังกาย) · สื่อ (เรียนรู้)
   const [newName, setNewName] = useState('');
   const [addingContact, setAddingContact] = useState(false);
 
@@ -202,42 +204,29 @@ function DetailsSection() {
               ))}
             </ChipRow>
 
-            {d.cat === 'work' ? (
+            {/* ตัวเลือกย่อยของหมวด (สถานที่/ประเภท/สื่อ) — รายการมาจากตั้งค่า › จัดการหมวดหมู่ แก้ไข/เพิ่ม/ลบได้ที่นั่น */}
+            {optionSet ? (
               <>
-                <Txt size={13} weight="med" color={t.sub}>สถานที่</Txt>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Txt size={13} weight="med" color={t.sub} style={{ flex: 1 }}>{optionSet.title}</Txt>
+                  <Chip small icon="edit" label="แก้ไขตัวเลือก" onPress={() => router.push('/settings/categories')} />
+                </View>
                 <ChipRow>
-                  {['ออฟฟิศ', 'บ้าน (WFH)', 'ลูกค้า'].map((l) => (
-                    <Chip key={l} small label={l} active={d.loc === l} onPress={() => d.set({ loc: d.loc === l ? '' : l })} />
-                  ))}
-                </ChipRow>
-              </>
-            ) : null}
-
-            {d.cat === 'ex' ? (
-              <>
-                <Txt size={13} weight="med" color={t.sub}>ประเภท</Txt>
-                <ChipRow>
-                  {[
-                    { k: 'weight', l: 'เวท' },
-                    { k: 'cardio', l: 'คาร์ดิโอ' },
-                    { k: 'class', l: 'คลาส' },
-                  ].map((s) => (
-                    <Chip key={s.k} small label={s.l} active={d.sub === s.k} onPress={() => d.set({ sub: d.sub === s.k ? '' : s.k })} />
-                  ))}
-                </ChipRow>
-              </>
-            ) : null}
-
-            {d.cat === 'learn' ? (
-              <>
-                <Txt size={13} weight="med" color={t.sub}>สื่อ</Txt>
-                <ChipRow>
-                  {[
-                    { k: 'book', l: 'หนังสือ' },
-                    { k: 'audio', l: 'เสียง/พอดแคสต์' },
-                  ].map((s) => (
-                    <Chip key={s.k} small label={s.l} active={d.sub === s.k} onPress={() => d.set({ sub: d.sub === s.k ? '' : s.k })} />
-                  ))}
+                  {catOptions[d.cat].map((o) => {
+                    const cur = optionSet.field === 'loc' ? d.loc : d.sub;
+                    return (
+                      <Chip
+                        key={o}
+                        small
+                        label={o}
+                        active={cur === o}
+                        onPress={() => d.set({ [optionSet.field]: cur === o ? '' : o })}
+                      />
+                    );
+                  })}
+                  {catOptions[d.cat].length === 0 ? (
+                    <Txt size={12} color={t.faint}>ยังไม่มีตัวเลือก — เพิ่มได้ที่ ตั้งค่า › จัดการหมวดหมู่</Txt>
+                  ) : null}
                 </ChipRow>
               </>
             ) : null}

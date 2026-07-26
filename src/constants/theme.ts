@@ -96,6 +96,30 @@ export const QUICK_PICKS: Record<CatId, string[]> = {
   me: ['พักผ่อน/ดูซีรีส์', 'ตลาด & ธุระส่วนตัว'],
 };
 
+/**
+ * ตัวเลือกย่อยประจำหมวดในฟอร์มเพิ่มกิจกรรม (สถานที่ / ประเภท / สื่อ) — แก้ไข/เพิ่ม/ลบได้ที่ ตั้งค่า › จัดการหมวดหมู่
+ * field = ฟิลด์ของ Activity ที่ค่าถูกเก็บลงไป (เก็บเป็น "ข้อความที่เห็น" ตรง ๆ ไม่ใช่รหัส เพื่อให้ผู้ใช้ตั้งชื่อเองได้
+ */
+export interface CatOptionSet {
+  field: 'loc' | 'sub';
+  title: string;
+  defaults: string[];
+}
+export const CAT_OPTIONS: Partial<Record<CatId, CatOptionSet>> = {
+  work: { field: 'loc', title: 'สถานที่', defaults: ['ออฟฟิศ', 'บ้าน (WFH)', 'ลูกค้า'] },
+  ex: { field: 'sub', title: 'ประเภท', defaults: ['เวท', 'คาร์ดิโอ', 'คลาส'] },
+  learn: { field: 'sub', title: 'สื่อ', defaults: ['หนังสือ', 'เสียง/พอดแคสต์'] },
+};
+
+/** ค่ารุ่นเก่าของ activity.sub ที่เคยเก็บเป็นรหัส — แปลงเป็นข้อความตอนเปิดฟอร์มแก้ไข ชิปจะได้ติดสถานะถูก */
+export const LEGACY_SUB: Record<string, string> = {
+  weight: 'เวท',
+  cardio: 'คาร์ดิโอ',
+  class: 'คลาส',
+  book: 'หนังสือ',
+  audio: 'เสียง/พอดแคสต์',
+};
+
 // หน้าต่างเวลาของวัน (นาที) — 06:00–30:00 (06:00 วันถัดไป) ครบ 24 ชม., ข้ามเที่ยงคืนได้
 export const DAY_START = 360;
 export const DAY_END = 1800;

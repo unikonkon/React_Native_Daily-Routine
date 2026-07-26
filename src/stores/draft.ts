@@ -3,7 +3,7 @@
 
 import { create } from 'zustand';
 
-import type { CatId, PriorityId } from '@/constants/theme';
+import { LEGACY_SUB, type CatId, type PriorityId } from '@/constants/theme';
 import { todayISO } from '@/lib/dates';
 import { computeDates } from '@/lib/engine';
 import type { Activity, Channel, Horizon, RepeatRule } from '@/lib/types';
@@ -95,7 +95,8 @@ export const useDraft = create<DraftState>((set, get) => ({
       cat: a.cat,
       title: a.title,
       loc: a.loc ?? '',
-      sub: a.sub ?? '',
+      // ข้อมูลรุ่นเก่าเก็บ sub เป็นรหัส (weight/book/…) — แปลงเป็นข้อความ ชิปตัวเลือกจะได้ติดสถานะถูก
+      sub: LEGACY_SUB[a.sub ?? ''] ?? a.sub ?? '',
       channel: a.channel ?? 'online',
       priority: a.priority ?? 'P1',
       contactIds: a.contactIds,

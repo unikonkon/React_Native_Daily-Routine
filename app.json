@@ -9,6 +9,7 @@
     "scheme": "dailyroutine",
     "userInterfaceStyle": "automatic",
     "android": {
+      "package": "com.faradaybanana.dailyroutine",
       "adaptiveIcon": {
         "backgroundColor": "#F4EFE6",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -41,6 +42,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "09e3dd8d-976f-492c-86c1-2c01e41e0cb3"
+      }
+    },
+    "owner": "faradaybanana"
   }
 }
