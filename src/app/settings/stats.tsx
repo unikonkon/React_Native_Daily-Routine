@@ -8,12 +8,13 @@ import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
 import { Card, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CATS, FONT, GREEN, PRI, PRI_BY_ID, type PriorityId } from '@/constants/theme';
+import { ACCENT, CATS, CAT_OPTIONS, FONT, GREEN, PRI, PRI_BY_ID, type CatId, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, nowMin, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
-import { rangeStats } from '@/lib/engine';
+import { rangeStats, type RangeStats } from '@/lib/engine';
 import type { Contact, DayItem } from '@/lib/types';
 import { useActivities } from '@/stores/activities';
 import { meetLink, openLink, useContacts, zoomAppLink, zoomWebLink } from '@/stores/contacts';
+import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
 type Mode = 'week' | 'month' | 'all';
@@ -71,6 +72,8 @@ export default function StatsScreen() {
   const [caseQuery, setCaseQuery] = useState(''); // ค้นหาชื่อเคสในแท็บตามเคส
   const today = todayISO();
   const showToast = useUI((s) => s.showToast);
+  /** ตัวเลือกย่อยต่อหมวดที่ผู้ใช้ตั้งไว้ (ตั้งค่า › จัดการหมวดหมู่) — ใช้เทียบว่าอันไหนถูกใช้จริง */
+  const catOptions = useSettings((s) => s.catOptions);
 
   // ชื่อผู้ติดต่อ (id → ชื่อ) สำหรับแสดงในรายละเอียดเคส
   const contactList = useContacts((s) => s.list);
@@ -157,8 +160,6 @@ export default function StatsScreen() {
     });
   }, [acts, occ, mode, range.from, range.to]);
 
-  const catHours = CATS.filter((c) => stats.hoursByCat[c.id]);
-  const maxCatH = Math.max(...Object.values(stats.hoursByCat), 1);
   const priShown = PRI.filter((p) => stats.caseByPriority[p.id]);
   const casesFiltered = priFilter ? stats.caseItems.filter((i) => i.priority === priFilter) : stats.caseItems;
   const avgDone = stats.countedDays ? stats.done / stats.countedDays : 0;
@@ -333,28 +334,9 @@ export default function StatsScreen() {
             </ReportRow>
           </Card>
 
-          {/* ชั่วโมงตามหมวด */}
+          {/* สรุปหมวดหมู่ — หมวดที่ใช้มากสุด + ทุกหมวด (แตะดูกิจกรรมยอดฮิต/ตัวเลือกย่อย) */}
           <Card style={{ gap: 10 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Txt size={12} weight="bold" color={t.sub}>ชั่วโมงตามหมวด</Txt>
-              <Txt size={12} num color={t.faint}>{hoursText(stats.doneHours * 60)} · {stats.countedDays} วัน</Txt>
-            </View>
-            {catHours.length ? (
-              catHours.map((c) => {
-                const h = stats.hoursByCat[c.id];
-                return (
-                  <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Txt size={11} color={t.sub} style={{ width: 76 }} numberOfLines={1}>{c.short}</Txt>
-                    <View style={{ flex: 1, height: 8, borderRadius: 4, backgroundColor: t.chip }}>
-                      <View style={{ width: `${(h / maxCatH) * 100}%`, height: 8, borderRadius: 4, backgroundColor: c.color }} />
-                    </View>
-                    <Txt size={11} num color={t.faint} style={{ width: 40, textAlign: 'right' }}>{h.toFixed(1)}ช</Txt>
-                  </View>
-                );
-              })
-            ) : (
-              <Txt size={12} color={t.faint}>ยังไม่มีรายการที่ทำเสร็จในช่วงนี้</Txt>
-            )}
+            <CatSummary stats={stats} catOptions={catOptions} />
 
             {/* เวลาว่างรวมของช่วง — หน้าต่าง 06:00–24:00 (เวลานอน 00:00–06:00 ไม่ถูกนับเป็นเวลาว่าง) */}
             <View
@@ -506,6 +488,194 @@ export default function StatsScreen() {
         </>
       )}
     </Screen>
+  );
+}
+
+/**
+ * สรุปหมวดหมู่ของช่วงที่เลือก — ตอบ 2 คำถามหลัก: ตอนนี้ใช้หมวดไหนอยู่บ้าง · หมวดไหนใช้มากสุด
+ * "ใช้มากสุด" = จำนวนรายการที่ถึงกำหนดในช่วง (นับทั้งที่ทำเสร็จและยังไม่ทำ) เท่ากันให้ดูชั่วโมงต่อ
+ * แถบเทียบสลับเกณฑ์ได้ (จำนวน/ชั่วโมง) · แตะแถวเพื่อดูกิจกรรมยอดฮิตกับตัวเลือกย่อยที่ตั้งไว้
+ */
+function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Record<CatId, string[]> }) {
+  const t = useTokens();
+  const [metric, setMetric] = useState<'count' | 'hours'>('count');
+  const [open, setOpen] = useState<CatId | null>(null);
+
+  const rows = useMemo(() => {
+    const list = CATS.map((c) => {
+      const s = stats.byCat[c.id];
+      return {
+        c,
+        count: s?.count ?? 0,
+        done: s?.done ?? 0,
+        hours: s?.hours ?? 0,
+        titles: Object.entries(s?.titles ?? {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th')),
+        opts: s?.opts ?? {},
+      };
+    });
+    // เรียงตามเกณฑ์ที่เลือก — หมวดที่ยังไม่ได้ใช้ไปท้ายสุดเสมอ
+    return list.sort((a, b) => {
+      if (!a.count !== !b.count) return a.count ? -1 : 1;
+      return metric === 'hours' ? b.hours - a.hours || b.count - a.count : b.count - a.count || b.hours - a.hours;
+    });
+  }, [stats.byCat, metric]);
+
+  const used = rows.filter((r) => r.count);
+  const max = Math.max(...rows.map((r) => (metric === 'hours' ? r.hours : r.count)), metric === 'hours' ? 0.1 : 1);
+  // หมวดที่ใช้มากสุดยึด "จำนวนรายการ" เสมอ ไม่ว่าแถบจะเทียบด้วยเกณฑ์ไหน
+  const byCount = [...used].sort((a, b) => b.count - a.count || b.hours - a.hours);
+  const top = byCount[0] ?? null;
+  const tied = top ? byCount.filter((r) => r.count === top.count) : [];
+
+  return (
+    <>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Txt size={12} weight="bold" color={t.sub}>สรุปหมวดหมู่</Txt>
+        <Txt size={12} num color={t.faint}>
+          ใช้ {used.length}/{CATS.length} หมวด · {stats.scheduled} รายการ
+        </Txt>
+      </View>
+
+      {top ? (
+        <View style={{ backgroundColor: top.c.color + '1A', borderRadius: 12, padding: 12, gap: 6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: top.c.color, alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name={top.c.icon} size={14} color="#FFFFFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Txt size={14.5} weight="bold" numberOfLines={1}>{top.c.name}</Txt>
+              <Txt size={11} color={t.sub}>
+                {tied.length > 1 ? `ใช้มากสุดเท่ากัน ${tied.length} หมวด` : 'หมวดที่ใช้มากสุดในช่วงนี้'}
+              </Txt>
+            </View>
+            <Txt size={22} num weight="bold" color={top.c.color}>
+              {stats.scheduled ? Math.round((top.count / stats.scheduled) * 100) : 0}
+              <Txt size={12} num weight="bold" color={top.c.color}>%</Txt>
+            </Txt>
+          </View>
+          <Txt size={12} color={t.sub}>
+            {top.count} รายการจากทั้งหมด {stats.scheduled} · ทำเสร็จ {top.done} ({top.count ? Math.round((top.done / top.count) * 100) : 0}%)
+            {top.hours ? ` · ลงมือไป ${hoursText(top.hours * 60)}` : ''}
+            {tied.length > 1 ? `\nเท่ากับ: ${tied.slice(1).map((r) => r.c.short).join(' · ')}` : ''}
+          </Txt>
+        </View>
+      ) : (
+        <Txt size={12} color={t.faint}>ยังไม่มีรายการที่ถึงกำหนดในช่วงนี้</Txt>
+      )}
+
+      {/* เกณฑ์ของแถบเทียบ — ชั่วโมงนับเฉพาะรายการที่ทำเสร็จ */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Txt size={11} color={t.faint} style={{ flex: 1 }}>
+          {metric === 'count' ? 'แถบเทียบด้วยจำนวนรายการที่ถึงกำหนด' : `แถบเทียบด้วยชั่วโมงที่ทำเสร็จ · รวม ${hoursText(stats.doneHours * 60)}`}
+        </Txt>
+        {(['count', 'hours'] as const).map((k) => {
+          const on = metric === k;
+          return (
+            <Pressable
+              key={k}
+              onPress={() => setMetric(k)}
+              hitSlop={4}
+              style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 99, backgroundColor: on ? t.chip : 'transparent' }}>
+              <Txt size={11} weight={on ? 'bold' : 'med'} color={on ? ACCENT : t.faint}>{k === 'count' ? 'จำนวน' : 'ชั่วโมง'}</Txt>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* ทุกหมวด — รวมหมวดที่ยังไม่ได้ใช้ (จางไว้) เพื่อให้เห็นว่ามีหมวดอะไรบ้าง */}
+      <View>
+        {rows.map((r, i) => {
+          const optSet = CAT_OPTIONS[r.c.id];
+          const optList = optSet ? catOptions[r.c.id] ?? [] : [];
+          // ค่าที่พิมพ์เองไม่อยู่ในรายการที่ตั้งไว้ — โชว์ต่อท้ายจะได้ไม่หายไป
+          const extra = Object.keys(r.opts).filter((o) => !optList.includes(o));
+          const expandable = !!(r.titles.length || optSet);
+          const on = open === r.c.id;
+          const v = metric === 'hours' ? r.hours : r.count;
+          return (
+            <View key={r.c.id} style={{ borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: t.line }}>
+              <Pressable
+                onPress={expandable ? () => setOpen(on ? null : r.c.id) : undefined}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, opacity: r.count ? 1 : 0.45 }}>
+                <View style={{ width: 20, alignItems: 'center' }}>
+                  <Icon name={r.c.icon} size={14} color={r.count ? r.c.color : t.faint} />
+                </View>
+                <View style={{ width: 68 }}>
+                  <Txt size={12} weight="med" numberOfLines={1}>{r.c.short}</Txt>
+                </View>
+                <View style={{ flex: 1, height: 8, borderRadius: 4, backgroundColor: t.chip }}>
+                  <View style={{ width: `${Math.min(100, (v / max) * 100)}%`, height: 8, borderRadius: 4, backgroundColor: r.c.color }} />
+                </View>
+                <View style={{ width: 84, alignItems: 'flex-end' }}>
+                  {r.count ? (
+                    <>
+                      <Txt size={12} num weight="bold">{r.count} รายการ</Txt>
+                      <Txt size={10} num color={t.faint} numberOfLines={1}>
+                        เสร็จ {r.done}{r.hours ? ` · ${r.hours.toFixed(1)}ช` : ''}
+                      </Txt>
+                    </>
+                  ) : (
+                    <Txt size={10.5} color={t.faint}>ยังไม่ได้ใช้</Txt>
+                  )}
+                </View>
+                {expandable ? <Icon name={on ? 'chevD' : 'chevR'} size={14} color={t.faint} /> : <View style={{ width: 14 }} />}
+              </Pressable>
+
+              {on ? (
+                <View style={{ gap: 8, paddingBottom: 10, paddingLeft: 28 }}>
+                  {r.titles.length ? (
+                    <View style={{ gap: 3 }}>
+                      <Txt size={10.5} color={t.faint}>กิจกรรมยอดฮิตในหมวดนี้ ({r.titles.length} ชื่อ)</Txt>
+                      {r.titles.slice(0, 3).map(([name, n]) => (
+                        <View key={name} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: r.c.color }} />
+                          <Txt size={12} style={{ flex: 1 }} numberOfLines={1}>{name}</Txt>
+                          <Txt size={11} num color={t.sub}>{n} ครั้ง</Txt>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Txt size={11} color={t.faint}>ยังไม่มีกิจกรรมในหมวดนี้ในช่วงที่เลือก</Txt>
+                  )}
+
+                  {optSet ? (
+                    <View style={{ gap: 4 }}>
+                      <Txt size={10.5} color={t.faint}>ตัวเลือกย่อย — {optSet.title} (ตั้งค่า › จัดการหมวดหมู่)</Txt>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+                        {[...optList, ...extra].map((o) => {
+                          const n = r.opts[o] ?? 0;
+                          return (
+                            <View
+                              key={o}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                paddingVertical: 3,
+                                paddingHorizontal: 8,
+                                borderRadius: 99,
+                                backgroundColor: n ? r.c.color + '22' : 'transparent',
+                                borderWidth: n ? 0 : StyleSheet.hairlineWidth,
+                                borderColor: t.line2,
+                              }}>
+                              <Txt size={11} color={n ? t.ink : t.faint}>{o}</Txt>
+                              <Txt size={10} num color={n ? r.c.color : t.faint}>{n ? `${n}` : 'ยังไม่ใช้'}</Txt>
+                            </View>
+                          );
+                        })}
+                        {!optList.length && !extra.length ? (
+                          <Txt size={11} color={t.faint}>ยังไม่ได้ตั้งตัวเลือกย่อยของหมวดนี้</Txt>
+                        ) : null}
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+    </>
   );
 }
 

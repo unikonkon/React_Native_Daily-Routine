@@ -1,7 +1,7 @@
 // Core engine — pure functions ทั้งหมด ไม่มี I/O (APP_STRUCTURE.md §0, §5.1, §3.4)
 // ข้อมูลเข้า = activities + occurrence map จาก store ที่โหลดไว้แล้ว → ไม่ query ฐานข้อมูลซ้ำ
 
-import { DAY_END, FREE_START, MIN_FREE_GAP, SNAP } from '@/constants/theme';
+import { CAT_OPTIONS, DAY_END, FREE_START, LEGACY_SUB, MIN_FREE_GAP, SNAP } from '@/constants/theme';
 import { addDays, mondayOf, todayISO, wdMon } from '@/lib/dates';
 import type { Activity, DayItem, FreeSlot, Horizon, OccMap, RepeatRule } from '@/lib/types';
 import { HORIZON_DAYS } from '@/lib/types';
@@ -222,12 +222,25 @@ export function computeStats(acts: Activity[], occ: OccMap, now: number): Stats 
 
 // ---------- สถิติแบบเลือกช่วง (หน้าสถิติ §6.1) ----------
 
+/** สรุปการใช้งานของหมวดหนึ่งในช่วง — ใช้ในการ์ด "สรุปหมวดหมู่" หน้าสถิติ */
+export interface CatStat {
+  count: number; // รายการที่ถึงกำหนดในช่วง (ทำเสร็จ + ยังไม่ทำ)
+  done: number;
+  hours: number; // ชั่วโมงเฉพาะรายการที่ทำเสร็จ (ค่าเดียวกับ hoursByCat)
+  /** ชื่อกิจกรรม (ตัดช่องว่างซ้ำแล้ว) → จำนวนครั้งที่ถึงกำหนด */
+  titles: Record<string, number>;
+  /** ค่าตัวเลือกย่อยของหมวด (สถานที่/ประเภท/สื่อ ตาม CAT_OPTIONS) → จำนวนครั้งที่ใช้จริง */
+  opts: Record<string, number>;
+}
+
 export interface RangeStats {
   scheduled: number; // รายการที่ถึงกำหนดแล้วในช่วง (ไม่รวมอนาคต/rescheduled)
   done: number;
   rate: number; // done / scheduled
   doneHours: number; // ชั่วโมงที่ลงมือทำเสร็จรวม
   hoursByCat: Record<string, number>;
+  /** สรุปต่อหมวด (เฉพาะหมวดที่มีรายการในช่วง) — จำนวน/ชั่วโมง/กิจกรรมยอดฮิต/ตัวเลือกย่อยที่ถูกใช้ */
+  byCat: Record<string, CatStat>;
   rescheduled: number; // จำนวนครั้งที่เลื่อนนัดในช่วง
   freeAvgMin: number; // เวลาว่างกลางวันเฉลี่ยต่อวัน (นาที)
   freeTotalMin: number; // เวลาว่างกลางวันรวมทั้งช่วง (นาที) — หน้าต่าง 06:00–24:00 ไม่นับ 00:00–06:00
@@ -244,6 +257,7 @@ export function rangeStats(acts: Activity[], occ: OccMap, from: string, to: stri
   const today = todayISO();
   const last = to < today ? to : today; // ไม่รวมอนาคตในการคิดสถิติ
   const hoursByCat: Record<string, number> = {};
+  const byCat: Record<string, CatStat> = {};
   const caseByPriority: Record<string, number> = {};
   const caseItems: DayItem[] = [];
   let scheduled = 0;
@@ -268,11 +282,26 @@ export function rangeStats(acts: Activity[], occ: OccMap, from: string, to: stri
         caseItems.push(it);
         if (it.priority) caseByPriority[it.priority] = (caseByPriority[it.priority] ?? 0) + 1;
       }
+
+      const cs = (byCat[it.cat] ??= { count: 0, done: 0, hours: 0, titles: {}, opts: {} });
+      cs.count++;
+      const title = it.title.trim().replace(/\s+/g, ' ');
+      if (title) cs.titles[title] = (cs.titles[title] ?? 0) + 1;
+      // ตัวเลือกย่อยเก็บอยู่คนละฟิลด์แล้วแต่หมวด (งาน = สถานที่, ออกกำลัง/เรียนรู้ = ประเภท/สื่อ)
+      const field = CAT_OPTIONS[it.cat]?.field;
+      const raw = field ? (field === 'loc' ? it.loc : it.sub)?.trim() : null;
+      if (raw) {
+        const opt = LEGACY_SUB[raw] ?? raw; // ค่ารุ่นเก่าที่เก็บเป็นรหัส → ข้อความที่ผู้ใช้เห็น
+        cs.opts[opt] = (cs.opts[opt] ?? 0) + 1;
+      }
+
       if (it.ostatus === 'done') {
         done++;
         const h = (it.endMin - it.startMin) / 60;
         doneHours += h;
         hoursByCat[it.cat] = (hoursByCat[it.cat] ?? 0) + h;
+        cs.done++;
+        cs.hours += h;
       }
     }
   }
@@ -283,6 +312,7 @@ export function rangeStats(acts: Activity[], occ: OccMap, from: string, to: stri
     rate: scheduled ? done / scheduled : 0,
     doneHours,
     hoursByCat,
+    byCat,
     rescheduled,
     freeAvgMin: countedDays ? freeTotal / countedDays : 0,
     freeTotalMin: freeTotal,
