@@ -20,7 +20,6 @@ interface SettingsState {
   sheetsUrls: string[];
   boot: () => Promise<void>;
   setTheme: (t: ThemeName) => void;
-  toggleTheme: () => void;
   setNotifMaster: (v: boolean) => void;
   setMorning: (v: boolean) => void;
   setQuickPicks: (cat: CatId, list: string[]) => void;
@@ -83,7 +82,6 @@ export const useSettings = create<SettingsState>((set, get) => ({
     set({ theme });
     db.saveSetting('theme', theme);
   },
-  toggleTheme: () => get().setTheme(get().theme === 'light' ? 'dark' : 'light'),
   setNotifMaster: (v) => {
     set({ notifMaster: v });
     db.saveSetting('notif_master', v ? '1' : '0');

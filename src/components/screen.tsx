@@ -1,6 +1,7 @@
 // โครงหน้าจอทุกแท็บ: header + เนื้อหา
-// หน้าแท็บ → header แสดง "แถบแท็บ" (active = pill ส้ม icon+label, อื่น = ไอคอนล้วน) แทนหัวข้อ + ปุ่มสลับธีม
-// หน้าย่อย (back) → header แบบเดิม: ปุ่มย้อนกลับ + หัวข้อ 30px + ปุ่มสลับธีม
+// หน้าแท็บ → header แสดง "แถบแท็บ" (active = pill ส้ม icon+label, อื่น = ไอคอนล้วน) แทนหัวข้อ
+// หน้าย่อย (back) → header แบบเดิม: ปุ่มย้อนกลับ + หัวข้อ 30px
+// สลับธีมได้ที่เดียว: ตั้งค่า → โหมดแสดงผล
 import { usePathname, useRouter } from 'expo-router';
 import React from 'react';
 import { Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native';
@@ -11,7 +12,6 @@ import { BACK_FAB_SPACE, BackFab } from '@/components/back-fab';
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
 import { ACCENT, GREEN } from '@/constants/theme';
-import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
 interface ScreenProps {
@@ -49,20 +49,6 @@ export function activeTabName(pathname: string): (typeof TABS)[number]['name'] {
     .sort((a, b) => b.href.length - a.href.length)
     .find((tab) => pathname === tab.href || (tab.href !== '/' && pathname.startsWith(`${tab.href}/`)));
   return hit?.name ?? 'index';
-}
-
-/** ปุ่มสลับธีม (มุมขวาบนของทุก header) */
-function ThemeToggle() {
-  const t = useTokens();
-  const theme = useSettings((s) => s.theme);
-  const toggleTheme = useSettings((s) => s.toggleTheme);
-  return (
-    <Pressable
-      onPress={toggleTheme}
-      style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: t.card, borderWidth: 1, borderColor: t.line, alignItems: 'center', justifyContent: 'center' }}>
-      <Icon name={theme === 'light' ? 'moon' : 'sun'} size={18} color={t.sub} />
-    </Pressable>
-  );
 }
 
 /**
@@ -156,7 +142,7 @@ export function Screen({ title, subtitle, children, scroll = true, back, backFab
   }, [back]);
 
   const header = back ? (
-    // หน้าย่อย — header เดิม: ปุ่มย้อนกลับ + หัวข้อ 30px + ปุ่มสลับธีม
+    // หน้าย่อย — header เดิม: ปุ่มย้อนกลับ + หัวข้อ 30px
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingTop: 8, paddingBottom: 10, gap: 10 }}>
       <Pressable
         onPress={() => {
@@ -176,15 +162,13 @@ export function Screen({ title, subtitle, children, scroll = true, back, backFab
           </Txt>
         ) : null}
       </View>
-      <ThemeToggle />
     </View>
   ) : (
-    // หน้าแท็บ — แถบแท็บแทนหัวข้อ + ปุ่มสลับธีม (subtitle แสดงใต้แถบถ้ามี)
+    // หน้าแท็บ — แถบแท็บแทนหัวข้อ (subtitle แสดงใต้แถบถ้ามี)
     <View style={{ paddingHorizontal: 18, paddingTop: 8, paddingBottom: 10, gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <TabStrip />
         {pathname === '/' ? <DayliyUseToggle /> : null}
-        <ThemeToggle />
       </View>
       {subtitle ? (
         <Txt size={13} color={t.sub} style={{ paddingHorizontal: 4 }}>
