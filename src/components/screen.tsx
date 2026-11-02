@@ -3,7 +3,7 @@
 // หน้าย่อย (back) → header แบบเดิม: ปุ่มย้อนกลับ + หัวข้อ 30px + ปุ่มสลับธีม
 import { usePathname, useRouter } from 'expo-router';
 import React from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -25,7 +25,7 @@ interface ScreenProps {
   /** เพิ่มปุ่ม "กลับ" ลอยล่าง (fabbar) ให้หน้านี้ — ใช้กับหน้าที่มักถูกเปิดต่อจากที่อื่น เช่น สมุดรายชื่อ · ฟอร์มเพิ่ม/แก้ไข */
   backFab?: boolean;
   /** ref ไปยัง ScrollView ภายใน — ให้หน้าเลื่อนเนื้อหาเองได้ (เช่น เลื่อนขึ้นไปฟอร์มแก้ไข) */
-  scrollRef?: React.Ref<ScrollView>;
+  scrollRef?: React.Ref<ScrollViewInstance>;
 }
 
 /** แถบแท็บย้ายขึ้นไปอยู่ใน header แล้ว — ไม่มีแถบล่างอีกต่อไป (คงชื่อไว้เพื่อระยะ padding ล่าง) */

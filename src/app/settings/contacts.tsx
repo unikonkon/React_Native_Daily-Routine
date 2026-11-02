@@ -1,7 +1,7 @@
 // 6.2 สมุดรายชื่อ — CRUD รายชื่อคนที่นัด (ใช้เลือกในฟอร์มนัดเคส)
 import { useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Pressable, TextInput, View, type ScrollViewInstance } from 'react-native';
 
 import { FONT, PRI, PRI_BY_ID, type PriorityId } from '@/constants/theme';
 import { Icon } from '@/components/icon';
@@ -15,7 +15,7 @@ export default function ContactsScreen() {
   const t = useTokens();
   const { list, upsert, remove } = useContacts();
   const showToast = useUI((s) => s.showToast);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
 
   const [editing, setEditing] = useState<Partial<Contact> | null>(null);
   const [priFilter, setPriFilter] = useState<PriorityId | null>(null); // กรองตามระดับความสำคัญ

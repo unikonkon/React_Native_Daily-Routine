@@ -1,7 +1,7 @@
 // มุมมองวัน (ลุค mockup) — แถบสัปดาห์ + ป้ายวัน + ไทม์ไลน์ 06:00–30:00 ครบ 24 ชม.
 // แถวชั่วโมง + บล็อกกิจกรรมแบบ "คอลัมน์เวลาในบล็อก" + เส้น "ตอนนี้" มีป้ายเวลา + auto-scroll ไปเวลาปัจจุบัน
 import React, { useEffect, useMemo, useRef } from 'react';
-import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, useWindowDimensions, View, type ScrollViewInstance } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { contactLine, DrillBack, useCaseContacts, useCaseNames, ViewSwitcher, type View3 } from '@/components/today/parts';
@@ -207,7 +207,7 @@ function DayTimeline({
   onPressSlot?: (date: string, start: number, end: number) => void;
 }) {
   const t = useTokens();
-  const scRef = useRef<ScrollView>(null);
+  const scRef = useRef<ScrollViewInstance>(null);
   const caseNamesOf = useCaseNames();
   const caseContactsOf = useCaseContacts();
   const height = (DAY_END - DAY_START) * PX;
