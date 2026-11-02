@@ -1,8 +1,8 @@
 // แท็บ 2 — เพิ่ม/แก้ไขกิจกรรม: ฟอร์มแบ่ง 4 ขั้น เปิดต่ออัตโนมัติ (APP_STRUCTURE.md §4)
 // ① หมวด+รายละเอียด (การ์ดเดียว รายละเอียดโผล่เมื่อเลือกหมวด) → ② วันที่+ทำซ้ำ ③ เวลา+พรีวิว ④ แจ้งเตือน+บันทึก (โผล่เมื่อใส่ชื่อแล้ว)
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Pressable, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Pressable, TextInput, View, type ScrollViewInstance } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
@@ -73,13 +73,23 @@ const HORIZONS: { key: Horizon; label: string }[] = [
 
 export default function AddScreen() {
   const d = useDraft();
+  const scrollRef = useRef<ScrollViewInstance>(null);
   // เปิดขั้นถัดไปอัตโนมัติจากข้อมูลใน draft: เลือกหมวด+ใส่ชื่อ (ขั้น 1) แล้ว → ขั้น 2–4 ทั้งหมด
   const hasTitle = !!d.title.trim();
+
+  // แท็บนี้ mount ค้างไว้ → ScrollView จำตำแหน่งเลื่อนเดิม (เช่น ค้างอยู่ที่ปุ่มบันทึกล่างสุด)
+  // พอโหลด draft ชุดใหม่ (กด + / แตะช่วงว่าง / แก้ไข / บันทึกแล้วล้าง) ฟอร์มหดเหลือขั้น 1
+  // แต่ iOS ไม่ดึงตำแหน่งเลื่อนกลับให้เอง → เห็นหน้าโล่งไม่มีอะไรให้กด — จึงเลื่อนกลับบนสุดทุกครั้งที่โหลดใหม่
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [d.loadRev]);
+
   return (
     <Screen
       title={d.editId ? 'แก้ไขกิจกรรม' : 'เพิ่มกิจกรรม'}
       subtitle={!d.cat || !hasTitle ? 'ขั้นที่ 1 จาก 4' : undefined}
-      backFab>
+      backFab
+      scrollRef={scrollRef}>
       <DetailsSection />
       {d.cat && hasTitle ? <ScheduleSection /> : null}
     </Screen>
