@@ -40,6 +40,11 @@ interface ActivitiesState {
   /** โน้ตของครั้งนี้ — '' / null = ลบ */
   setNote: (item: Pick<DayItem, 'id' | 'date'>, note: string | null) => void;
   deleteOne: (item: DayItem) => void;
+  /**
+   * ลบหลายรายการพร้อมกัน (หน้า "ลบรายการ") — ครั้งเดียว = ลบทั้งรายการ · ชุดทำซ้ำ = ยกเลิกเฉพาะวันที่เลือก (ชุดยังอยู่)
+   * คืนฟังก์ชัน "เลิกทำ" ที่คืนทุกอย่างกลับสถานะก่อนลบ (รวมสถานะทำแล้ว/ข้ามของวันนั้น)
+   */
+  deleteMany: (items: DayItem[]) => () => void;
   deleteSeries: (item: DayItem) => void;
   reschedule: (item: DayItem, to: RescTarget, reason: string) => void;
 }
@@ -204,6 +209,34 @@ export const useActivities = create<ActivitiesState>((set, get) => {
       } else {
         get().setStatus(item, 'cancelled');
       }
+    },
+
+    deleteMany: (items) => {
+      const onceIds = new Set(items.filter((i) => i.repeat === 'none').map((i) => i.id));
+      const removed = get().acts.filter((a) => onceIds.has(a.id));
+      const occ = { ...get().occ };
+      const prev: { id: number; date: string; status: OccStatus | null }[] = [];
+      for (const it of items) {
+        if (it.repeat === 'none') continue;
+        const day = { ...(occ[it.date] ?? {}) };
+        prev.push({ id: it.id, date: it.date, status: day[it.id] ?? null });
+        day[it.id] = 'cancelled';
+        occ[it.date] = day;
+      }
+      bump({ acts: get().acts.filter((a) => !onceIds.has(a.id)), occ });
+      persist(Promise.all([...removed.map((a) => db.cancelActivity(a.id)), ...prev.map((p) => db.setOccurrence(p.id, p.date, 'cancelled'))]));
+
+      return () => {
+        const back = { ...get().occ };
+        for (const p of prev) {
+          const day = { ...(back[p.date] ?? {}) };
+          if (p.status === null) delete day[p.id];
+          else day[p.id] = p.status;
+          back[p.date] = day;
+        }
+        bump({ acts: [...get().acts, ...removed], occ: back });
+        persist(Promise.all([...removed.map((a) => db.updateActivity(a)), ...prev.map((p) => db.setOccurrence(p.id, p.date, p.status))]));
+      };
     },
 
     deleteSeries: (item) => {

@@ -140,7 +140,8 @@ export default function SettingsScreen() {
       <Section title="การจัดการ">
         <Row icon="user" label="สมุดรายชื่อ" sub={`${nContacts} รายชื่อ · ใช้กับนัดเคส`} onPress={() => router.push('/settings/contacts')} />
         <Row icon="grid" label="หมวดหมู่" sub={`${CATS.length} หมวด · ชื่อที่ใช้บ่อย ประเภท สถานที่`} onPress={() => router.push('/settings/categories')} />
-        <Row icon="copy" label="คัดลอกกิจกรรม" sub="เลือกจากสัปดาห์/เดือน → วางวันอื่น" onPress={() => router.push('/settings/copy')} last />
+        <Row icon="copy" label="คัดลอกกิจกรรม" sub="เลือกจากสัปดาห์/เดือน → วางวันอื่น" onPress={() => router.push('/settings/copy')} />
+        <Row icon="trash" label="ลบรายการ" sub="เลือกทีละรายการ หรือทั้งวัน · สัปดาห์ · เดือน" onPress={() => router.push('/settings/delete')} last />
       </Section>
 
       <Section title="การแจ้งเตือนและการแสดงผล">
@@ -198,7 +199,7 @@ export default function SettingsScreen() {
           subColor={settings.sheetsUrl ? t.greenInk : undefined}
           onPress={() => router.push('/settings/data')}
         />
-        <Row icon="trash" label="ล้างข้อมูลเก่า" sub="ดูความจุ · ลบรายปี · เดือน · สัปดาห์ · วัน (มีขั้นยืนยัน)" onPress={() => router.push('/settings/manage')} />
+        <Row icon="bars" label="ล้างข้อมูลเก่า" sub="ดูความจุ · ลบถาวรเพื่อคืนพื้นที่ (กู้คืนได้จากไฟล์สำรองเท่านั้น)" onPress={() => router.push('/settings/manage')} />
         <Row
           label="ข้อมูลตัวอย่าง"
           sub={`ตาราง 1 เดือน (${monthLabel}) ไว้ทดลอง — แทนที่ข้อมูลเดิม`}

@@ -10,15 +10,14 @@ import { useNow } from '@/components/b1/use-now';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
 import { TodayDayView } from '@/components/today/day-view';
-import { TodayDeleteBar } from '@/components/today/fab-bar';
 import { TodayMonthView } from '@/components/today/month-view';
-import { itemKey, TodayWeekView } from '@/components/today/week-view';
+import { TodayWeekView } from '@/components/today/week-view';
 import { TodayYearView } from '@/components/today/year-view';
 import { Txt, useTokens } from '@/components/ui';
 import { addDays, beYear, fromISO, mondayOf, MONTH_TH, MONTH_TH_FULL, todayISO, toISO, VIEW_MAX_Y, VIEW_MIN_Y } from '@/lib/dates';
 import { dayProgress, type NowRef } from '@/lib/progress';
 import type { DayItem } from '@/lib/types';
-import { useActivities, useDayReader } from '@/stores/activities';
+import { useDayReader } from '@/stores/activities';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
 
@@ -42,9 +41,7 @@ export default function TodayScreen() {
   const t = useTokens();
   const insets = useSafeAreaInsets();
   const openSheet = useUI((s) => s.openSheet);
-  const showToast = useUI((s) => s.showToast);
   const freeMode = useUI((s) => s.freeMode);
-  const deleteOne = useActivities((s) => s.deleteOne);
   const getDay = useDayReader();
   const now = useNow();
 
@@ -58,39 +55,7 @@ export default function TodayScreen() {
   // กด "วันนี้" ขณะอยู่วันนี้แล้ว → มุมมองวันเลื่อนไปที่เส้น "ตอนนี้"
   const [scrollNow, setScrollNow] = useState(0);
 
-  // โหมดลบ (เฉพาะมุมมองสัปดาห์) — เลือกได้หลายรายการแล้วลบทีเดียว · เก็บ DayItem ไว้ทั้งตัวเพราะ deleteOne ต้องใช้ occurrence จริง
-  const [delMode, setDelMode] = useState(false);
-  const [picked, setPicked] = useState<DayItem[]>([]);
-  const [confirming, setConfirming] = useState(false);
-  const pickedKeys = new Set(picked.map(itemKey));
-
-  const exitDelMode = () => {
-    setDelMode(false);
-    setPicked([]);
-    setConfirming(false);
-  };
-
-  // เปลี่ยนสัปดาห์ → ล้างรายการที่เลือก กันลบของสัปดาห์ที่มองไม่เห็นแล้ว
-  const changeMonday = (m: string) => {
-    setPicked([]);
-    setConfirming(false);
-    setMonday(m);
-  };
-
-  const togglePick = (it: DayItem) => {
-    setConfirming(false);
-    setPicked((cur) => (cur.some((x) => itemKey(x) === itemKey(it)) ? cur.filter((x) => itemKey(x) !== itemKey(it)) : [...cur, it]));
-  };
-
-  // กดลบครั้งแรก = ขอยืนยัน · ครั้งที่สอง = ลบจริง (ทีละ occurrence — ชุดทำซ้ำถูกยกเลิกเฉพาะวันที่เลือก)
-  const onPressDelete = () => {
-    if (!picked.length) return;
-    if (!confirming) return setConfirming(true);
-    const n = picked.length;
-    for (const it of picked) deleteOne(it);
-    exitDelMode();
-    showToast(`ลบแล้ว ${n} รายการ`);
-  };
+  const changeMonday = (m: string) => setMonday(m);
 
   // หลังบันทึกจากฟอร์มเพิ่มกิจกรรม — เด้งไปมุมมองวันของวันที่เพิ่งบันทึก แล้วล้างค่าทิ้ง
   const focusDate = useUI((s) => s.focusDate);
@@ -103,7 +68,6 @@ export default function TodayScreen() {
   }, [focusDate]);
 
   const changeView = (v: CalView) => {
-    exitDelMode();
     // พามุมมองใหม่ไปช่วงเดียวกับวันที่กำลังดู
     const d = fromISO(focus);
     if (v === 'week') setMonday(mondayOf(focus));
@@ -142,7 +106,6 @@ export default function TodayScreen() {
   // "วันนี้" — ไปช่วงของวันนี้ในมุมมองเดิม · อยู่วันนี้แล้ว (มุมมองวัน) = เลื่อนไปที่ "ตอนนี้"
   const goToday = () => {
     if (view === 'day' && atToday) return setScrollNow((n) => n + 1);
-    exitDelMode();
     setFocus(todayISO());
     changeMonday(mondayOf(todayISO()));
     setYm({ y: today.getFullYear(), m: today.getMonth() });
@@ -218,14 +181,14 @@ export default function TodayScreen() {
         <>
           <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingTop: 6, paddingBottom: 2 }}>
             <View style={{ flex: 1 }} />
+            {/* ลบหลายรายการ → หน้า "ลบรายการ" (เลือกทีละรายการ / ทั้งวัน / สัปดาห์ / เดือน) */}
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ selected: delMode }}
-              onPress={() => (delMode ? exitDelMode() : setDelMode(true))}
-              style={{ height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: delMode ? t.warn : t.track, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <SvgIcon name="trash" size={15} color={delMode ? '#FFFFFF' : t.sub} />
-              <Txt size={13} weight="med" color={delMode ? '#FFFFFF' : t.sub}>
-                {delMode ? 'เลิกเลือก' : 'เลือกลบ'}
+              onPress={() => router.push('/settings/delete')}
+              style={({ pressed }) => ({ height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: pressed ? t.rail : t.track, flexDirection: 'row', alignItems: 'center', gap: 6 })}>
+              <SvgIcon name="trash" size={15} color={t.sub} />
+              <Txt size={13} weight="med" color={t.sub}>
+                ลบหลายรายการ
               </Txt>
             </Pressable>
           </View>
@@ -237,9 +200,6 @@ export default function TodayScreen() {
             bottomPad={bottomPad}
             freeMode={freeMode}
             onPressSlot={openSlot}
-            delMode={delMode}
-            selectedKeys={pickedKeys}
-            onToggleSelect={togglePick}
           />
         </>
       ) : null}
@@ -268,27 +228,17 @@ export default function TodayScreen() {
         />
       ) : null}
 
-      {delMode ? (
-        <TodayDeleteBar
-          count={picked.length}
-          bottom={insets.bottom + 20}
-          confirming={confirming}
-          onCancel={() => (confirming ? setConfirming(false) : exitDelMode())}
-          onPressDelete={onPressDelete}
-        />
-      ) : (
-        <CalendarBar
-          onPrev={() => step(-1)}
-          onNext={() => step(1)}
-          prevLabel={`${unit}ก่อน`}
-          nextLabel={`${unit}ถัดไป`}
-          onToday={goToday}
-          atToday={atToday}
-          onCalendar={() => changeView('month')}
-          calendarActive={view === 'month'}
-          onAdd={openAdd}
-        />
-      )}
+      <CalendarBar
+        onPrev={() => step(-1)}
+        onNext={() => step(1)}
+        prevLabel={`${unit}ก่อน`}
+        nextLabel={`${unit}ถัดไป`}
+        onToday={goToday}
+        atToday={atToday}
+        onCalendar={() => changeView('month')}
+        calendarActive={view === 'month'}
+        onAdd={openAdd}
+      />
     </Screen>
   );
 }

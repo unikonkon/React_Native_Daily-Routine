@@ -48,7 +48,7 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   const closeSheet = useUI((s) => s.closeSheet);
   const openResc = useUI((s) => s.openResc);
   const showToast = useUI((s) => s.showToast);
-  const { setStatus, setNote, reschedule, deleteOne, deleteSeries, update, acts, occ, notes } = useActivities();
+  const { setStatus, setNote, reschedule, deleteMany, deleteSeries, update, acts, occ, notes } = useActivities();
   const now = useNow();
   const contacts = useContacts((s) => s.list);
   const dayList = useDay(date);
@@ -407,7 +407,7 @@ function SheetBody({ id, date }: { id: number; date: string }) {
         ) : (
           <View style={{ gap: 8 }}>
             <Txt size={13} color={t.sub}>
-              {item.repeat !== 'none' ? 'กิจกรรมนี้เป็นชุดทำซ้ำ — ลบแบบไหน?' : 'ยืนยันการลบ?'}
+              {item.repeat !== 'none' ? 'กิจกรรมนี้เป็นชุดทำซ้ำ — ลบแบบไหน? (ครั้งก่อนหน้าและสถิติคงเดิมทั้งสองแบบ)' : 'ยืนยันการลบ?'}
             </Txt>
             {item.repeat !== 'none' ? (
               <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -416,19 +416,20 @@ function SheetBody({ id, date }: { id: number; date: string }) {
                   kind="danger"
                   label="เฉพาะครั้งนี้"
                   onPress={() => {
-                    deleteOne(item);
+                    const undo = deleteMany([item]);
                     closeSheet();
-                    showToast('ลบครั้งนี้แล้ว');
+                    showToast('ลบครั้งนี้แล้ว', { label: 'เลิกทำ', run: undo });
                   }}
                 />
                 <Btn
                   style={{ flex: 1 }}
                   kind="danger"
-                  label="ทั้งชุด (เก็บประวัติ)"
+                  // ตัดชุดให้จบเมื่อวาน — ตรงกับที่ระบบทำจริง (เดิมป้ายเขียนว่า "ทั้งชุด")
+                  label="ตั้งแต่ครั้งนี้ไป"
                   onPress={() => {
                     deleteSeries(item);
                     closeSheet();
-                    showToast('ลบทั้งชุดแล้ว');
+                    showToast('ลบตั้งแต่ครั้งนี้เป็นต้นไปแล้ว');
                   }}
                 />
               </View>
@@ -438,9 +439,9 @@ function SheetBody({ id, date }: { id: number; date: string }) {
                 renderIcon={(c, s) => <SvgIcon name="trash" size={s} color={c} />}
                 label="ลบกิจกรรมนี้"
                 onPress={() => {
-                  deleteOne(item);
+                  const undo = deleteMany([item]);
                   closeSheet();
-                  showToast('ลบแล้ว');
+                  showToast('ลบแล้ว', { label: 'เลิกทำ', run: undo });
                 }}
               />
             )}

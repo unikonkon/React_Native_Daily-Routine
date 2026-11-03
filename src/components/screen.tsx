@@ -36,6 +36,8 @@ interface ScreenProps {
   showFreeToggle?: boolean;
   /** ปุ่มมุมขวาของแถบแท็บ (แทนปุ่มเวลาว่าง) เช่น "ล้างค่า" ในฟอร์มเพิ่ม */
   headerRight?: React.ReactNode;
+  /** ล็อกการเลื่อนหน้าชั่วคราว — ระหว่างลากเลือกเวลา */
+  scrollLocked?: boolean;
 }
 
 /** แถบแท็บย้ายขึ้นไปอยู่ใน header แล้ว — ไม่มีแถบล่างอีกต่อไป (คงชื่อไว้เพื่อระยะ padding ล่าง) */
@@ -141,7 +143,7 @@ function TabStrip() {
   );
 }
 
-export function Screen({ title, subtitle, children, scroll = true, scrollRef, variant, action, onBack, showFreeToggle, headerRight }: ScreenProps) {
+export function Screen({ title, subtitle, children, scroll = true, scrollRef, variant, action, onBack, showFreeToggle, headerRight, scrollLocked }: ScreenProps) {
   const t = useTokens();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -196,6 +198,7 @@ export function Screen({ title, subtitle, children, scroll = true, scrollRef, va
       {scroll ? (
         <ScrollView
           ref={scrollRef}
+          scrollEnabled={!scrollLocked}
           contentContainerStyle={{
             paddingHorizontal: 18,
             paddingBottom: TABBAR_H + insets.bottom + 24 + (bar ? BOTTOM_BAR_SPACE : 0), // เผื่อที่ให้แถบลอยล่าง

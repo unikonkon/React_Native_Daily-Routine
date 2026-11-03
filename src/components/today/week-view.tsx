@@ -8,7 +8,7 @@ import { useNow } from '@/components/b1/use-now';
 import { Icon } from '@/components/icon';
 import { useCaseNames } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, CATS, DANGER, DAY_END, DAY_START, GREEN, type CatId } from '@/constants/theme';
+import { ACCENT, CAT_BY_ID, CATS, DAY_END, DAY_START, GREEN, type CatId } from '@/constants/theme';
 import { addDays, fmtMin, fromISO, mondayOf, todayISO, WD_TH } from '@/lib/dates';
 import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import { dayProgress, isPast } from '@/lib/progress';
@@ -42,11 +42,6 @@ interface WeekViewProps {
   /** โหมด "วันที่ว่าง" — ดึงช่วงเวลาว่างออกมาให้แตะเพิ่มกิจกรรม (กิจกรรมเดิมจาง) */
   freeMode?: boolean;
   onPressSlot?: (date: string, start: number, end: number) => void;
-  /** โหมดลบ — แตะบล็อกเพื่อเลือก/ถอนเลือกแทนการเปิดแผ่นรายละเอียด */
-  delMode?: boolean;
-  /** คีย์ของรายการที่เลือกไว้ (`id:date`) */
-  selectedKeys?: Set<string>;
-  onToggleSelect?: (item: DayItem) => void;
 }
 
 /** คีย์ประจำ occurrence หนึ่ง ๆ (กิจกรรมชุดทำซ้ำใช้ id เดียวกันหลายวัน) */
@@ -60,9 +55,6 @@ export function TodayWeekView({
   bottomPad = 120,
   freeMode = false,
   onPressSlot,
-  delMode = false,
-  selectedKeys,
-  onToggleSelect,
 }: WeekViewProps) {
   const t = useTokens();
   const getDay = useDayReader();
@@ -91,16 +83,12 @@ export function TodayWeekView({
   return (
     <View style={{ flex: 1 }}>
       {/* หัวคอลัมน์ (จันทร์นำ) — ปัดซ้าย/ขวาเพื่อเลื่อนสัปดาห์ย้อนหลัง/อนาคต */}
-      {/* โหมดลบ — ล็อกการแตะหัววัน (กันหลุดออกจากมุมมองสัปดาห์ทั้งที่เลือกค้างไว้) */}
       {/* ไอคอนโหมดในช่องแกนเวลาซ้ายมือของแถบหัววัน บอกว่าตอนนี้แตะหัววันได้/ไม่ได้ (ดู ModeGlyph) */}
       <WeekHeaderStrip
         monday={monday}
         onChangeMonday={onChangeMonday}
-        onPressDay={(iso) => {
-          if (!delMode) onPressDay(iso);
-        }}
-        freeMode={freeMode && !delMode}
-        delMode={delMode}
+        onPressDay={onPressDay}
+        freeMode={freeMode}
       />
 
       {/* เวที (definite height ผ่าน flex) — วางเส้นชั่วโมง + คอลัมน์ทับกันด้วย % */}
@@ -150,12 +138,10 @@ export function TodayWeekView({
                     const showName = !!label && (cat.isCase || onCat) && dur >= (onCat ? 20 : 30) && n <= (onCat ? 3 : 2);
                     const nameLines = dur >= 60 ? 3 : dur >= 40 ? 2 : 1;
                     const showIcon = dur >= 45 && n <= 2 && (!showName || dur >= 75); // โชว์ไอคอนเฉพาะบล็อกที่สูง/กว้างพอ
-                    // โหมดลบ: ที่เลือกไว้ = ขอบแดง + ติ๊กถูก · ที่ยังไม่เลือก = จางลงให้ตัวที่เลือกเด่น
-                    const picked = delMode && !!selectedKeys?.has(itemKey(it));
                     return (
                       <Pressable
                         key={itemKey(it)}
-                        onPress={() => (delMode ? onToggleSelect?.(it) : onPressItem(it))}
+                        onPress={() => onPressItem(it)}
                         style={{
                           position: 'absolute',
                           top: `${top}%`,
@@ -165,17 +151,17 @@ export function TodayWeekView({
                           minHeight: 5,
                           borderRadius: 3,
                           backgroundColor: skipped ? t.skipFill : overdue ? cat.color + '66' : cat.color,
-                          opacity: (done ? 0.75 : 0.98) * dim * (freeMode ? 0.3 : 1) * (delMode && !picked ? 0.45 : 1),
-                          borderWidth: picked ? 1.5 : overdue ? 1.5 : 0,
-                          borderStyle: overdue && !picked ? 'dashed' : 'solid',
-                          borderColor: picked ? DANGER : '#D2603A',
+                          opacity: (done ? 0.75 : 0.98) * dim * (freeMode ? 0.3 : 1),
+                          borderWidth: overdue ? 1.5 : 0,
+                          borderStyle: overdue ? 'dashed' : 'solid',
+                          borderColor: '#D2603A',
                           alignItems: 'center',
                           justifyContent: 'center',
                           overflow: 'hidden',
                           paddingHorizontal: 1,
                         }}>
-                        {picked ? <Icon name="check" size={11} color="#FFFFFF" /> : showIcon ? <Icon name={cat.icon} size={11} color={skipped ? t.sub : '#FFFFFF'} /> : null}
-                        {done && !picked ? (
+                        {showIcon ? <Icon name={cat.icon} size={11} color={skipped ? t.sub : '#FFFFFF'} /> : null}
+                        {done ? (
                           <View style={{ position: 'absolute', top: 1, right: 1, width: 12, height: 12, borderRadius: 6, backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center' }}>
                             <Icon name="check" size={8} color="#FFFFFF" />
                           </View>
@@ -189,8 +175,8 @@ export function TodayWeekView({
                     );
                   })}
 
-                  {/* ช่วงเวลาว่าง (โหมดวันที่ว่าง) — แตะเพื่อเปิดฟอร์มเพิ่มพร้อมช่วงเวลา (ไม่นับ 00:00–06:00) · ซ่อนตอนโหมดลบ */}
-                  {freeMode && !delMode
+                  {/* ช่วงเวลาว่าง (โหมดวันที่ว่าง) — แตะเพื่อเปิดฟอร์มเพิ่มพร้อมช่วงเวลา (ไม่นับ 00:00–06:00) */}
+                  {freeMode
                     ? daytimeFreeSlots(items).map((s) => {
                         const top = pct(s.start);
                         const sh = Math.max(pct(s.end) - top, 1.8);
@@ -233,15 +219,7 @@ export function TodayWeekView({
 
         {/* คำอธิบายไอคอนหมวด (legend) — ถอดความหมายไอคอนในบล็อก */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 4, paddingHorizontal: HPAD + 4, paddingVertical: 8, marginTop: 4 }}>
-          {delMode ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <View style={{ width: 12, height: 12, borderRadius: 3, borderWidth: 1.5, borderColor: DANGER, backgroundColor: DANGER + '26' }} />
-              <Txt size={11} weight="med" color={DANGER}>
-                แตะบล็อกเพื่อเลือกที่จะลบ
-              </Txt>
-            </View>
-          ) : null}
-          {freeMode && !delMode ? (
+          {freeMode ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <View style={{ width: 12, height: 12, borderRadius: 3, borderWidth: 1, borderColor: GREEN, backgroundColor: GREEN + '26' }} />
               <Txt size={11} weight="med" color={GREEN}>
@@ -298,12 +276,12 @@ const hCompact = (min: number) => `${Number((min / 60).toFixed(1))} ชม`;
 
 /**
  * ไอคอนบอกโหมดของแถบหัววัน — วางในช่องแกนเวลา (GUTTER) ที่ว่างอยู่ซ้ายมือ จึงตรงแนวกับป้ายเวลาด้านล่าง
- * ลบ → lock (หัววันถูกล็อก แตะไม่ได้) · วันที่ว่าง → clockPlus (แตะช่วงว่างเพื่อเพิ่ม) · ปกติ → calendar (แตะเข้ามุมมองวัน)
+ * วันที่ว่าง → clockPlus (แตะช่วงว่างเพื่อเพิ่ม) · ปกติ → calendar (แตะเข้ามุมมองวัน)
  * อยู่นอก FlatList เพราะเป็นสถานะของทั้งแถบ ไม่ใช่ของสัปดาห์ใดสัปดาห์หนึ่ง — ปัดเปลี่ยนสัปดาห์แล้วต้องไม่เลื่อนตาม
  */
-function ModeGlyph({ freeMode, delMode }: { freeMode?: boolean; delMode?: boolean }) {
+function ModeGlyph({ freeMode }: { freeMode?: boolean }) {
   const t = useTokens();
-  const [name, color] = delMode ? (['lock', DANGER] as const) : freeMode ? (['clockPlus', GREEN] as const) : (['calendar', t.faint] as const);
+  const [name, color] = freeMode ? (['clockPlus', GREEN] as const) : (['calendar', t.faint] as const);
   // top 14 = ความสูงของบรรทัดชื่อวัน (10.5) + gap 2 → ไอคอนอยู่ระดับเดียวกับวงกลมวันที่ (สูง 22)
   return (
     <View pointerEvents="none" style={{ position: 'absolute', left: HPAD, top: 14, width: GUTTER, height: 22, alignItems: 'center', justifyContent: 'center' }}>
@@ -317,13 +295,11 @@ function WeekHeaderStrip({
   onChangeMonday,
   onPressDay,
   freeMode,
-  delMode,
 }: {
   monday: string;
   onChangeMonday: (m: string) => void;
   onPressDay: (iso: string) => void;
   freeMode?: boolean;
-  delMode?: boolean;
 }) {
   const t = useTokens();
   const getDay = useDayReader();
@@ -411,7 +387,7 @@ function WeekHeaderStrip({
         }}
       />
       {/* วางหลัง FlatList — พี่น้องที่ประกาศทีหลังจะวาดทับ ไอคอนจึงไม่ถูกลิสต์บัง (สำคัญบน Android ที่ไม่มี z-index จาก order เดียว) */}
-      <ModeGlyph freeMode={freeMode} delMode={delMode} />
+      <ModeGlyph freeMode={freeMode} />
     </View>
   );
 }

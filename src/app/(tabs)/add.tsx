@@ -4,16 +4,16 @@
 // แถบล่าง: ‹ กลับ (เพิ่ม = เก็บร่างไว้ · แก้ไข = ทิ้งการแก้ไข) + บันทึก / บันทึกการแก้ไข
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Pressable, TextInput, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native';
+import { Pressable, ScrollView, TextInput, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
 import { MonthYearPicker } from '@/components/month-year-picker';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
-import { TimeRangeModal } from '@/components/time-range-modal';
+import { TimeDragBar, TimeDragRail } from '@/components/time-drag';
 import { Btn, Card, Chip, ChipRow, PriBadge, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CATS, CAT_BY_ID, CAT_OPTIONS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
+import { CATS, CAT_BY_ID, CAT_OPTIONS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, durText, fmtMin, fromISO, hoursText, thaiDate, todayISO, wdMon } from '@/lib/dates';
 import { FREE_WINDOW_END, conflictsOn, freeSlots, maskFromDates, seriesDates } from '@/lib/engine';
 import { HORIZON_DAYS, type Activity, type Contact, type Horizon, type RepeatRule } from '@/lib/types';
@@ -137,6 +137,7 @@ export default function AddScreen() {
   const editing = d.editId ? acts.find((a) => a.id === d.editId) : undefined;
   const askScope = !!editing && editing.repeat !== 'none' && !!d.editDate && d.editDate > editing.startDate;
   const analysis = useScheduleAnalysis();
+  const [dragging, setDragging] = useState(false); // ลากเลือกเวลาอยู่ → ล็อกการเลื่อนหน้า
   const onSave = useSave(editing, askScope, () => setOpen(1));
 
   const dirty = !!d.cat || !!d.title || !!d.editId;
@@ -193,6 +194,7 @@ export default function AddScreen() {
       title={d.editId ? 'แก้ไขกิจกรรม' : 'เพิ่มกิจกรรม'}
       headerRight={headerRight}
       scrollRef={scrollRef}
+      scrollLocked={dragging}
       onBack={goBack}
       action={{ label: d.editId ? 'บันทึกการแก้ไข' : 'บันทึก', icon: 'check', onPress: onSave }}>
       {d.editId ? <EditBanner title={editing?.title ?? d.title} date={d.editDate} /> : null}
@@ -249,7 +251,7 @@ export default function AddScreen() {
             <StepPending n={3} title="เวลา" />
           ) : open === 3 ? (
             <StepOpen n={3} title="เวลา">
-              <TimeBody analysis={analysis} />
+              <TimeBody analysis={analysis} onDragState={setDragging} />
               <NextBtn label="ถัดไป · แจ้งเตือน" onPress={() => setOpen(4)} />
             </StepOpen>
           ) : (
@@ -960,111 +962,198 @@ function DatesBody() {
 
 // ---------- ③ เวลา ----------
 
-function TimeBody({ analysis }: { analysis: Analysis }) {
+function TimeBody({ analysis, onDragState }: { analysis: Analysis; onDragState: (dragging: boolean) => void }) {
   const t = useTokens();
   const d = useDraft();
   const showToast = useUI((s) => s.showToast);
-  const [timePickerOpen, setTimePickerOpen] = useState(false);
-  // โหมด "ช่วงเวลา" ที่เลือกอยู่ = นาทีเริ่มของพรีเซ็ต (null = เลือกเอง)
-  // เก็บเป็น state แทนการเทียบกับ d.start ตรง ๆ — ปรับละเอียด เริ่ม/สิ้นสุด แล้วยังอยู่โหมดพรีเซ็ตเดิม ไม่เด้งไป "เลือกเอง"
+  // ลากเลือกเวลา: แถบ 24 ชม. (ค่าเริ่มต้น) ↔ รางแนวตั้งแบบละเอียด
+  const [detailed, setDetailed] = useState(false);
+  // วันที่ใช้เทียบ (กิจกรรมเดิม · ช่วงว่าง · ที่ชน) — เลือกได้เมื่อลงหลายวัน (ดูได้ 5 วันแรก)
+  const [refPick, setRefPick] = useState(0);
+  const refIdx = Math.min(refPick, Math.max(analysis.per.length - 1, 0));
+  const ref = analysis.per[refIdx];
+  const refItems = ref?.items ?? [];
+  const slots = ref?.slots ?? [];
+  // โหมด "ช่วงเวลา" ที่เลือกอยู่ = นาทีเริ่มของพรีเซ็ต (null = ไม่ได้ใช้พรีเซ็ต)
+  // เก็บเป็น state แทนการเทียบกับ d.start ตรง ๆ — ปรับละเอียด เริ่ม/สิ้นสุด แล้วชิปพรีเซ็ตยังติดอยู่
   const [period, setPeriod] = useState(() => ({ rev: d.loadRev, start: PERIOD_PRESETS.find((p) => p.start === d.start)?.start ?? null }));
   const periodStart = period.rev === d.loadRev ? period.start : (PERIOD_PRESETS.find((p) => p.start === d.start)?.start ?? null);
   const setPeriodStart = (start: number | null) => setPeriod({ rev: d.loadRev, start });
   const timeInvalid = d.end <= d.start;
   const duration = d.end - d.start;
+  const setRange = (s: number, e: number) => {
+    setPeriodStart(PERIOD_PRESETS.find((x) => x.start === s)?.start ?? null);
+    d.set({ start: s, end: e });
+  };
+  const multi = d.dates.length > 1;
 
   return (
-    <>
-      <Card style={{ gap: 10 }}>
-        <Txt size={12.5} color={t.sub}>
-          เริ่มช่วง
+    <Card style={{ gap: 10 }}>
+      {/* ── ลากเลือกเวลา + กิจกรรมเดิม + ช่วงว่าง + ที่ชน (รวมในที่เดียว) ── */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Txt size={13} weight="bold" style={{ flex: 1 }} numberOfLines={1}>
+          ลากเลือกเวลา
         </Txt>
-        <ChipRow style={{ gap: 6, marginTop: -4 }}>
-          {PERIOD_PRESETS.map((p) => (
-            <Chip
-              key={p.label}
-              small
-              label={p.label}
-              active={periodStart === p.start}
-              onPress={() => {
-                setPeriodStart(p.start);
-                d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) });
-              }}
-            />
-          ))}
-          {/* "เลือกเอง" active เมื่อไม่ได้อยู่ในโหมดพรีเซ็ต — เปิดตัวเลือกเวลา (ยกเลิกได้ ยังไม่เปลี่ยนโหมด) */}
-          <Chip small label="เลือกเอง…" active={periodStart === null} onPress={() => setTimePickerOpen(true)} />
-        </ChipRow>
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>
-            ระยะเวลา
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: detailed }}
+          onPress={() => setDetailed(!detailed)}
+          hitSlop={6}
+          style={({ pressed }) => ({ height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: pressed ? t.rail : t.track, justifyContent: 'center' })}>
+          <Txt size={12.5} weight="bold" color={t.accentInk}>
+            {detailed ? 'ย่อเป็นแถบ' : 'ขยายแบบละเอียด'}
           </Txt>
-          <Txt size={13} num weight="bold" color={timeInvalid ? t.warn : t.accentInk}>
-            {timeInvalid ? 'เวลาไม่ถูกต้อง' : durText(duration)}
-          </Txt>
-        </View>
-        <ChipRow style={{ gap: 6, marginTop: -4 }}>
-          {[1, 2, 3, 4, 5, 7].map((n) => (
-            <Chip key={n} small label={`${n} ชม.`} active={duration === n * 60} onPress={() => d.set({ end: Math.min(d.start + n * 60, DAY_END) })} />
-          ))}
-        </ChipRow>
+        </Pressable>
+      </View>
 
-        <View style={{ height: 1, backgroundColor: t.line }} />
-        <TimeStepper label="เริ่ม" value={d.start} onChange={(v) => d.set({ start: v })} />
-        <TimeStepper label="สิ้นสุด" value={d.end} onChange={(v) => d.set({ end: v })} />
-        {timeInvalid ? (
-          <Txt size={12} color={t.warn}>
-            เวลาสิ้นสุดต้องมากกว่าเริ่ม
+      {multi ? (
+        // ลงหลายวัน — เลือกวันที่จะดูกิจกรรมเดิม (จุดแดง = วันนั้นเวลาชน)
+        <View style={{ gap: 4 }}>
+          <Txt size={12} color={t.sub}>
+            ดูกิจกรรมเดิมของวัน{d.dates.length > analysis.per.length ? ` (${analysis.per.length} วันแรกจาก ${d.dates.length})` : ''}
           </Txt>
-        ) : null}
-      </Card>
-      <TimeRangeModal
-        visible={timePickerOpen}
-        start={d.start}
-        end={d.end}
-        onClose={() => setTimePickerOpen(false)}
-        onConfirm={(s, e) => {
-          setPeriodStart(null); // ตั้งเวลาเองแล้ว → ออกจากโหมดพรีเซ็ต
-          d.set({ start: s, end: e });
-          setTimePickerOpen(false);
-        }}
-      />
-
-      {/* เตือนเวลาชน (ไม่บล็อก) + เสนอช่วงว่างที่ใกล้ที่สุด */}
-      {analysis.conflictDays > 0 ? (
-        <View style={{ backgroundColor: t.card, borderRadius: 16, borderWidth: 1.5, borderColor: '#D2603A', overflow: 'hidden' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12 }}>
-            <SvgIcon name="alert" size={18} color={t.warn} strokeWidth={2} />
-            <Txt size={13} weight="bold" color={t.warn} style={{ flex: 1, lineHeight: 19 }}>
-              {analysis.text} — บันทึกต่อได้
-            </Txt>
-          </View>
-          <SuggestStrip analysis={analysis} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+            {analysis.per.map((p, i) => {
+              const on = i === refIdx;
+              return (
+                <Pressable
+                  key={p.date}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`${thaiDate(p.date)}${p.conflicts.length ? ' · เวลาชน' : ''}`}
+                  onPress={() => setRefPick(i)}
+                  style={{ height: 34, paddingHorizontal: 12, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: on ? t.ink : t.track }}>
+                  <Txt size={13} weight={on ? 'bold' : 'med'} color={on ? t.bg : t.sub}>
+                    {shortDate(p.date)}
+                  </Txt>
+                  {p.conflicts.length ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#D2603A' }} /> : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         </View>
       ) : null}
 
-      {/* พรีวิวรายวัน (≤5 วัน) */}
-      {d.dates.length <= 5 ? (
-        analysis.per.map((p) => (
-          <DayPreview
-            key={p.date}
-            {...p}
-            newStart={d.start}
-            newEnd={d.end}
-            onPickSlot={(s, e) => {
-              setPeriodStart(PERIOD_PRESETS.find((x) => x.start === s)?.start ?? null);
-              d.set({ start: s, end: e });
-              showToast(`ใช้ช่วงว่าง ${fmtMin(s)}–${fmtMin(e)} แล้ว`);
+      {detailed ? (
+        <TimeDragRail start={d.start} end={d.end} items={refItems} free={slots} title={d.title.trim()} onDragState={onDragState} onChange={setRange} />
+      ) : (
+        <TimeDragBar start={d.start} end={d.end} items={refItems} free={slots} onDragState={onDragState} onChange={setRange} />
+      )}
+
+      {/* ผลของช่วงที่เลือก — ชน (ทุกวันที่ลง) + เสนอช่วงที่ใกล้ที่สุด · หรือว่างตลอดช่วง */}
+      {analysis.conflictDays > 0 ? (
+        <View style={{ borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(210,96,58,0.45)' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10 }}>
+            <SvgIcon name="alert" size={16} color={t.warn} strokeWidth={2} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Txt size={12.5} weight="bold" color={t.warn} style={{ lineHeight: 18 }}>
+                {analysis.text} — บันทึกซ้อนได้
+              </Txt>
+              {multi && ref ? (
+                <Txt size={12} color={t.sub} style={{ lineHeight: 17 }}>
+                  {shortDate(ref.date)}: {ref.conflicts.length ? `ชนกับ ${ref.conflicts.map((c) => `“${c.title}”`).join(', ')}` : 'ไม่ชน'}
+                </Txt>
+              ) : null}
+            </View>
+          </View>
+          <SuggestStrip analysis={analysis} />
+        </View>
+      ) : !timeInvalid ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <SvgIcon name="check" size={15} color={t.greenInk} strokeWidth={2.6} />
+          <Txt size={12.5} weight="bold" color={t.greenInk}>
+            ไม่ชนกับกิจกรรมเดิม{multi ? `ทุกวันที่ลง (${d.dates.length} วัน)` : ''}
+          </Txt>
+        </View>
+      ) : null}
+
+      {/* ช่วงว่างของวันที่ดูอยู่ — แตะเพื่อใช้ทั้งช่วง (แถบเขียวบนแถบเวลาคือช่วงเดียวกัน) */}
+      {slots.length ? (
+        <View style={{ gap: 6 }}>
+          <Txt size={12} color={t.sub}>
+            ช่วงว่าง{multi && ref ? `ของ ${shortDate(ref.date)}` : ''} — แตะเพื่อใช้
+          </Txt>
+          <ChipRow style={{ gap: 6 }}>
+            {slots.map((s) => {
+              const on = d.start === s.start && d.end === s.end;
+              const c = s.night ? t.sub : t.greenInk;
+              return (
+                <Pressable
+                  key={`${s.start}-${s.end}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  onPress={() => {
+                    setRange(s.start, s.end);
+                    showToast(`ใช้ช่วงว่าง ${fmtMin(s.start)}–${fmtMin(s.end)} แล้ว`);
+                  }}
+                  style={({ pressed }) => ({
+                    height: 34,
+                    paddingHorizontal: 12,
+                    borderRadius: 17,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    backgroundColor: on ? c : pressed ? 'rgba(76,154,106,0.22)' : s.night ? t.track : 'rgba(76,154,106,0.12)',
+                  })}>
+                  {s.night ? <Icon name="moon" size={12} color={on ? '#FFFFFF' : c} /> : null}
+                  <Txt size={12.5} num weight={on ? 'bold' : 'med'} color={on ? '#FFFFFF' : c}>
+                    {fmtMin(s.start)}–{fmtMin(s.end)} · {hoursText(s.end - s.start)}
+                  </Txt>
+                </Pressable>
+              );
+            })}
+          </ChipRow>
+        </View>
+      ) : null}
+
+      <Txt size={11.5} color={t.faint} style={{ lineHeight: 17 }}>
+        กดค้างที่บล็อกส้มแล้วลาก = ย้าย · ลากขอบ = ยืด/หด · แตะที่ว่าง = ย้ายไปเวลานั้น · ทีละ 15 นาที
+      </Txt>
+
+      <View style={{ height: 1, backgroundColor: t.line }} />
+
+      {/* ── ตั้งเร็ว: เริ่มช่วง · ระยะเวลา · ปรับละเอียด ── */}
+      <Txt size={12.5} color={t.sub}>
+        เริ่มช่วง
+      </Txt>
+      <ChipRow style={{ gap: 6, marginTop: -4 }}>
+        {PERIOD_PRESETS.map((p) => (
+          <Chip
+            key={p.label}
+            small
+            label={p.label}
+            active={periodStart === p.start}
+            onPress={() => {
+              setPeriodStart(p.start);
+              d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) });
             }}
           />
-        ))
-      ) : (
-        <Txt size={12} color={t.faint} style={{ textAlign: 'center' }}>
-          เลือกไว้ {d.dates.length} วัน — พรีวิวรายวันแสดงเมื่อเลือกไม่เกิน 5 วัน
+        ))}
+      </ChipRow>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>
+          ระยะเวลา
         </Txt>
-      )}
-    </>
+        <Txt size={13} num weight="bold" color={timeInvalid ? t.warn : t.accentInk}>
+          {timeInvalid ? 'เวลาไม่ถูกต้อง' : durText(duration)}
+        </Txt>
+      </View>
+      <ChipRow style={{ gap: 6, marginTop: -4 }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Chip key={n} small label={`${n} ชม.`} active={duration === n * 60} onPress={() => d.set({ end: Math.min(d.start + n * 60, DAY_END) })} />
+        ))}
+      </ChipRow>
+
+      <View style={{ height: 1, backgroundColor: t.line }} />
+      <TimeStepper label="เริ่ม" value={d.start} onChange={(v) => d.set({ start: v })} />
+      <TimeStepper label="สิ้นสุด" value={d.end} onChange={(v) => d.set({ end: v })} />
+      {timeInvalid ? (
+        <Txt size={12} color={t.warn}>
+          เวลาสิ้นสุดต้องมากกว่าเริ่ม
+        </Txt>
+      ) : null}
+    </Card>
   );
 }
 
@@ -1158,99 +1247,5 @@ function TimeStepper({ label, value, onChange }: { label: string; value: number;
         <SvgIcon name="plus" size={18} color={t.ink} strokeWidth={2.2} />
       </Pressable>
     </View>
-  );
-}
-
-interface DayPreviewProps {
-  date: string;
-  items: ReturnType<typeof getDay>;
-  conflicts: ReturnType<typeof getDay>;
-  slots: PreviewSlot[];
-  newStart: number;
-  newEnd: number;
-  /** แตะช่วงว่าง → ยกช่วงเวลานั้นไปใส่ในขั้น "เวลา" */
-  onPickSlot: (start: number, end: number) => void;
-}
-
-// จุดบอกเวลาใต้แถบไทม์ไลน์พรีวิว (หน้าต่างวันคือ 06:00–30:00 ครบ 24 ชม.)
-const PREVIEW_TICKS = [360, 720, 1080, 1440, 1800]; // 06:00 12:00 18:00 24:00 06:00(+1)
-
-function DayPreview({ date, items, conflicts, slots, newStart, newEnd, onPickSlot }: DayPreviewProps) {
-  const t = useTokens();
-  const span = DAY_END - DAY_START;
-  const pct = (m: number) => ((Math.min(Math.max(m, DAY_START), DAY_END) - DAY_START) / span) * 100;
-  const seg = (s: number, e: number) => ({
-    left: `${pct(s)}%` as const,
-    width: `${pct(e) - pct(s)}%` as const,
-  });
-  return (
-    <Card style={{ gap: 8 }}>
-      <Txt size={13} weight="med">{thaiDate(date)} · มีกิจกรรมเดิม {items.length} รายการ</Txt>
-      <View style={{ gap: 2 }}>
-        <View style={{ height: 10, borderRadius: 5, backgroundColor: t.track, overflow: 'hidden' }}>
-          {PREVIEW_TICKS.map((m) => (
-            <View key={m} style={{ position: 'absolute', top: 0, bottom: 0, width: 1, backgroundColor: t.line2, left: `${pct(m)}%` }} />
-          ))}
-          {items.map((i) => (
-            <View key={`${i.id}`} style={{ position: 'absolute', top: 0, bottom: 0, backgroundColor: t.faint, opacity: 0.6, ...seg(i.startMin, i.endMin) }} />
-          ))}
-          <View style={{ position: 'absolute', top: 0, bottom: 0, backgroundColor: ACCENT, ...seg(newStart, newEnd) }} />
-        </View>
-        <View style={{ height: 13 }}>
-          {PREVIEW_TICKS.map((m) => {
-            // ป้ายริมซ้าย/ขวาชิดขอบแถบ ไม่ให้ล้นการ์ด
-            const edge = m === DAY_START ? 'start' : m === DAY_END ? 'end' : 'mid';
-            return (
-              <View
-                key={m}
-                style={{
-                  position: 'absolute',
-                  left: `${pct(m)}%`,
-                  width: 40,
-                  marginLeft: edge === 'start' ? 0 : edge === 'end' ? -40 : -20,
-                  alignItems: edge === 'start' ? 'flex-start' : edge === 'end' ? 'flex-end' : 'center',
-                }}>
-                <Txt size={9} num color={t.faint}>{fmtMin(m)}</Txt>
-              </View>
-            );
-          })}
-        </View>
-      </View>
-      {slots.length ? (
-        <>
-          <Txt size={11} color={t.faint}>แตะช่วงว่างเพื่อใช้เป็นเวลาเริ่ม–สิ้นสุด</Txt>
-          <ChipRow>
-            {slots.map((s) => {
-              const on = newStart === s.start && newEnd === s.end; // ช่วงที่กำลังใช้อยู่
-              const c = s.night ? t.sub : GREEN; // ท่อนดึก (01:00–06:00) โทนเงียบกว่า
-              return (
-                <Pressable
-                  key={`${s.start}-${s.end}`}
-                  onPress={() => onPickSlot(s.start, s.end)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 4,
-                    backgroundColor: c + (on ? '3a' : '22'),
-                    borderRadius: 99,
-                    borderWidth: 1,
-                    borderColor: on ? c : 'transparent',
-                    paddingHorizontal: 8,
-                    paddingVertical: 3,
-                  }}>
-                  {s.night ? <Icon name="moon" size={11} color={c} /> : null}
-                  <Txt size={11} num weight={on ? 'bold' : 'reg'} color={c}>
-                    {fmtMin(s.start)}–{fmtMin(s.end)} ({hoursText(s.end - s.start)})
-                  </Txt>
-                </Pressable>
-              );
-            })}
-          </ChipRow>
-        </>
-      ) : null}
-      {conflicts.length ? (
-        <Txt size={12} color="#D2603A">ชนกับ: {conflicts.map((c) => c.title).join(', ')}</Txt>
-      ) : null}
-    </Card>
   );
 }
