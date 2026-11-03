@@ -1,5 +1,6 @@
 // มุมมองวัน (ระบบ B1) — แถววันที่ + ไอคอนมุมมอง · แถบ 7 วัน · การ์ดสรุปวัน + ทบทวนค้างบันทึก · รายการบนราง
 // แทนตารางชั่วโมงเดิม: วงกลมบนราง = ปุ่มติ๊ก · ชื่อยาวขึ้นบรรทัดใหม่ได้
+// ปัดซ้าย/ขวาที่รายการ → วันถัดไป/วันก่อน (components/today/swipe-days)
 // ปุ่มนาฬิกาที่หัวจอ (โหมดเวลาว่าง) เปิด → แทรกช่วงว่างเป็นแถวเส้นประ (แตะ → เพิ่ม) · ปิด → เห็นแต่รายการ
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -11,6 +12,7 @@ import { useNow } from '@/components/b1/use-now';
 import { useToggleStatus } from '@/components/b1/use-toggle';
 import { WeekStrip } from '@/components/b1/week-strip';
 import { SvgIcon } from '@/components/svg-icon';
+import { SwipeDays } from '@/components/today/swipe-days';
 import { Txt, useTokens } from '@/components/ui';
 import { addDays, beYear, fromISO, MONTH_TH, WD_TH_FULL, wdMon } from '@/lib/dates';
 import { computeStats, daytimeFreeSlots } from '@/lib/engine';
@@ -76,27 +78,30 @@ export function TodayDayView({ focus, onChangeFocus, onPressTitle, onPressItem, 
       <DateHeader title={title} summary={summary} onPressTitle={onPressTitle} view={view} onChangeView={onChangeView} />
       <WeekStrip focus={focus} onChangeFocus={onChangeFocus} />
 
-      <ScrollView ref={scRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 8, paddingBottom: bottomPad }}>
-        {overdue7 ? <ReviewBanner overdue7={overdue7} onReview={() => router.push('/review')} /> : null}
+      {/* ปัดซ้าย/ขวาที่รายการ = วันถัดไป/วันก่อน (หัวจอ + แถบ 7 วันอยู่กับที่) */}
+      <SwipeDays focus={focus} onChangeFocus={onChangeFocus}>
+        <ScrollView ref={scRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 8, paddingBottom: bottomPad }}>
+          {overdue7 ? <ReviewBanner overdue7={overdue7} onReview={() => router.push('/review')} /> : null}
 
-        {items.length ? (
-          <View onLayout={(e) => (railTop.current = e.nativeEvent.layout.y)} style={{ paddingLeft: 12, paddingRight: 18, paddingTop: 10 }}>
-            <Rail
-              items={items}
-              now={now}
-              free={free}
-              showNow={isNowDay}
-              onPressItem={onPressItem}
-              onToggle={toggle}
-              onPressSlot={(s) => onPressSlot(focus, s.start, s.end)}
-              noteOf={noteOf}
-              onNowLayout={setNowY}
-            />
-          </View>
-        ) : (
-          <EmptyDay onAdd={onAdd} />
-        )}
-      </ScrollView>
+          {items.length ? (
+            <View onLayout={(e) => (railTop.current = e.nativeEvent.layout.y)} style={{ paddingLeft: 12, paddingRight: 18, paddingTop: 10 }}>
+              <Rail
+                items={items}
+                now={now}
+                free={free}
+                showNow={isNowDay}
+                onPressItem={onPressItem}
+                onToggle={toggle}
+                onPressSlot={(s) => onPressSlot(focus, s.start, s.end)}
+                noteOf={noteOf}
+                onNowLayout={setNowY}
+              />
+            </View>
+          ) : (
+            <EmptyDay onAdd={onAdd} />
+          )}
+        </ScrollView>
+      </SwipeDays>
     </View>
   );
 }
