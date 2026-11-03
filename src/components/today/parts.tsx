@@ -12,6 +12,8 @@ import { useContacts } from '@/stores/contacts';
  * ผู้เรียกจึง fallback เองได้ตามบริบท: มุมมองสัปดาห์ใช้ชื่อกิจกรรมแทน ส่วนมุมมองวันใช้สถานที่แทน
  */
 export function caseNames(it: DayItem, nameById: Record<number, string>) {
+  // โหมดช่องทางติดต่อ — ใช้ชื่อที่กรอกไว้ในนัด (ไม่มีชื่อ = '' ให้ผู้เรียก fallback เอง)
+  if (it.inlineContact) return it.inlineContact.name.trim();
   const names = it.contactIds.map((id) => nameById[id]).filter((s) => !!s?.trim());
   if (!names.length) return '';
   return names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0];
@@ -26,7 +28,8 @@ export function useCaseNames(): (it: DayItem) => string {
   }, [contacts]);
 }
 
-/** รายชื่อเต็ม ๆ ของนัดเคส (ตามลำดับที่ผูกไว้) — สำหรับที่ที่มีเนื้อที่พอโชว์รายละเอียด เช่นบล็อกในมุมมองวัน */
+/** รายชื่อเต็ม ๆ ของนัดเคส (ตามลำดับที่ผูกไว้) — สำหรับที่ที่มีเนื้อที่พอโชว์รายละเอียด เช่นบล็อกในมุมมองวัน
+ * (ไม่รวมช่องทางที่กรอกไว้ในนัด — ดู it.inlineContact) */
 export function useCaseContacts(): (it: DayItem) => Contact[] {
   const contacts = useContacts((s) => s.list);
   return useMemo(() => {

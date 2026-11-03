@@ -220,6 +220,7 @@ function parseMonthBlock(rows: TTCell[][]): TimeTableImport | null {
         detachedFrom: null,
         status: 'active',
         contactIds: [],
+        inlineContact: null,
       });
     }
   }

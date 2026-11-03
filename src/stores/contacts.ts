@@ -2,7 +2,7 @@ import { Linking } from 'react-native';
 import { create } from 'zustand';
 
 import * as db from '@/lib/db';
-import type { Contact } from '@/lib/types';
+import type { Contact, ContactInfo } from '@/lib/types';
 
 // ---------- ประกอบลิงก์ประชุมออนไลน์จากค่าที่ผู้ใช้กรอก (รองรับ 2 กรณี: ลิงก์เต็ม / Meeting ID) ----------
 
@@ -91,7 +91,7 @@ export interface ContactMethod {
 }
 
 /** ช่องทางที่เปิดได้ของคนนี้ (โทร/LINE/อีเมล/Zoom/Meet) — ใช้ร่วมกันทั้งแผ่นรายละเอียดและไอคอนย่อบนราง */
-export function contactMethods(c: Contact): ContactMethod[] {
+export function contactMethods(c: ContactInfo): ContactMethod[] {
   return [
     c.phone && { key: 'phone', label: 'เบอร์โทร', icon: 'phone', display: c.phone, value: c.phone, url: `tel:${c.phone.replace(/[^0-9+]/g, '')}` },
     c.line && { key: 'line', label: 'LINE', icon: 'line', display: c.line, value: c.line, url: `https://line.me/R/ti/p/~${c.line.replace(/^@/, '')}` },

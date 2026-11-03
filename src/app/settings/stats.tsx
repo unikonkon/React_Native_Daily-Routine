@@ -11,6 +11,7 @@ import { Card, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CATS, CAT_OPTIONS, FONT, GREEN, PRI, PRI_BY_ID, type CatId, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, nowMin, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
 import { rangeStats, type RangeStats } from '@/lib/engine';
+import { caseWho, inlineName } from '@/lib/case-contacts';
 import type { Contact, DayItem } from '@/lib/types';
 import { useActivities } from '@/stores/activities';
 import { meetLink, openLink, useContacts, zoomAppLink, zoomWebLink } from '@/stores/contacts';
@@ -52,6 +53,7 @@ interface CaseGroup {
   done: number;
   hours: number; // ชั่วโมงของนัดที่ทำเสร็จ
   contactIds: number[]; // ผู้ติดต่อที่เกี่ยวข้อง (ไม่ซ้ำ)
+  extraNames: string[]; // ผู้ติดต่อจากนัดโหมดช่องทางติดต่อ (ไม่อยู่ในสมุดรายชื่อ)
   online: number; // จำนวนนัดออนไลน์
   inperson: number; // จำนวนนัดพบตัว
 }
@@ -178,7 +180,7 @@ export default function StatsScreen() {
     for (const it of stats.caseItems) {
       const found = it.contactIds.map((id) => byId.get(id)).filter((c): c is Contact => !!c && !!c.name.trim());
       if (!found.length) {
-        unnamed++;
+        if (!it.inlineContact) unnamed++; // โหมดช่องทางติดต่อ: มีผู้ติดต่อแต่ไม่อยู่ในสมุด — ไม่นับว่า "ไม่ได้ระบุ"
         continue;
       }
       const counted = new Set<string>(); // กันนับนัดเดียวซ้ำให้คนเดียวกัน
@@ -220,7 +222,7 @@ export default function StatsScreen() {
       const key = nameKey(it.title);
       const g =
         map.get(key) ??
-        { key, title: it.title.trim(), pri: null, items: [], done: 0, hours: 0, contactIds: [], online: 0, inperson: 0 };
+        { key, title: it.title.trim(), pri: null, items: [], done: 0, hours: 0, contactIds: [], extraNames: [], online: 0, inperson: 0 };
       if (priRank(it.priority) < priRank(g.pri)) g.pri = it.priority;
       g.items.push(it);
       if (it.ostatus === 'done') {
@@ -230,6 +232,8 @@ export default function StatsScreen() {
       if (it.channel === 'online') g.online++;
       else if (it.channel === 'inperson') g.inperson++;
       for (const id of it.contactIds) if (!g.contactIds.includes(id)) g.contactIds.push(id);
+      const inl = inlineName(it);
+      if (inl && !g.extraNames.includes(inl)) g.extraNames.push(inl);
       map.set(key, g);
     }
     for (const g of map.values()) g.items.sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin);
@@ -907,7 +911,7 @@ function CaseGroupRow({ g, first, nameById, onPress }: { g: CaseGroup; first: bo
   const t = useTokens();
   const last = g.items[g.items.length - 1];
   const d = last ? fromISO(last.date) : null;
-  const names = g.contactIds.map((id) => nameById[id]).filter(Boolean).join(', ');
+  const names = [...g.contactIds.map((id) => nameById[id]).filter(Boolean), ...g.extraNames].join(', ');
   const sub = [
     `เสร็จ ${g.done}/${g.items.length}`,
     g.hours ? hoursText(g.hours * 60) : null,
@@ -942,7 +946,7 @@ function CaseGroupRow({ g, first, nameById, onPress }: { g: CaseGroup; first: bo
 function CaseGroupDetail({ g, nameById, onBack }: { g: CaseGroup; nameById: Record<number, string>; onBack: () => void }) {
   const t = useTokens();
   const rate = g.items.length ? g.done / g.items.length : 0;
-  const names = g.contactIds.map((id) => nameById[id]).filter(Boolean);
+  const names = [...g.contactIds.map((id) => nameById[id]).filter(Boolean), ...g.extraNames];
   const first = g.items[0];
   const last = g.items[g.items.length - 1];
   const span =
@@ -1085,7 +1089,7 @@ function CaseRow({ it, first, nameById }: { it: DayItem; first: boolean; nameByI
   const t = useTokens();
   const d = fromISO(it.date);
   const p = it.priority ? PRI_BY_ID[it.priority] : null;
-  const names = it.contactIds.map((id) => nameById[id]).filter(Boolean).join(', ');
+  const names = caseWho(it, nameById).join(', ');
   const done = it.ostatus === 'done';
   return (
     <Pressable

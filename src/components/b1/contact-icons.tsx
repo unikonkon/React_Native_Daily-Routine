@@ -7,7 +7,7 @@ import { Pressable, View } from 'react-native';
 
 import { SvgIcon } from '@/components/svg-icon';
 import { Txt, useTokens } from '@/components/ui';
-import type { Contact } from '@/lib/types';
+import type { ContactInfo } from '@/lib/types';
 import { contactMethods, openLink, type ContactMethod } from '@/stores/contacts';
 import { useUI } from '@/stores/ui';
 
@@ -72,25 +72,29 @@ function Detail({ icon, text, lines }: { icon: string; text: string; lines: numb
   );
 }
 
-/** รายชื่อในนัด แถวละคน — คนที่ไม่มีช่องทางเลยแสดงชื่ออย่างเดียว · องค์กร/หมายเหตุโชว์เมื่อมี */
-export function ContactIcons({ contacts, dim }: { contacts: Contact[]; dim?: boolean }) {
+/**
+ * รายชื่อในนัด แถวละคน — คนที่ไม่มีช่องทางเลยแสดงชื่ออย่างเดียว · องค์กร/หมายเหตุโชว์เมื่อมี
+ * รับได้ทั้งรายชื่อในสมุด และช่องทางที่กรอกไว้ในนัด (ไม่มีชื่อ → "ช่องทางติดต่อ")
+ */
+export function ContactIcons({ contacts, dim }: { contacts: ContactInfo[]; dim?: boolean }) {
   const t = useTokens();
   if (!contacts.length) return null;
   return (
     <View style={{ marginTop: 8, gap: 8, opacity: dim ? 0.6 : 1 }}>
-      {contacts.map((c) => {
+      {contacts.map((c, i) => {
         const methods = contactMethods(c);
+        const name = c.name.trim() || 'ช่องทางติดต่อ';
         return (
-          <View key={c.id} style={{ gap: 2 }}>
+          <View key={i} style={{ gap: 2 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: SIZE }}>
               <SvgIcon name="user" size={13} color={t.sub} />
               <Txt size={12.5} weight="med" color={t.ink} numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>
-                {c.name}
+                {name}
               </Txt>
               {methods.length ? (
                 <View style={{ flexDirection: 'row', gap: 5 }}>
                   {methods.map((m) => (
-                    <MethodBtn key={m.key} m={m} name={c.name} />
+                    <MethodBtn key={m.key} m={m} name={name} />
                   ))}
                 </View>
               ) : (

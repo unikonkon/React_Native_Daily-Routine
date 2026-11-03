@@ -31,6 +31,11 @@ export interface Activity {
   detachedFrom: number | null;
   status: 'active' | 'cancelled';
   contactIds: number[];
+  /**
+   * นัดเคสโหมด "ช่องทางติดต่อ" — ข้อมูลติดต่อที่กรอกไว้กับกิจกรรมนี้โดยตรง (ไม่อยู่ในสมุดรายชื่อ · ไม่มีระดับความสำคัญ)
+   * มีค่า = โหมดช่องทางติดต่อ (contactIds ว่าง, priority = null) · null = โหมดคนที่นัด (ตามเดิม)
+   */
+  inlineContact: InlineContact | null;
   /** สีพื้นเซลล์ '#RRGGBB' ที่จำมาจากไฟล์ Time Table (.xlsx) — null = ใช้สีตามหมวดตอนส่งออก */
   color: string | null;
 }
@@ -40,6 +45,21 @@ export interface DayItem extends Activity {
   date: string;
   ostatus: OccStatus;
 }
+
+/** ข้อมูลติดต่อที่ใช้แสดง/เปิดช่องทาง — ส่วนร่วมของรายชื่อในสมุด (Contact) กับช่องทางที่กรอกไว้ในนัด (InlineContact) */
+export interface ContactInfo {
+  name: string;
+  phone: string | null;
+  line: string | null;
+  email: string | null;
+  zoom: string | null;
+  googlemeet: string | null;
+  note: string | null;
+  org: string | null;
+}
+
+/** ช่องทางติดต่อของนัดเคสที่ไม่ผูกกับสมุดรายชื่อ — name = ชื่อผู้ติดต่อ/หัวข้อ (ว่างได้) */
+export type InlineContact = ContactInfo;
 
 export interface Contact {
   id: number;

@@ -2,10 +2,12 @@
 // ① หมวด+รายละเอียด → ② วันที่+ทำซ้ำ → ③ เวลา (เตือนชน + เสนอช่วงว่างที่ใกล้ที่สุด) → ④ แจ้งเตือน
 // แก้ไข: แถบ "กำลังแก้ไข" + ป้าย "เปลี่ยนแล้ว" ต่อขั้น + การ์ดขอบเขตชุดทำซ้ำ (มีผล n ครั้ง)
 // แถบล่าง: ‹ กลับ (เพิ่ม = เก็บร่างไว้ · แก้ไข = ทิ้งการแก้ไข) + บันทึก / บันทึกการแก้ไข
+import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, TextInput, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native';
 
+import { Field } from '@/components/field';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
 import { MonthYearPicker } from '@/components/month-year-picker';
@@ -16,10 +18,10 @@ import { Btn, Card, Chip, ChipRow, PriBadge, Segmented, Toggle, Txt, useTokens }
 import { CATS, CAT_BY_ID, CAT_OPTIONS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, durText, fmtMin, fromISO, hoursText, thaiDate, todayISO, wdMon } from '@/lib/dates';
 import { FREE_WINDOW_END, conflictsOn, freeSlots, maskFromDates, seriesDates } from '@/lib/engine';
-import { HORIZON_DAYS, type Activity, type Contact, type Horizon, type RepeatRule } from '@/lib/types';
+import { HORIZON_DAYS, type Activity, type Contact, type Horizon, type InlineContact, type RepeatRule } from '@/lib/types';
 import { getDay, useActivities, useDayReader } from '@/stores/activities';
 import { contactChannels, useContacts } from '@/stores/contacts';
-import { useDraft } from '@/stores/draft';
+import { cleanInline, useDraft, type ContactMode } from '@/stores/draft';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
@@ -90,7 +92,8 @@ function dateRange(a: string, b: string): string {
 /** ค่าที่โหลดมาตอนเปิดฟอร์ม — เทียบหา "เปลี่ยนแล้ว" ในโหมดแก้ไข */
 function snapOf(d: Draft) {
   return {
-    s1: JSON.stringify([d.cat, d.title.trim(), d.sub, d.loc, d.channel, d.priority, d.contactIds]),
+    // นัดเคส: เทียบเฉพาะข้อมูลของโหมดที่เลือก (อีกโหมดไม่ถูกบันทึก)
+    s1: JSON.stringify([d.cat, d.title.trim(), d.sub, d.loc, d.channel, d.contactMode === 'inline' ? ['inline', cleanInline(d.inline)] : ['people', d.priority, d.contactIds]]),
     s2: JSON.stringify([d.repeat, d.dates.length, d.dates[0], d.dates[d.dates.length - 1]]),
     start: d.start,
     end: d.end,
@@ -187,7 +190,12 @@ export default function AddScreen() {
 
   const cat = d.cat ? CAT_BY_ID[d.cat] : null;
   const contacts = useContacts((s) => s.list);
-  const who = d.cat === 'case' ? d.contactIds.map((id) => contacts.find((c) => c.id === id)?.name).filter(Boolean).join(', ') : '';
+  const who =
+    d.cat !== 'case'
+      ? ''
+      : d.contactMode === 'inline'
+        ? cleanInline(d.inline) ? d.inline.name.trim() || 'ช่องทางติดต่อ' : ''
+        : d.contactIds.map((id) => contacts.find((c) => c.id === id)?.name).filter(Boolean).join(', ');
   const s1Text = [d.title.trim(), who, d.sub, d.loc].filter(Boolean).join(' · ');
   const last = d.dates[d.dates.length - 1];
   const s2Text =
@@ -610,13 +618,15 @@ function useSave(editing: Activity | undefined, askScope: boolean, openStep1: ()
     // แก้ไขชุดเดิมที่ยังไม่ได้เลือกระยะเวลาใหม่ → จบวันเดิม (keepEnd) ไม่รีเซ็ตเป็นค่าตาม horizon
     const endDate = isOnce ? null : isCustom ? d.dates[d.dates.length - 1] : d.keepEnd ? d.keepEnd.endDate : addDays(startDate, HORIZON_DAYS[d.horizon] - 1);
 
+    // นัดเคสโหมดช่องทางติดต่อ: ไม่ผูกสมุดรายชื่อ และไม่มีระดับความสำคัญ
+    const inline = d.cat === 'case' && d.contactMode === 'inline';
     const fields = {
       title: d.title.trim(),
       cat: d.cat as CatId,
       sub: d.sub || null,
       loc: d.loc || null,
       channel: d.cat === 'case' ? d.channel : null,
-      priority: d.cat === 'case' ? d.priority : null,
+      priority: d.cat === 'case' && !inline ? d.priority : null,
       startMin: d.start,
       endMin: d.end,
       repeat: d.repeat,
@@ -629,7 +639,8 @@ function useSave(editing: Activity | undefined, askScope: boolean, openStep1: ()
       notifyBefore: d.before,
       detachedFrom: null,
       status: 'active' as const,
-      contactIds: d.cat === 'case' ? d.contactIds : [],
+      contactIds: d.cat === 'case' && !inline ? d.contactIds : [],
+      inlineContact: inline ? cleanInline(d.inline) : null,
       color: null, // สีจากไฟล์ Time Table เท่านั้น — กิจกรรมที่สร้างในแอปใช้สีตามหมวด
     };
 
@@ -756,99 +767,120 @@ function DetailsBody() {
         {d.cat === 'case' ? (
           <>
             <View style={{ height: 1, backgroundColor: t.line }} />
-            {/* คนที่นัด — เลือกจากสมุดรายชื่อ · ปุ่มแก้ไขพาไปหน้าสมุดรายชื่อเพื่อเติม/แก้ข้อมูลติดต่อ */}
+            {/* ผู้ติดต่อของนัด 2 โหมด (ทีละโหมด): คนที่นัด = เลือกจากสมุดรายชื่อ + ระดับความสำคัญ (ตามเดิม)
+                · ช่องทางติดต่อ = กรอกข้อมูลของนัดนี้เอง ไม่ลงสมุดรายชื่อ ไม่ต้องเลือกระดับ */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Txt size={13} weight="med" color={t.sub} style={{ flex: 1 }}>คนที่นัด</Txt>
-              <Chip small icon="edit" label="แก้ไขรายชื่อ" onPress={() => router.push('/settings/contacts')} />
+              <Txt size={13} weight="med" color={t.sub} style={{ flex: 1 }}>ผู้ติดต่อ</Txt>
+              {d.contactMode === 'people' ? <Chip small icon="edit" label="แก้ไขรายชื่อ" onPress={() => router.push('/settings/contacts')} /> : null}
             </View>
-            <ChipRow>
-              {contacts.map((c) => (
-                <Chip
-                  key={c.id}
-                  small
-                  label={c.name}
-                  active={d.contactIds.includes(c.id)}
-                  onPress={() =>
-                    d.set({
-                      contactIds: d.contactIds.includes(c.id) ? d.contactIds.filter((x) => x !== c.id) : [...d.contactIds, c.id],
-                    })
-                  }
-                />
-              ))}
-              <Chip small label="+ เพิ่ม" active={addingContact} onPress={() => setAddingContact(true)} />
-            </ChipRow>
-            {addingContact ? (
-              <View style={{ gap: 8 }}>
-                <TextInput
-                  value={newName}
-                  onChangeText={setNewName}
-                  placeholder="ชื่อรายชื่อใหม่…"
-                  placeholderTextColor={t.faint}
-                  autoFocus
-                  style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
-                />
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {/* ยกเลิกการเพิ่ม — ปิดช่องกรอกและทิ้งชื่อที่พิมพ์ค้างไว้ */}
-                  <Btn
-                    style={{ flex: 1 }}
-                    kind="ghost"
-                    label="ยกเลิก"
-                    onPress={() => {
-                      setNewName('');
-                      setAddingContact(false);
-                    }}
-                  />
-                  <Btn
-                    style={{ flex: 1 }}
-                    label="เพิ่ม"
-                    disabled={!newName.trim()}
-                    onPress={async () => {
-                      const name = newName.trim();
-                      if (!name) return;
-                      await upsertContact({ name, priority: 'P6', phone: null, line: null, email: null, zoom: null, googlemeet: null, note: null, org: null });
-                      setNewName('');
-                      setAddingContact(false);
-                      showToast(`เพิ่ม ${name} ในสมุดรายชื่อแล้ว ✓`);
-                    }}
-                  />
-                </View>
-              </View>
-            ) : null}
+            <Segmented<ContactMode>
+              options={[
+                { key: 'people', label: 'คนที่นัด', icon: 'user' },
+                { key: 'inline', label: 'ช่องทางติดต่อ', icon: 'phone' },
+              ]}
+              value={d.contactMode}
+              onChange={(contactMode) => d.set({ contactMode })}
+            />
+            <Txt size={12} color={t.faint} style={{ marginTop: -4 }}>
+              {d.contactMode === 'people'
+                ? 'เลือกคนจากสมุดรายชื่อ และกำหนดระดับความสำคัญของนัด'
+                : 'กรอกช่องทางติดต่อของนัดนี้ — ไม่บันทึกลงสมุดรายชื่อ และไม่ต้องเลือกระดับความสำคัญ'}
+            </Txt>
 
-            {/* รายละเอียดของคนที่เลือกไว้ — ช่องทางติดต่อที่มี พร้อมหัวข้อกำกับ · แตะแก้ไขเพื่อไปเติมในสมุดรายชื่อ */}
-            {pickedContacts.map((c) => {
-              const channels = contactChannels(c);
-              return (
-                <View key={c.id} style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 10, gap: 6 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                    <SvgIcon name="user" size={14} color={t.sub} />
-                    <Txt size={13.5} weight="bold" style={{ flex: 1 }} numberOfLines={1}>{c.name}</Txt>
-                    <PriBadge id={c.priority} />
-                    <Chip small icon="edit" label="แก้ไข" onPress={() => router.push({ pathname: '/settings/contacts', params: { edit: String(c.id) } })} />
+            {d.contactMode === 'inline' ? (
+              <InlineContactForm value={d.inline} onChange={(inline) => d.set({ inline })} />
+            ) : (
+              <>
+                <ChipRow>
+                  {contacts.map((c) => (
+                    <Chip
+                      key={c.id}
+                      small
+                      label={c.name}
+                      active={d.contactIds.includes(c.id)}
+                      onPress={() =>
+                        d.set({
+                          contactIds: d.contactIds.includes(c.id) ? d.contactIds.filter((x) => x !== c.id) : [...d.contactIds, c.id],
+                        })
+                      }
+                    />
+                  ))}
+                  <Chip small label="+ เพิ่ม" active={addingContact} onPress={() => setAddingContact(true)} />
+                </ChipRow>
+                {addingContact ? (
+                  <View style={{ gap: 8 }}>
+                    <TextInput
+                      value={newName}
+                      onChangeText={setNewName}
+                      placeholder="ชื่อรายชื่อใหม่…"
+                      placeholderTextColor={t.faint}
+                      autoFocus
+                      style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
+                    />
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {/* ยกเลิกการเพิ่ม — ปิดช่องกรอกและทิ้งชื่อที่พิมพ์ค้างไว้ */}
+                      <Btn
+                        style={{ flex: 1 }}
+                        kind="ghost"
+                        label="ยกเลิก"
+                        onPress={() => {
+                          setNewName('');
+                          setAddingContact(false);
+                        }}
+                      />
+                      <Btn
+                        style={{ flex: 1 }}
+                        label="เพิ่ม"
+                        disabled={!newName.trim()}
+                        onPress={async () => {
+                          const name = newName.trim();
+                          if (!name) return;
+                          await upsertContact({ name, priority: 'P6', phone: null, line: null, email: null, zoom: null, googlemeet: null, note: null, org: null });
+                          setNewName('');
+                          setAddingContact(false);
+                          showToast(`เพิ่ม ${name} ในสมุดรายชื่อแล้ว ✓`);
+                        }}
+                      />
+                    </View>
                   </View>
-                  {channels.length ? (
-                    channels.map((ch) => (
-                      <View key={ch.label} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 7 }}>
-                        <SvgIcon name={ch.icon} size={13} color={t.faint} />
-                        <Txt size={12} color={t.faint} style={{ width: 54 }}>{ch.label}</Txt>
-                        <Txt size={12.5} color={t.ink} style={{ flex: 1 }} numberOfLines={ch.label === 'หมายเหตุ' ? 3 : 1}>
-                          {ch.value}
-                        </Txt>
-                      </View>
-                    ))
-                  ) : (
-                    <Txt size={12} color={t.faint}>ยังไม่มีข้อมูลติดต่อ — แตะ “แก้ไข” เพื่อเพิ่มเบอร์/LINE/ห้องประชุม</Txt>
-                  )}
-                </View>
-              );
-            })}
+                ) : null}
 
-            <Txt size={13} weight="med" color={t.sub}>ระดับความสำคัญ</Txt>
-            <ChipRow>
-              {PRI.map((p) => (
-                <Chip key={p.id} small label={`${p.id} · ${p.label}`} color={p.color} active={d.priority === p.id} onPress={() => d.set({ priority: p.id })} />
-              ))}
-            </ChipRow>
+                {/* รายละเอียดของคนที่เลือกไว้ — ช่องทางติดต่อที่มี พร้อมหัวข้อกำกับ · แตะแก้ไขเพื่อไปเติมในสมุดรายชื่อ */}
+                {pickedContacts.map((c) => {
+                  const channels = contactChannels(c);
+                  return (
+                    <View key={c.id} style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 10, gap: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                        <SvgIcon name="user" size={14} color={t.sub} />
+                        <Txt size={13.5} weight="bold" style={{ flex: 1 }} numberOfLines={1}>{c.name}</Txt>
+                        <PriBadge id={c.priority} />
+                        <Chip small icon="edit" label="แก้ไข" onPress={() => router.push({ pathname: '/settings/contacts', params: { edit: String(c.id) } })} />
+                      </View>
+                      {channels.length ? (
+                        channels.map((ch) => (
+                          <View key={ch.label} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 7 }}>
+                            <SvgIcon name={ch.icon} size={13} color={t.faint} />
+                            <Txt size={12} color={t.faint} style={{ width: 54 }}>{ch.label}</Txt>
+                            <Txt size={12.5} color={t.ink} style={{ flex: 1 }} numberOfLines={ch.label === 'หมายเหตุ' ? 3 : 1}>
+                              {ch.value}
+                            </Txt>
+                          </View>
+                        ))
+                      ) : (
+                        <Txt size={12} color={t.faint}>ยังไม่มีข้อมูลติดต่อ — แตะ “แก้ไข” เพื่อเพิ่มเบอร์/LINE/ห้องประชุม</Txt>
+                      )}
+                    </View>
+                  );
+                })}
+
+                <Txt size={13} weight="med" color={t.sub}>ระดับความสำคัญ</Txt>
+                <ChipRow>
+                  {PRI.map((p) => (
+                    <Chip key={p.id} small label={`${p.id} · ${p.label}`} color={p.color} active={d.priority === p.id} onPress={() => d.set({ priority: p.id })} />
+                  ))}
+                </ChipRow>
+              </>
+            )}
 
             <Txt size={13} weight="med" color={t.sub}>ช่องทาง</Txt>
             <ChipRow>
@@ -859,6 +891,47 @@ function DetailsBody() {
         ) : null}
       </Card>
     </>
+  );
+}
+
+/**
+ * ฟอร์มช่องทางติดต่อของนัด (โหมด "ช่องทางติดต่อ") — ช่องเหมือนสมุดรายชื่อ แต่ไม่มีระดับความสำคัญ
+ * โชว์ชื่อ/องค์กร/โทร/LINE ก่อน · อีเมล/Zoom/Meet/หมายเหตุ อยู่ใต้ "ช่องทางอื่น" (กางเองเมื่อมีค่าอยู่แล้ว)
+ */
+function InlineContactForm({ value, onChange }: { value: InlineContact; onChange: (v: InlineContact) => void }) {
+  const t = useTokens();
+  const showToast = useUI((s) => s.showToast);
+  const hasMore = !!(value.email || value.zoom || value.googlemeet || value.note);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const more = moreOpen || hasMore;
+  const set = (p: Partial<InlineContact>) => onChange({ ...value, ...p });
+  const paste = async (field: 'phone' | 'line' | 'email' | 'zoom' | 'googlemeet') => {
+    const s = (await Clipboard.getStringAsync()).trim();
+    if (!s) return showToast('คลิปบอร์ดว่าง');
+    set({ [field]: s });
+  };
+  return (
+    <View style={{ gap: 10 }}>
+      <Field label="ชื่อผู้ติดต่อ / หัวข้อ" optional value={value.name} onChange={(name) => set({ name })} placeholder="เช่น คุณสมชาย · ทีมจัดซื้อ" />
+      <Field label="องค์กร / บริษัท" optional value={value.org ?? ''} onChange={(org) => set({ org })} placeholder="เช่น บริษัท … จำกัด" />
+      <Field label="เบอร์โทร" value={value.phone ?? ''} onChange={(phone) => set({ phone })} keyboard="phone-pad" onPaste={() => paste('phone')} />
+      <Field label="LINE ID" value={value.line ?? ''} onChange={(line) => set({ line })} onPaste={() => paste('line')} />
+      {more ? (
+        <>
+          <Field label="อีเมล" value={value.email ?? ''} onChange={(email) => set({ email })} keyboard="email-address" onPaste={() => paste('email')} />
+          <Field label="Zoom" value={value.zoom ?? ''} onChange={(zoom) => set({ zoom })} placeholder="ลิงก์ หรือ Meeting ID" onPaste={() => paste('zoom')} />
+          <Field label="Google Meet" value={value.googlemeet ?? ''} onChange={(googlemeet) => set({ googlemeet })} placeholder="ลิงก์ หรือรหัสห้อง" onPaste={() => paste('googlemeet')} />
+          <Field label="หมายเหตุ" optional value={value.note ?? ''} onChange={(note) => set({ note })} placeholder="เช่น โทรได้หลัง 10 โมง" multiline />
+        </>
+      ) : (
+        <Pressable accessibilityRole="button" onPress={() => setMoreOpen(true)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 4 }}>
+          <Icon name="plus" size={14} color={t.accentInk} />
+          <Txt size={13} weight="med" color={t.accentInk}>
+            ช่องทางอื่น · อีเมล Zoom Google Meet หมายเหตุ
+          </Txt>
+        </Pressable>
+      )}
+    </View>
   );
 }
 

@@ -1,6 +1,6 @@
 // รายการบนราง (ระบบ B1) — แทนตารางชั่วโมงเดิม
 // แถว: เวลา │ วงกลมสถานะบนราง (= ปุ่มติ๊ก, แตะได้ 44px) │ ชื่อ (≤3 บรรทัด) + รายละเอียด (≤2 บรรทัด, เส้นสีหมวด)
-// นัดเคส: ใต้รายละเอียดมีแถวรายชื่อ คนละแถว + ไอคอนช่องทางติดต่อ (แตะเปิด · กดค้างคัดลอก)
+// นัดเคส: ใต้รายละเอียดมีแถวรายชื่อ คนละแถว + ไอคอนช่องทางติดต่อ (แตะเปิด · กดค้างคัดลอก) — โหมดช่องทางติดต่อมี 1 แถว
 // แทรก: ช่วงเวลาว่าง (กรอบเส้นประเขียว → เพิ่ม) · เส้น "ตอนนี้" · รายการถัดไปเป็นการ์ดขาว
 // "ตอนนี้" อยู่ในช่วงของรายการ → รวมเส้นตอนนี้เข้าการ์ด "กำลังทำ" (แถบความคืบหน้า + เวลาที่เหลือ)
 // รายการที่เวลาทับกัน (≥2) → รวมเป็นกลุ่มซ้อน: พื้นแผ่นเดียว + ขอบการ์ดซ้อนด้านล่าง
@@ -267,12 +267,14 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
     const live = st === 'current' && showNow;
     const card = next || live;
     // นัดเคส: รายชื่อแยกเป็นแถวไอคอนช่องทางติดต่อ (ไม่ซ้ำชื่อในบรรทัดรายละเอียด)
-    const people = cat.isCase ? caseContactsOf(it) : [];
+    const people = !cat.isCase ? [] : it.inlineContact ? [it.inlineContact] : caseContactsOf(it);
     const where = cat.isCase ? [it.channel === 'online' ? 'ออนไลน์' : it.channel === 'inperson' ? 'พบตัว' : '', it.loc].filter(Boolean).join(' · ') : [it.sub, it.loc].filter(Boolean).join(' · ');
     const note = noteOf?.(it);
     // ในกลุ่มซ้อน เวลาจบอยู่บรรทัดรายละเอียด (การ์ดกำลังทำมี "จบ" ในแถบความคืบหน้าแล้ว)
     const until = inGroup && !live ? `ถึง ${fmtMin(it.endMin)}` : '';
-    const meta = [until, st === 'skipped' ? 'ข้าม' : cat.short, where, note ? `โน้ต: ${note}` : ''].filter(Boolean).join(' · ');
+    // นัดเคส: ป้ายบอกประเภทผู้ติดต่อที่เลือก (คนที่นัด / ช่องทางติดต่อ) แทนชื่อหมวด "นัดเคส"
+    const kind = cat.isCase ? (it.inlineContact ? 'ช่องทางติดต่อ' : 'คนที่นัด') : cat.short;
+    const meta = [until, st === 'skipped' ? 'ข้าม' : kind, where, note ? `โน้ต: ${note}` : ''].filter(Boolean).join(' · ');
     const tag =
       st === 'overdue'
         ? 'ค้างบันทึก — แตะวงกลมเพื่อบันทึก'

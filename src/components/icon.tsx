@@ -33,6 +33,7 @@ const FEATHER: Record<string, React.ComponentProps<typeof Feather>['name']> = {
   download: 'download',
   cloud: 'upload-cloud',
   user: 'user',
+  phone: 'phone',
   grid: 'grid',
   copy: 'copy',
   extLink: 'external-link',

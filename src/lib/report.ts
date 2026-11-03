@@ -3,6 +3,7 @@
 // ตัวเลขทุกตัวคำนวณจาก engine.rangeStats ตัวเดียวกับหน้าจอ — เลขในไฟล์กับในแอปจึงตรงกันเสมอ
 
 import { CATS, CAT_OPTIONS, PRI, PRI_BY_ID, type CatId, type PriorityId } from '@/constants/theme';
+import { caseWho, inlineName } from '@/lib/case-contacts';
 import { MONTH_TH, WD_TH_FULL, addDays, beYear, fmtRange, fromISO, hoursText, thaiDate, toISO, wdMon } from '@/lib/dates';
 import { rangeStats, type RangeStats } from '@/lib/engine';
 import { EXPORT_PALETTES, type ExportPalette } from '@/lib/export-theme';
@@ -23,6 +24,7 @@ const priRank = (p: PriorityId | null) => (p ? PRI_RANK[p] : PRI.length);
 
 /** ชื่อ normalize สำหรับรวมรายการซ้ำ (เหมือนหน้าสถิติ) */
 const nameKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
 
 export interface ReportBucket {
   label: string;
@@ -259,7 +261,7 @@ export function buildReport(
   for (const it of stats.caseItems) {
     const found = it.contactIds.map((id) => byId.get(id)).filter((c): c is Contact => !!c && !!c.name.trim());
     if (!found.length) {
-      unnamed++;
+      if (!it.inlineContact) unnamed++; // โหมดช่องทางติดต่อมีผู้ติดต่ออยู่แล้ว แค่ไม่อยู่ในสมุด (ไม่มีระดับ จึงไม่จัดเป็นรายคน)
       continue;
     }
     const counted = new Set<string>(); // นัดเดียวไม่นับซ้ำให้คนเดียวกัน
@@ -297,12 +299,12 @@ export function buildReport(
     });
 
   // ---------- สรุปตามเคส (รวมนัดที่ชื่อเคสเหมือนกัน) ----------
-  const cmap = new Map<string, ReportCase & { ids: number[] }>();
+  const cmap = new Map<string, ReportCase & { ids: number[]; extra: string[] }>();
   for (const it of stats.caseItems) {
     const key = nameKey(it.title);
     const g =
       cmap.get(key) ??
-      { title: it.title.trim(), pri: null as PriorityId | null, total: 0, done: 0, hours: 0, online: 0, inperson: 0, names: '', first: it.date, last: it.date, ids: [] as number[] };
+      { title: it.title.trim(), pri: null as PriorityId | null, total: 0, done: 0, hours: 0, online: 0, inperson: 0, names: '', first: it.date, last: it.date, ids: [] as number[], extra: [] as string[] };
     if (priRank(it.priority) < priRank(g.pri)) g.pri = it.priority;
     g.total++;
     if (it.ostatus === 'done') {
@@ -314,11 +316,13 @@ export function buildReport(
     if (it.date < g.first) g.first = it.date;
     if (it.date > g.last) g.last = it.date;
     for (const id of it.contactIds) if (!g.ids.includes(id)) g.ids.push(id);
+    const inl = inlineName(it);
+    if (inl && !g.extra.includes(inl)) g.extra.push(inl);
     cmap.set(key, g);
   }
   const cases: ReportCase[] = [...cmap.values()]
     .sort((a, b) => b.total - a.total || priRank(a.pri) - priRank(b.pri) || a.title.localeCompare(b.title, 'th'))
-    .map(({ ids, ...g }) => ({ ...g, names: ids.map((id) => nameById[id]).filter(Boolean).join(', ') }));
+    .map(({ ids, extra, ...g }) => ({ ...g, names: [...ids.map((id) => nameById[id]).filter(Boolean), ...extra].join(', ') }));
 
   return {
     label,
@@ -521,7 +525,7 @@ const itemRow = (it: DayItem, nameById: Record<number, string>): (string | numbe
   it.title,
   it.priority ?? '–',
   it.channel === 'online' ? 'ออนไลน์' : it.channel === 'inperson' ? 'พบตัว' : '',
-  it.contactIds.map((id) => nameById[id]).filter(Boolean).join(', '),
+  caseWho(it, nameById).join(', '),
   STATUS_TH[it.ostatus],
 ];
 

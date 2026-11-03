@@ -271,6 +271,7 @@ export const useActivities = create<ActivitiesState>((set, get) => {
         detachedFrom: item.id,
         status: 'active',
         contactIds: item.contactIds,
+        inlineContact: item.inlineContact,
         color: item.color,
       };
       let newId: number;

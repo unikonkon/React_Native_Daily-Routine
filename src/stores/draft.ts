@@ -7,7 +7,7 @@ import { LEGACY_SUB, type CatId, type PriorityId } from '@/constants/theme';
 import { daysBetween, todayISO } from '@/lib/dates';
 import { computeDates, seriesDates, suggestStart } from '@/lib/engine';
 import { nowRef } from '@/lib/progress';
-import { HORIZON_DAYS, type Activity, type Channel, type EditScope, type Horizon, type RepeatRule } from '@/lib/types';
+import { HORIZON_DAYS, type Activity, type Channel, type EditScope, type Horizon, type InlineContact, type RepeatRule } from '@/lib/types';
 import { getDay } from '@/stores/activities';
 
 /** ความยาวตั้งต้นของกิจกรรมใหม่ */
@@ -17,6 +17,18 @@ const DEFAULT_DUR = 60;
 function defaultTime(date: string): { start: number; end: number } {
   const start = suggestStart(getDay(date), date, nowRef(), DEFAULT_DUR);
   return { start, end: start + DEFAULT_DUR };
+}
+
+/** นัดเคส: 'people' = เลือกคนจากสมุดรายชื่อ (+ ระดับความสำคัญ) · 'inline' = กรอกช่องทางติดต่อของนัดนี้เอง (ไม่มีระดับ) */
+export type ContactMode = 'people' | 'inline';
+
+export const EMPTY_INLINE: InlineContact = { name: '', org: null, phone: null, line: null, email: null, zoom: null, googlemeet: null, note: null };
+
+/** ช่องทางที่กรอกไว้ ตัดช่องว่างหัวท้าย — ไม่ได้กรอกอะไรเลย = null (นัดนี้ไม่มีข้อมูลติดต่อ) */
+export function cleanInline(c: InlineContact): InlineContact | null {
+  const v = (x: string | null) => x?.trim() || null;
+  const out: InlineContact = { name: c.name.trim(), org: v(c.org), phone: v(c.phone), line: v(c.line), email: v(c.email), zoom: v(c.zoom), googlemeet: v(c.googlemeet), note: v(c.note) };
+  return Object.values(out).some(Boolean) ? out : null;
 }
 
 /** วันสิ้นสุดเดิมของชุดที่กำลังแก้ไข — คงไว้จนกว่าผู้ใช้จะเลือก "ระยะเวลาที่ลง" ใหม่เอง (null ข้างใน = ไม่มีวันสิ้นสุด) */
@@ -38,6 +50,9 @@ interface DraftState {
   channel: Channel;
   priority: PriorityId;
   contactIds: number[];
+  /** สลับโหมดแล้วข้อมูลของอีกโหมดยังอยู่ในร่าง — ตอนบันทึกใช้เฉพาะโหมดที่เลือก */
+  contactMode: ContactMode;
+  inline: InlineContact;
   start: number;
   end: number;
   repeat: RepeatRule;
@@ -75,6 +90,8 @@ const initial = {
   channel: 'online' as Channel,
   priority: 'P1' as PriorityId,
   contactIds: [] as number[],
+  contactMode: 'people' as ContactMode,
+  inline: EMPTY_INLINE,
   start: 1110, // 18:30
   end: 1170, // 19:30
   repeat: 'none' as RepeatRule,
@@ -153,6 +170,8 @@ export const useDraft = create<DraftState>((set, get) => ({
       channel: a.channel ?? 'online',
       priority: a.priority ?? 'P1',
       contactIds: a.contactIds,
+      contactMode: a.inlineContact ? 'inline' : 'people',
+      inline: a.inlineContact ?? EMPTY_INLINE,
       start: a.startMin,
       end: a.endMin,
       repeat: a.repeat,

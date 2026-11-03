@@ -203,6 +203,7 @@ export default function CopyScreen() {
             detachedFrom: null,
             status: 'active',
             contactIds: it.contactIds,
+            inlineContact: it.inlineContact, // ช่องทางติดต่อที่กรอกไว้ในนัด — ตามไปด้วย
             color: it.color, // สีที่จำมาจากไฟล์ Time Table (ถ้ามี)
           });
         }

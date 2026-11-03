@@ -10,11 +10,11 @@ import { useNow } from '@/components/b1/use-now';
 import { Icon } from '@/components/icon';
 import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Chip, ChipRow, PriBadge, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, DANGER, FONT, GREEN, PRI } from '@/constants/theme';
+import { ACCENT, CAT_BY_ID, DANGER, FONT, GREEN, PRI, type PriorityId } from '@/constants/theme';
 import { addDays, durText, fmtMin, fmtRange, thaiDate } from '@/lib/dates';
 import { daytimeFreeSlots, seriesDates } from '@/lib/engine';
 import { isPast, railState } from '@/lib/progress';
-import type { Contact, OccStatus } from '@/lib/types';
+import type { Contact, ContactInfo, OccStatus } from '@/lib/types';
 import { useActivities, useDay } from '@/stores/activities';
 import { contactMethods, openLink, useContacts, type ContactMethod } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
@@ -266,14 +266,17 @@ function SheetBody({ id, date }: { id: number; date: string }) {
               <SvgIcon name={item.channel === 'online' ? 'video' : 'users'} size={14} color={t.sub} />
               <Txt size={13} color={t.sub}>
                 {item.channel === 'online' ? 'ออนไลน์' : 'พบตัว'}
-                {caseContacts.length ? ` · ${caseContacts.length} รายชื่อ` : ''}
+                {item.inlineContact ? ' · ช่องทางติดต่อ' : caseContacts.length ? ` · ${caseContacts.length} รายชื่อ` : ''}
               </Txt>
             </View>
-            {caseContacts.length ? (
+            {item.inlineContact ? (
+              // โหมดช่องทางติดต่อ — ข้อมูลอยู่กับนัดนี้ แก้ไขผ่านฟอร์มกิจกรรม (ไม่มีปุ่มเพิ่มจากสมุดรายชื่อ)
+              <ContactCard c={item.inlineContact} inline onEdit={onEdit} showToast={showToast} />
+            ) : caseContacts.length ? (
               <>
                 <ScrollView style={{ maxHeight: 260 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                   {caseContacts.map((c) => (
-                    <ContactCard key={c.id} c={c} onEdit={setEditContact} onRemove={removeContact} showToast={showToast} />
+                    <ContactCard key={c.id} c={c} onEdit={() => setEditContact(c)} onRemove={() => removeContact(c)} showToast={showToast} />
                   ))}
                 </ScrollView>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
@@ -458,16 +461,19 @@ function SheetBody({ id, date }: { id: number; date: string }) {
 /**
  * การ์ดข้อมูลผู้ติดต่อของเคส — แต่ละช่องทาง (โทร/LINE/อีเมล/Zoom/Meet) มี 2 ปุ่ม: คัดลอก + เปิดแอป
  * ดินสอ = แก้ไข/เปลี่ยนรายชื่อ · ถังขยะ = ถอดออกจากเคส (ถามยืนยันในการ์ด — ตัวรายชื่อในสมุดไม่ถูกลบ)
+ * inline = ช่องทางที่กรอกไว้ในนัด (โหมดช่องทางติดต่อ): ไม่มีระดับ/ถังขยะ · ดินสอพาไปแก้ไขกิจกรรม
  */
 function ContactCard({
   c,
   onEdit,
   onRemove,
+  inline,
   showToast,
 }: {
-  c: Contact;
-  onEdit: (c: Contact) => void;
-  onRemove: (c: Contact) => void;
+  c: ContactInfo & { priority?: PriorityId };
+  onEdit: () => void;
+  onRemove?: () => void;
+  inline?: boolean;
   showToast: (m: string) => void;
 }) {
   const t = useTokens();
@@ -490,31 +496,39 @@ function ContactCard({
   return (
     <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: t.line, padding: 12, gap: 9 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-        <SvgIcon name="user" size={14} color={t.sub} />
+        <SvgIcon name={inline ? 'phone' : 'user'} size={14} color={t.sub} />
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Txt size={14} weight="bold" numberOfLines={1}>{c.name}</Txt>
+          <Txt size={14} weight="bold" numberOfLines={1}>{c.name.trim() || 'ช่องทางติดต่อ'}</Txt>
           {c.org ? (
             <Txt size={12} color={t.sub} numberOfLines={1} style={{ lineHeight: 16 }}>
               {c.org}
             </Txt>
           ) : null}
         </View>
-        <PriBadge id={c.priority} withLabel />
+        {inline ? (
+          <Txt size={11.5} color={t.faint}>เฉพาะนัดนี้</Txt>
+        ) : (
+          <PriBadge id={c.priority ?? null} withLabel />
+        )}
         <Pressable
-          onPress={() => onEdit(c)}
+          accessibilityRole="button"
+          accessibilityLabel={inline ? 'แก้ไขช่องทางติดต่อในนัด' : `แก้ไข ${c.name}`}
+          onPress={onEdit}
           hitSlop={6}
           style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
           <SvgIcon name="edit" size={14} color={t.sub} />
         </Pressable>
-        <Pressable
-          onPress={() => setConfirmDel(true)}
-          hitSlop={6}
-          style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: confirmDel ? DANGER + '22' : t.chip, alignItems: 'center', justifyContent: 'center' }}>
-          <SvgIcon name="trash" size={14} color={confirmDel ? DANGER : t.sub} />
-        </Pressable>
+        {onRemove ? (
+          <Pressable
+            onPress={() => setConfirmDel(true)}
+            hitSlop={6}
+            style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: confirmDel ? DANGER + '22' : t.chip, alignItems: 'center', justifyContent: 'center' }}>
+            <SvgIcon name="trash" size={14} color={confirmDel ? DANGER : t.sub} />
+          </Pressable>
+        ) : null}
       </View>
 
-      {confirmDel ? (
+      {confirmDel && onRemove ? (
         <View style={{ gap: 8 }}>
           <Txt size={12} color={t.sub}>ถอด {c.name} ออกจากเคสนี้? — รายชื่อในสมุดยังอยู่ครบ</Txt>
           <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -526,7 +540,7 @@ function ContactCard({
               label="ถอดออก"
               onPress={() => {
                 setConfirmDel(false);
-                onRemove(c);
+                onRemove();
               }}
             />
           </View>
@@ -564,7 +578,7 @@ function ContactCard({
         </View>
       ) : null}
       {methods.length === 0 && !c.note ? (
-        <Txt size={12} color={t.faint}>ยังไม่มีช่องทางติดต่อ — เพิ่มได้ในสมุดรายชื่อ</Txt>
+        <Txt size={12} color={t.faint}>{inline ? 'ยังไม่มีช่องทางติดต่อ — แตะดินสอเพื่อแก้ไขนัด' : 'ยังไม่มีช่องทางติดต่อ — เพิ่มได้ในสมุดรายชื่อ'}</Txt>
       ) : null}
     </View>
   );

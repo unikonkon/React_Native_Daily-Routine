@@ -4,7 +4,7 @@
 import * as SQLite from 'expo-sqlite';
 
 import { addDays } from '@/lib/dates';
-import type { Activity, Contact, NoteMap, OccMap, OccStatus } from '@/lib/types';
+import type { Activity, Contact, InlineContact, NoteMap, OccMap, OccStatus } from '@/lib/types';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -115,6 +115,13 @@ function migrate(d: SQLite.SQLiteDatabase) {
       PRAGMA user_version = 6;
     `);
   }
+  if (v < 7) {
+    // นัดเคสโหมด "ช่องทางติดต่อ" — ข้อมูลติดต่อของนัดนั้นเก็บเป็น JSON ในแถวกิจกรรม (ไม่เพิ่มลงสมุดรายชื่อ)
+    d.execSync(`
+      ALTER TABLE activities ADD COLUMN inline_contact TEXT;
+      PRAGMA user_version = 7;
+    `);
+  }
 }
 
 /** activities.dates (JSON array) ↔ string[] — ค่าเสีย/ว่างถือเป็น null (กลับไปใช้ days_mask) */
@@ -128,6 +135,29 @@ function decodeDates(raw: string | null | undefined): string[] | null {
   }
 }
 const encodeDates = (dates: string[] | null) => (dates && dates.length ? JSON.stringify(dates) : null);
+
+/** activities.inline_contact (JSON) ↔ InlineContact — ค่าเสีย/ไม่ใช่ object ถือเป็น null (โหมดคนที่นัด) */
+function decodeInline(raw: string | null | undefined): InlineContact | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    if (!v || typeof v !== 'object') return null;
+    const str = (k: keyof InlineContact) => (typeof v[k] === 'string' && v[k] ? (v[k] as string) : null);
+    return {
+      name: str('name') ?? '',
+      org: str('org'),
+      phone: str('phone'),
+      line: str('line'),
+      email: str('email'),
+      zoom: str('zoom'),
+      googlemeet: str('googlemeet'),
+      note: str('note'),
+    };
+  } catch {
+    return null;
+  }
+}
+const encodeInline = (c: InlineContact | null) => (c ? JSON.stringify(c) : null);
 
 // ---------- โหลดตอนเปิดแอป (ครั้งเดียว) ----------
 
@@ -151,6 +181,7 @@ interface ActivityRow {
   status: string;
   color: string | null;
   dates?: string | null; // คอลัมน์ v5 — สำรองข้อมูลรุ่นเก่าไม่มีฟิลด์นี้
+  inline_contact?: string | null; // คอลัมน์ v7 — สำรองข้อมูลรุ่นเก่าไม่มีฟิลด์นี้
 }
 
 export async function loadActivities(): Promise<Activity[]> {
@@ -181,6 +212,7 @@ export async function loadActivities(): Promise<Activity[]> {
     detachedFrom: r.detached_from,
     status: r.status as Activity['status'],
     contactIds: byAct[r.id] ?? [],
+    inlineContact: decodeInline(r.inline_contact),
     color: r.color ?? null,
   }));
 }
@@ -223,11 +255,11 @@ export async function loadSettings(): Promise<Record<string, string>> {
 async function insertActivityRow(conn: SQLite.SQLiteDatabase, a: Omit<Activity, 'id'>): Promise<number> {
   const res = await conn.runAsync(
     `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-       repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color, inline_contact)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
     a.repeat, a.daysMask, encodeDates(a.dates), a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore,
-    a.detachedFrom, a.status, a.color,
+    a.detachedFrom, a.status, a.color, encodeInline(a.inlineContact),
   );
   return res.lastInsertRowId;
 }
@@ -243,10 +275,10 @@ export async function updateActivity(a: Activity): Promise<void> {
   const d = getDb();
   await d.runAsync(
     `UPDATE activities SET title=?, cat=?, sub=?, loc=?, channel=?, priority=?, start_min=?, end_min=?,
-       repeat=?, days_mask=?, dates=?, start_date=?, end_date=?, notify=?, notify_before=?, status=?, color=? WHERE id=?`,
+       repeat=?, days_mask=?, dates=?, start_date=?, end_date=?, notify=?, notify_before=?, status=?, color=?, inline_contact=? WHERE id=?`,
     a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
     a.repeat, a.daysMask, encodeDates(a.dates), a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore, a.status,
-    a.color, a.id,
+    a.color, encodeInline(a.inlineContact), a.id,
   );
   await setActivityContacts(d, a.id, a.contactIds);
 }
@@ -446,11 +478,11 @@ export async function purgeRange(from: string, to: string): Promise<void> {
         await txn.runAsync('UPDATE activities SET end_date=?, dates=? WHERE id=?', before, headDates, a.id);
         const res = await txn.runAsync(
           `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-             repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+             repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color, inline_contact)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.start_min, a.end_min,
           a.repeat, a.days_mask, tailDates, after, a.end_date, a.notify, a.notify_before, a.detached_from, a.status,
-          a.color,
+          a.color, a.inline_contact ?? null,
         );
         const newId = res.lastInsertRowId;
         await txn.runAsync('UPDATE occurrences SET activity_id=? WHERE activity_id=? AND date > ?', newId, a.id, to);
@@ -517,11 +549,11 @@ export async function restoreAll(data: BackupData, mode: 'replace' | 'merge'): P
     for (const a of data.activities) {
       const res = await txn.runAsync(
         `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-           repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`,
+           repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color, inline_contact)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)`,
         a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.start_min, a.end_min,
         a.repeat, a.days_mask, a.dates ?? null, a.start_date, a.end_date, a.notify, a.notify_before, a.status,
-        a.color ?? null,
+        a.color ?? null, a.inline_contact ?? null,
       );
       actIdMap[a.id] = res.lastInsertRowId;
     }
