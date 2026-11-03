@@ -16,7 +16,7 @@ import { daytimeFreeSlots, seriesDates } from '@/lib/engine';
 import { isPast, railState } from '@/lib/progress';
 import type { Contact, OccStatus } from '@/lib/types';
 import { useActivities, useDay } from '@/stores/activities';
-import { meetLink, openLink, useContacts, zoomAppLink, zoomWebLink } from '@/stores/contacts';
+import { contactMethods, openLink, useContacts, type ContactMethod } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
 
@@ -455,16 +455,6 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   );
 }
 
-/** ช่องทางติดต่อหนึ่งช่อง — url = ลิงก์หลัก (แอป), fallback = ลิงก์สำรองเมื่อไม่มีแอปติดตั้ง */
-interface Method {
-  label: string;
-  icon: string;
-  display: string;
-  value: string;
-  url: string;
-  fallback?: string;
-}
-
 /**
  * การ์ดข้อมูลผู้ติดต่อของเคส — แต่ละช่องทาง (โทร/LINE/อีเมล/Zoom/Meet) มี 2 ปุ่ม: คัดลอก + เปิดแอป
  * ดินสอ = แก้ไข/เปลี่ยนรายชื่อ · ถังขยะ = ถอดออกจากเคส (ถามยืนยันในการ์ด — ตัวรายชื่อในสมุดไม่ถูกลบ)
@@ -488,35 +478,27 @@ function ContactCard({
     showToast(`คัดลอก${label}แล้ว ✓`);
   };
   /** เปิดช่องทางนั้น — คืน false เมื่อเปิดไม่ได้ ให้ปุ่มขึ้นสถานะ "เปิดไม่ได้" เอง */
-  const open = async (m: Method) => {
+  const open = async (m: ContactMethod) => {
     const res = await openLink(m.url, m.fallback);
     if (res === 'fallback') showToast(`ไม่พบแอป ${m.label} — เปิดในเบราว์เซอร์แทน`);
     if (res === 'fail') showToast(`เปิด ${m.label} ไม่ได้ — ลองคัดลอกแล้ววางในแอปนั้นแทน`);
     return res !== 'fail';
   };
 
-  // ช่องทางติดต่อที่มีข้อมูล — ไอคอน SVG + สิ่งที่แสดง (display) + สิ่งที่คัดลอก (value) + URL เปิดแอป (+ ลิงก์สำรอง)
-  const methods = [
-    c.phone && { label: 'เบอร์โทร', icon: 'phone', display: c.phone, value: c.phone, url: `tel:${c.phone.replace(/[^0-9+]/g, '')}` },
-    c.line && { label: 'LINE', icon: 'line', display: c.line, value: c.line, url: `https://line.me/R/ti/p/~${c.line.replace(/^@/, '')}` },
-    c.email && { label: 'อีเมล', icon: 'mail', display: c.email, value: c.email, url: `mailto:${c.email}` },
-    // Zoom: ลองเปิดแอปด้วย zoomus:// ก่อน ไม่มีแอปค่อยเปิดลิงก์เว็บ
-    c.zoom && {
-      label: 'Zoom',
-      icon: 'video',
-      display: 'ห้อง Zoom',
-      value: c.zoom,
-      url: zoomAppLink(c.zoom) ?? zoomWebLink(c.zoom),
-      fallback: zoomWebLink(c.zoom),
-    },
-    c.googlemeet && { label: 'Google Meet', icon: 'video', display: 'ห้อง Google Meet', value: c.googlemeet, url: meetLink(c.googlemeet) },
-  ].filter(Boolean) as Method[];
+  const methods = contactMethods(c);
 
   return (
     <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: t.line, padding: 12, gap: 9 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
         <SvgIcon name="user" size={14} color={t.sub} />
-        <Txt size={14} weight="bold" style={{ flex: 1 }} numberOfLines={1}>{c.name}</Txt>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Txt size={14} weight="bold" numberOfLines={1}>{c.name}</Txt>
+          {c.org ? (
+            <Txt size={12} color={t.sub} numberOfLines={1} style={{ lineHeight: 16 }}>
+              {c.org}
+            </Txt>
+          ) : null}
+        </View>
         <PriBadge id={c.priority} withLabel />
         <Pressable
           onPress={() => onEdit(c)}
@@ -572,9 +554,13 @@ function ContactCard({
       ))}
 
       {c.note ? (
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
-          <View style={{ paddingTop: 1 }}><SvgIcon name="note" size={13} color={t.sub} /></View>
-          <Txt size={12} color={t.sub} style={{ flex: 1 }}>{c.note}</Txt>
+        // หมายเหตุของคนนี้ — กล่องพื้นอ่อนแยกจากแถวช่องทาง ให้รู้ว่าเป็นข้อความอ่าน ไม่ใช่ปุ่ม
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 7, backgroundColor: t.chip, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
+          <View style={{ paddingTop: 2 }}><SvgIcon name="note" size={13} color={t.sub} /></View>
+          <Txt size={12.5} color={t.ink} style={{ flex: 1, lineHeight: 18 }}>
+            <Txt size={12.5} weight="med" color={t.sub}>หมายเหตุ · </Txt>
+            {c.note}
+          </Txt>
         </View>
       ) : null}
       {methods.length === 0 && !c.note ? (
@@ -690,6 +676,7 @@ function ContactEditForm({
             <Txt size={11} weight="med" color={t.sub}>เปลี่ยน</Txt>
           </View>
         </Pressable>
+        <Field value={d.org ?? ''} placeholder="องค์กร / บริษัท (ไม่บังคับ)" onChange={(org) => setD({ ...d, org })} showToast={showToast} />
         <Field value={d.phone ?? ''} placeholder="เบอร์โทร (ไม่บังคับ)" keyboardType="phone-pad" onChange={(phone) => setD({ ...d, phone })} showToast={showToast} />
         <Field value={d.line ?? ''} placeholder="LINE ID (ไม่บังคับ)" onChange={(line) => setD({ ...d, line })} showToast={showToast} />
         <Field value={d.email ?? ''} placeholder="อีเมล (ไม่บังคับ)" keyboardType="email-address" onChange={(email) => setD({ ...d, email })} showToast={showToast} />

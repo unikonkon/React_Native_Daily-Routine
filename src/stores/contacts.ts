@@ -79,6 +79,37 @@ export function meetLink(raw: string): string {
   return code ? `https://meet.google.com/${code}` : s;
 }
 
+/** ช่องทางติดต่อหนึ่งช่องที่กดเปิดได้ — url = ลิงก์หลัก (แอป), fallback = ลิงก์สำรองเมื่อไม่มีแอปติดตั้ง */
+export interface ContactMethod {
+  key: 'phone' | 'line' | 'email' | 'zoom' | 'googlemeet';
+  label: string;
+  icon: string;
+  display: string;
+  value: string;
+  url: string;
+  fallback?: string;
+}
+
+/** ช่องทางที่เปิดได้ของคนนี้ (โทร/LINE/อีเมล/Zoom/Meet) — ใช้ร่วมกันทั้งแผ่นรายละเอียดและไอคอนย่อบนราง */
+export function contactMethods(c: Contact): ContactMethod[] {
+  return [
+    c.phone && { key: 'phone', label: 'เบอร์โทร', icon: 'phone', display: c.phone, value: c.phone, url: `tel:${c.phone.replace(/[^0-9+]/g, '')}` },
+    c.line && { key: 'line', label: 'LINE', icon: 'line', display: c.line, value: c.line, url: `https://line.me/R/ti/p/~${c.line.replace(/^@/, '')}` },
+    c.email && { key: 'email', label: 'อีเมล', icon: 'mail', display: c.email, value: c.email, url: `mailto:${c.email}` },
+    // Zoom: ลองเปิดแอปด้วย zoomus:// ก่อน ไม่มีแอปค่อยเปิดลิงก์เว็บ
+    c.zoom && {
+      key: 'zoom',
+      label: 'Zoom',
+      icon: 'video',
+      display: 'ห้อง Zoom',
+      value: c.zoom,
+      url: zoomAppLink(c.zoom) ?? zoomWebLink(c.zoom),
+      fallback: zoomWebLink(c.zoom),
+    },
+    c.googlemeet && { key: 'googlemeet', label: 'Google Meet', icon: 'video', display: 'ห้อง Google Meet', value: c.googlemeet, url: meetLink(c.googlemeet) },
+  ].filter(Boolean) as ContactMethod[];
+}
+
 /** ช่องทางติดต่อที่คนนี้มี พร้อมหัวข้อกำกับ — ใช้แสดงรายละเอียดของคนที่เลือกไว้ (ฟอร์มนัดเคส ฯลฯ) */
 export function contactChannels(c: Contact): { icon: string; label: string; value: string }[] {
   return [

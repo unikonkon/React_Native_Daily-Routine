@@ -1,5 +1,6 @@
 // รายการบนราง (ระบบ B1) — แทนตารางชั่วโมงเดิม
 // แถว: เวลา │ วงกลมสถานะบนราง (= ปุ่มติ๊ก, แตะได้ 44px) │ ชื่อ (≤3 บรรทัด) + รายละเอียด (≤2 บรรทัด, เส้นสีหมวด)
+// นัดเคส: ใต้รายละเอียดมีแถวรายชื่อ คนละแถว + ไอคอนช่องทางติดต่อ (แตะเปิด · กดค้างคัดลอก)
 // แทรก: ช่วงเวลาว่าง (กรอบเส้นประเขียว → เพิ่ม) · เส้น "ตอนนี้" · รายการถัดไปเป็นการ์ดขาว
 // "ตอนนี้" อยู่ในช่วงของรายการ → รวมเส้นตอนนี้เข้าการ์ด "กำลังทำ" (แถบความคืบหน้า + เวลาที่เหลือ)
 // รายการที่เวลาทับกัน (≥2) → รวมเป็นกลุ่มซ้อน: พื้นแผ่นเดียว + ขอบการ์ดซ้อนด้านล่าง
@@ -8,8 +9,9 @@
 import React from 'react';
 import { Pressable, View, type LayoutChangeEvent } from 'react-native';
 
+import { ContactIcons } from '@/components/b1/contact-icons';
 import { StatusCircle } from '@/components/b1/status-circle';
-import { useCaseNames } from '@/components/today/parts';
+import { useCaseContacts } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
 import { CAT_BY_ID } from '@/constants/theme';
 import { durText, fmtMin, hoursText } from '@/lib/dates';
@@ -121,7 +123,7 @@ function VDash({ color }: { color: string }) {
 
 export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, onPressSlot, noteOf, renderRight, nextCardBg, onNowLayout }: RailProps) {
   const t = useTokens();
-  const caseNamesOf = useCaseNames();
+  const caseContactsOf = useCaseContacts();
   const nextId = nextItemId(items, now);
 
   const rows: Row[] = [
@@ -264,8 +266,9 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
     const next = st === 'next';
     const live = st === 'current' && showNow;
     const card = next || live;
-    const people = cat.isCase ? caseNamesOf(it) : '';
-    const where = cat.isCase ? [people, it.channel === 'online' ? 'ออนไลน์' : it.channel === 'inperson' ? 'พบตัว' : '', it.loc].filter(Boolean).join(' · ') : [it.sub, it.loc].filter(Boolean).join(' · ');
+    // นัดเคส: รายชื่อแยกเป็นแถวไอคอนช่องทางติดต่อ (ไม่ซ้ำชื่อในบรรทัดรายละเอียด)
+    const people = cat.isCase ? caseContactsOf(it) : [];
+    const where = cat.isCase ? [it.channel === 'online' ? 'ออนไลน์' : it.channel === 'inperson' ? 'พบตัว' : '', it.loc].filter(Boolean).join(' · ') : [it.sub, it.loc].filter(Boolean).join(' · ');
     const note = noteOf?.(it);
     // ในกลุ่มซ้อน เวลาจบอยู่บรรทัดรายละเอียด (การ์ดกำลังทำมี "จบ" ในแถบความคืบหน้าแล้ว)
     const until = inGroup && !live ? `ถึง ${fmtMin(it.endMin)}` : '';
@@ -307,15 +310,11 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
             <StatusCircle state={st} onPress={() => onToggle(it, st)} />
           </View>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityHint="เปิดรายละเอียด"
-          onPress={() => onPressItem(it)}
-          style={({ pressed }) => ({
+        {/* ตัวการ์ดเป็น View — ส่วนที่แตะเปิดรายละเอียดคือ Pressable ด้านใน · แถวรายชื่อแยกออกมา (ปุ่มซ้อนปุ่มไม่ได้บนเว็บ) */}
+        <View
+          style={{
             flex: 1,
             minWidth: 0,
-            gap: 2,
-            opacity: pressed ? 0.7 : 1,
             ...(card
               ? {
                   backgroundColor: nextCardBg ?? t.card,
@@ -334,56 +333,63 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
                   elevation: 2,
                 }
               : { paddingTop: 1, paddingBottom: 18, paddingRight: inGroup ? GROUP_PAD : 0 }),
-          })}>
-          {tag ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: NOW_ORANGE }} /> : null}
-              <Txt size={12} weight="bold" color={st === 'overdue' ? t.warn : t.accentInk} style={{ flexShrink: 1 }}>
-                {tag}
-              </Txt>
-            </View>
-          ) : null}
-          <Txt
-            size={15}
-            weight={card ? 'bold' : 'med'}
-            numberOfLines={3}
-            color={muted ? t.muted : t.ink}
-            style={{ lineHeight: 21, textDecorationLine: st === 'done' ? 'line-through' : 'none' }}>
-            {it.title}
-          </Txt>
-          {meta ? (
-            <View style={{ flexDirection: 'row', marginTop: 3 }}>
-              <View style={{ width: 2, borderRadius: 1, backgroundColor: cat.color, marginRight: 7 }} />
-              <Txt size={12.5} color={t.sub} numberOfLines={2} style={{ flex: 1, lineHeight: 18 }}>
-                {until ? (
-                  <Txt size={12.5} num weight="med" color={muted ? t.muted : t.ink}>
-                    {until}
-                  </Txt>
-                ) : null}
-                {until ? meta.slice(until.length) : meta}
-              </Txt>
-            </View>
-          ) : null}
-          {live ? (
-            // แถบความคืบหน้า = เส้น "ตอนนี้" ที่ผ่านรายการนี้อยู่ · หมุดส้มคือเวลาปัจจุบัน
-            <View accessible accessibilityLabel={`ตอนนี้ ${fmtMin(now.min)} ผ่านไป ${Math.round(pct)}%`} style={{ marginTop: 10, gap: 5 }}>
-              <View style={{ height: 10, justifyContent: 'center' }}>
-                <View style={{ height: 4, borderRadius: 2, backgroundColor: t.track, overflow: 'hidden' }}>
-                  <View style={{ width: `${pct}%`, height: 4, backgroundColor: NOW_ORANGE }} />
+          }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityHint="เปิดรายละเอียด"
+            onPress={() => onPressItem(it)}
+            style={({ pressed }) => ({ gap: 2, opacity: pressed ? 0.7 : 1 })}>
+            {tag ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: NOW_ORANGE }} /> : null}
+                <Txt size={12} weight="bold" color={st === 'overdue' ? t.warn : t.accentInk} style={{ flexShrink: 1 }}>
+                  {tag}
+                </Txt>
+              </View>
+            ) : null}
+            <Txt
+              size={15}
+              weight={card ? 'bold' : 'med'}
+              numberOfLines={3}
+              color={muted ? t.muted : t.ink}
+              style={{ lineHeight: 21, textDecorationLine: st === 'done' ? 'line-through' : 'none' }}>
+              {it.title}
+            </Txt>
+            {meta ? (
+              <View style={{ flexDirection: 'row', marginTop: 3 }}>
+                <View style={{ width: 2, borderRadius: 1, backgroundColor: cat.color, marginRight: 7 }} />
+                <Txt size={12.5} color={t.sub} numberOfLines={2} style={{ flex: 1, lineHeight: 18 }}>
+                  {until ? (
+                    <Txt size={12.5} num weight="med" color={muted ? t.muted : t.ink}>
+                      {until}
+                    </Txt>
+                  ) : null}
+                  {until ? meta.slice(until.length) : meta}
+                </Txt>
+              </View>
+            ) : null}
+            {live ? (
+              // แถบความคืบหน้า = เส้น "ตอนนี้" ที่ผ่านรายการนี้อยู่ · หมุดส้มคือเวลาปัจจุบัน
+              <View accessible accessibilityLabel={`ตอนนี้ ${fmtMin(now.min)} ผ่านไป ${Math.round(pct)}%`} style={{ marginTop: 10, gap: 5 }}>
+                <View style={{ height: 10, justifyContent: 'center' }}>
+                  <View style={{ height: 4, borderRadius: 2, backgroundColor: t.track, overflow: 'hidden' }}>
+                    <View style={{ width: `${pct}%`, height: 4, backgroundColor: NOW_ORANGE }} />
+                  </View>
+                  <View style={{ position: 'absolute', left: `${pct}%`, marginLeft: -5, width: 10, height: 10, borderRadius: 5, backgroundColor: '#B44E2C', borderWidth: 2, borderColor: nextCardBg ?? t.card }} />
                 </View>
-                <View style={{ position: 'absolute', left: `${pct}%`, marginLeft: -5, width: 10, height: 10, borderRadius: 5, backgroundColor: '#B44E2C', borderWidth: 2, borderColor: nextCardBg ?? t.card }} />
+                <View style={{ flexDirection: 'row' }}>
+                  <Txt size={11.5} num weight="bold" color={t.accentInk} style={{ flex: 1 }}>
+                    ตอนนี้ {fmtMin(now.min)}
+                  </Txt>
+                  <Txt size={11.5} num color={t.muted}>
+                    จบ {fmtMin(it.endMin)}
+                  </Txt>
+                </View>
               </View>
-              <View style={{ flexDirection: 'row' }}>
-                <Txt size={11.5} num weight="bold" color={t.accentInk} style={{ flex: 1 }}>
-                  ตอนนี้ {fmtMin(now.min)}
-                </Txt>
-                <Txt size={11.5} num color={t.muted}>
-                  จบ {fmtMin(it.endMin)}
-                </Txt>
-              </View>
-            </View>
-          ) : null}
-        </Pressable>
+            ) : null}
+          </Pressable>
+          <ContactIcons contacts={people} dim={muted} />
+        </View>
         {renderRight ? <View style={{ paddingTop: 0 }}>{renderRight(it)}</View> : null}
       </View>
     );
