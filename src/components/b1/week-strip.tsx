@@ -1,12 +1,12 @@
 // แถบ 7 วันด้านบนของมุมมองวัน (ระบบ B1) — แตะวันเพื่อเปลี่ยน · แถบเล็กใต้เลข = % ทำเสร็จของวันนั้น
 // ปัดซ้าย/ขวาเลื่อนทีละสัปดาห์ (FlatList แนวนอน virtualized ±~9 ปี) — ปัดแล้ว focus ไปวันเดียวกันของสัปดาห์ใหม่
-import React, { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindowDimensions, View } from 'react-native';
 
+import { useNow } from '@/components/b1/use-now';
 import { Txt, useTokens } from '@/components/ui';
 import { GREEN } from '@/constants/theme';
 import { addDays, fromISO, mondayOf, MONTH_TH, todayISO, WD_TH } from '@/lib/dates';
-import { useNow } from '@/components/b1/use-now';
 import { dayProgress } from '@/lib/progress';
 import { useDayReader } from '@/stores/activities';
 
@@ -47,7 +47,7 @@ export function WeekStrip({ focus, onChangeFocus }: { focus: string; onChangeFoc
   };
 
   return (
-    <View accessibilityRole="tablist" accessibilityLabel="วันในสัปดาห์" style={{ paddingTop: 6 }}>
+    <View accessibilityRole="tablist" accessibilityLabel="วันในสัปดาห์" style={{ paddingTop: 2, paddingBottom: 2 }}>
       <FlatList
         ref={listRef}
         data={weeks}

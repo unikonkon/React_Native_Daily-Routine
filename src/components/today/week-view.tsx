@@ -42,6 +42,8 @@ interface WeekViewProps {
   /** โหมด "วันที่ว่าง" — ดึงช่วงเวลาว่างออกมาให้แตะเพิ่มกิจกรรม (กิจกรรมเดิมจาง) */
   freeMode?: boolean;
   onPressSlot?: (date: string, start: number, end: number) => void;
+  /** ปุ่ม "ลบหลายรายการ" ท้ายแถวคำอธิบายหมวด (ไม่ส่ง = ไม่โชว์) */
+  onDeleteMany?: () => void;
 }
 
 /** คีย์ประจำ occurrence หนึ่ง ๆ (กิจกรรมชุดทำซ้ำใช้ id เดียวกันหลายวัน) */
@@ -55,6 +57,7 @@ export function TodayWeekView({
   bottomPad = 120,
   freeMode = false,
   onPressSlot,
+  onDeleteMany,
 }: WeekViewProps) {
   const t = useTokens();
   const getDay = useDayReader();
@@ -262,6 +265,29 @@ export function TodayWeekView({
             // <Txt size={10.5} color={t.faint}>แตะหมวดเพื่อโชว์ชื่อ</Txt>
             <></>
           )}
+          {/* ลบหลายรายการ → หน้า "ลบรายการ" — ชิดขวาบรรทัดสุดท้ายของแถวนี้ (ไม่กินแถวเหนือตาราง) */}
+          {onDeleteMany ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="ลบหลายรายการ"
+              onPress={onDeleteMany}
+              hitSlop={6}
+              style={({ pressed }) => ({
+                marginLeft: 'auto',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                height: 26,
+                paddingHorizontal: 10,
+                borderRadius: 13,
+                backgroundColor: pressed ? t.rail : t.track,
+              })}>
+              <Icon name="trash" size={12} color={t.sub} />
+              <Txt size={11.5} weight="med" color={t.sub}>
+                ลบหลายรายการ
+              </Txt>
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -331,7 +357,7 @@ function WeekHeaderStrip({
   };
 
   return (
-    <View style={{ paddingBottom: 6, borderBottomWidth: 0.5, borderBottomColor: t.line }}>
+    <View style={{ paddingTop: 6, paddingBottom: 12, borderBottomWidth: 0.5, borderBottomColor: t.line }}>
       <FlatList
         ref={listRef}
         data={weeks}

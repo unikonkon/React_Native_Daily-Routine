@@ -128,7 +128,7 @@ export function TodayMonthView({ year, month, selected, onPressDay, onVisibleMon
   const pickedK = picked ? toK(fromISO(picked).getFullYear(), fromISO(picked).getMonth()) : null;
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, paddingTop: 3, paddingBottom: 2 }}>
       {/* ชิปกรองหมวด — "ทั้งหมด" นำ · แตะหมวด = ดูเฉพาะหมวดนั้นทั้งปฏิทินและการ์ด */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 6, paddingHorizontal: 18, paddingTop: 4, paddingBottom: 6 }}>
         <FilterChip label="ทั้งหมด" on={!catFilter} onPress={() => setCatFilter(null)} />

@@ -1,6 +1,5 @@
 // แถววันที่ของหน้าปฏิทิน (ระบบ B1) — หัวเรื่องใหญ่ + บรรทัดสรุป (แตะ → เดือน) และตัวกรองมุมมอง 4 ไอคอนทางขวา
 // ไอคอนทั้ง 4 อันกดได้ตลอด (ไม่ซ่อนใน dropdown) · อันที่เลือกอยู่ = พื้นขาว + ไอคอนสีส้ม
-import React from 'react';
 import { Pressable, View } from 'react-native';
 
 import { SvgIcon } from '@/components/svg-icon';
@@ -31,7 +30,7 @@ export function ViewFilter({ value, onChange }: { value: CalView; onChange: (v: 
               if (!on) onChange(v.key);
             }}
             style={{
-              width: 40,
+              width: 44,
               height: 38,
               borderRadius: 11,
               alignItems: 'center',
@@ -63,7 +62,7 @@ interface DateHeaderProps {
 export function DateHeader({ title, summary, onPressTitle, view, onChangeView }: DateHeaderProps) {
   const t = useTokens();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 18, paddingTop: 6, paddingBottom: 4 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 18, paddingBottom: 6 }}>
       <Pressable accessibilityRole="button" onPress={onPressTitle} disabled={!onPressTitle} style={{ flex: 1, minWidth: 0 }}>
         <Txt size={22} weight="bold" numberOfLines={1}>
           {title}

@@ -1,19 +1,16 @@
 // แท็บ 1 — วันนี้ (ระบบ B1): มุมมอง วัน/สัปดาห์/เดือน/ปี + แถววันที่ (ไอคอนมุมมอง 4 อัน) + แถบลอยล่าง ‹ วันนี้ › · ปฏิทิน · ＋
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BOTTOM_BAR_SPACE, CalendarBar } from '@/components/b1/bottom-bar';
 import { DateHeader, type CalView } from '@/components/b1/date-header';
 import { useNow } from '@/components/b1/use-now';
 import { Screen } from '@/components/screen';
-import { SvgIcon } from '@/components/svg-icon';
 import { TodayDayView } from '@/components/today/day-view';
 import { TodayMonthView } from '@/components/today/month-view';
 import { TodayWeekView } from '@/components/today/week-view';
 import { TodayYearView } from '@/components/today/year-view';
-import { Txt, useTokens } from '@/components/ui';
 import { addDays, beYear, fromISO, mondayOf, MONTH_TH, MONTH_TH_FULL, todayISO, toISO, VIEW_MAX_Y, VIEW_MIN_Y } from '@/lib/dates';
 import { dayProgress, type NowRef } from '@/lib/progress';
 import type { DayItem } from '@/lib/types';
@@ -38,7 +35,6 @@ function rangeProgress(getDay: (d: string) => DayItem[], from: string, to: strin
 
 export default function TodayScreen() {
   const router = useRouter();
-  const t = useTokens();
   const insets = useSafeAreaInsets();
   const openSheet = useUI((s) => s.openSheet);
   const freeMode = useUI((s) => s.freeMode);
@@ -178,30 +174,16 @@ export default function TodayScreen() {
       )}
 
       {view === 'week' ? (
-        <>
-          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingTop: 6, paddingBottom: 2 }}>
-            <View style={{ flex: 1 }} />
-            {/* ลบหลายรายการ → หน้า "ลบรายการ" (เลือกทีละรายการ / ทั้งวัน / สัปดาห์ / เดือน) */}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push('/settings/delete')}
-              style={({ pressed }) => ({ height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: pressed ? t.rail : t.track, flexDirection: 'row', alignItems: 'center', gap: 6 })}>
-              <SvgIcon name="trash" size={15} color={t.sub} />
-              <Txt size={13} weight="med" color={t.sub}>
-                ลบหลายรายการ
-              </Txt>
-            </Pressable>
-          </View>
-          <TodayWeekView
-            monday={monday}
-            onChangeMonday={changeMonday}
-            onPressItem={(it) => openSheet(it.id, it.date)}
-            onPressDay={goDay}
-            bottomPad={bottomPad}
-            freeMode={freeMode}
-            onPressSlot={openSlot}
-          />
-        </>
+        <TodayWeekView
+          monday={monday}
+          onChangeMonday={changeMonday}
+          onPressItem={(it) => openSheet(it.id, it.date)}
+          onPressDay={goDay}
+          bottomPad={bottomPad}
+          freeMode={freeMode}
+          onPressSlot={openSlot}
+          onDeleteMany={() => router.push('/settings/delete')}
+        />
       ) : null}
 
       {view === 'month' ? (
