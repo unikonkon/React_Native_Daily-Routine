@@ -248,7 +248,7 @@ export default function StatsScreen() {
   const group = groupKey ? caseGroups.find((g) => g.key === groupKey) ?? null : null; // หาไม่เจอ (เปลี่ยนช่วง) → กลับไปแสดงรายการ
 
   return (
-    <Screen title="สถิติ" subtitle="รายงานสรุปจากที่บันทึกไว้" back>
+    <Screen title="สถิติ" subtitle="นับเฉพาะรายการที่บันทึกแล้ว (ทำแล้ว / ข้าม)" variant="sub">
       {/* ฟิลเตอร์ + เลื่อนช่วง */}
       <View style={{ gap: 12 }}>
         <View style={{ flexDirection: 'row', gap: 20, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.line2, paddingHorizontal: 2 }}>

@@ -58,7 +58,11 @@ export default function SheetsSetupScreen() {
   };
 
   return (
-    <Screen title="ต่อ Google Sheets" subtitle="ติดตั้งครั้งเดียว · ทีละขั้น" back>
+    <Screen
+      title="เชื่อม Google Sheets"
+      subtitle="ติดตั้งครั้งเดียว · ทีละขั้น · ใช้เวลาราว 5 นาที"
+      variant="sub"
+      action={{ label: sheetsUrl ? 'บันทึก URL ใหม่' : 'บันทึก & เชื่อมต่อ', icon: 'check', onPress: saveUrl, disabled: !urlDraft.trim() }}>
       {sheetsUrl ? (
         <Card tone="card2" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Icon name="check" size={18} color={GREEN} />
@@ -177,7 +181,7 @@ export default function SheetsSetupScreen() {
             {urlDraft ? <Chip small icon="x" label="ลบ" onPress={() => setUrlDraft('')} /> : null}
           </View>
         </View>
-        <Btn label={sheetsUrl ? 'บันทึก URL ใหม่' : 'บันทึก & เชื่อมต่อ'} onPress={saveUrl} />
+        <Txt size={12} color={t.faint}>วาง URL แล้วกดปุ่ม “{sheetsUrl ? 'บันทึก URL ใหม่' : 'บันทึก & เชื่อมต่อ'}” ที่แถบล่าง</Txt>
       </Step>
 
       <Card tone="card2" style={{ gap: 6 }}>

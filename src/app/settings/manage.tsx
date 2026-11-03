@@ -176,7 +176,12 @@ export default function ManageDataScreen() {
   };
 
   return (
-    <Screen title="จัดการข้อมูล" subtitle="ความจุที่ใช้ & ลบข้อมูลรายช่วง" back>
+    <Screen
+      title="ล้างข้อมูลเก่า"
+      subtitle="ดูความจุที่ใช้ แล้วเลือกช่วงที่จะลบ"
+      variant="sub"
+      // เลือกช่วงแล้ว → ปุ่มลบถาวรอยู่แถบล่าง (การ์ดยืนยันด้านบนบอกผลก่อนกด)
+      action={confirm ? { label: `ลบ ${confirm.label}`, icon: 'trash', tone: 'danger', onPress: doDelete } : undefined}>
       {/* สรุปรวมตามรายที่เลือก */}
       <Card style={{ gap: 10 }}>
         <Segmented
@@ -217,14 +222,13 @@ export default function ManageDataScreen() {
 
       {/* ยืนยันลบ */}
       {confirm ? (
-        <Card tone="card2" style={{ gap: 10 }}>
+        <Card style={{ gap: 10, borderWidth: 1.5, borderColor: t.warn }}>
           <Txt size={14} weight="bold">ลบข้อมูล {confirm.label}?</Txt>
           <Txt size={12} color={t.sub}>
             {confirm.items} รายการ ({fmtBytes(confirm.bytes)}) จะถูกลบถาวร — รายการทำซ้ำที่คาบเกี่ยวช่วงนี้จะถูกตัดให้เหลือเฉพาะนอกช่วง
           </Txt>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setConfirm(null)} />
-            <Btn style={{ flex: 1 }} kind="danger" label="ลบถาวร" onPress={doDelete} />
+            <Btn style={{ flex: 1 }} kind="ghost" label="ไม่ลบ" onPress={() => setConfirm(null)} />
           </View>
         </Card>
       ) : null}
@@ -280,13 +284,14 @@ function NavBtn({ icon, disabled, onPress }: { icon: string; disabled?: boolean;
   );
 }
 
-function TrashBtn({ onPress }: { onPress: () => void }) {
+function TrashBtn({ onPress, label }: { onPress: () => void; label?: string }) {
   const t = useTokens();
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label ? `ลบข้อมูล ${label}` : 'ลบข้อมูลช่วงนี้'}
       onPress={onPress}
-      hitSlop={6}
-      style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
+      style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
       <Icon name="trash" size={15} color={DANGER} />
     </Pressable>
   );
@@ -323,7 +328,7 @@ function YearCard({ b, onDelete }: { b: Bucket; onDelete: () => void }) {
         <Txt size={12} color={t.sub} style={{ flex: 1 }}>
           {b.items} รายการ · เสร็จ {b.done} · มีข้อมูล {b.days.length} วัน
         </Txt>
-        <TrashBtn onPress={onDelete} />
+        <TrashBtn onPress={onDelete} label={b.label} />
       </View>
     </Card>
   );
@@ -347,7 +352,7 @@ function MonthRow({ b, last, onDelete }: { b: Bucket; last: boolean; onDelete: (
           <Txt size={12} color={t.faint}>{b.items} รายการ · เสร็จ {b.done}</Txt>
         </View>
         <Txt size={12} num color={t.sub}>{fmtBytes(b.bytes)}</Txt>
-        <TrashBtn onPress={onDelete} />
+        <TrashBtn onPress={onDelete} label={b.label} />
       </View>
       <View style={{ height: 6, borderRadius: 3, backgroundColor: t.chip }}>
         <View style={{ width: `${rate * 100}%`, height: 6, borderRadius: 3, backgroundColor: GREEN }} />
@@ -374,7 +379,7 @@ function WeekRow({ b, last, onDelete }: { b: Bucket; last: boolean; onDelete: ()
           <Txt size={12} color={t.faint}>{b.items} รายการ · เสร็จ {b.done}</Txt>
         </View>
         <Txt size={12} num color={t.sub}>{fmtBytes(b.bytes)}</Txt>
-        <TrashBtn onPress={onDelete} />
+        <TrashBtn onPress={onDelete} label={b.label} />
       </View>
       <View style={{ flexDirection: 'row', gap: 6 }}>
         {days.map((d, i) => (
@@ -414,7 +419,7 @@ function DayRow({ b, last, onDelete }: { b: Bucket; last: boolean; onDelete: () 
           <Txt size={12} color={t.faint}>{b.items} รายการ · เสร็จ {b.done}</Txt>
         </View>
         <Txt size={12} num color={t.sub}>{fmtBytes(b.bytes)}</Txt>
-        <TrashBtn onPress={onDelete} />
+        <TrashBtn onPress={onDelete} label={b.label} />
       </View>
       {shown.length ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>

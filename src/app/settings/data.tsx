@@ -294,7 +294,7 @@ export default function DataScreen() {
   };
 
   return (
-    <Screen title="ข้อมูล" subtitle="Export · Import · Google Sheets" back>
+    <Screen title="ข้อมูล" subtitle="ส่งออก สำรอง และเชื่อม Google Sheets" variant="sub" action={{ label: 'สำรองตอนนี้', icon: 'check', onPress: exportJson }}>
       <Card>
         <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>Time Table — ส่งออก / นำเข้า</Txt>
         <Row icon="grid" label="ส่งออก Time Table & รายงานสรุป" sub="เลือกช่วง: เดือนนี้ / เลือกเดือน / ทั้งหมด — Excel (.xlsx), มีสี (.xls) หรือ CSV" onPress={openExport} />

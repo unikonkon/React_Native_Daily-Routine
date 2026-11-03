@@ -1,8 +1,10 @@
-// แท็บ 2 — เพิ่ม/แก้ไขกิจกรรม: ฟอร์มแบ่ง 4 ขั้น เปิดต่ออัตโนมัติ (APP_STRUCTURE.md §4)
-// ① หมวด+รายละเอียด (การ์ดเดียว รายละเอียดโผล่เมื่อเลือกหมวด) → ② วันที่+ทำซ้ำ ③ เวลา+พรีวิว ④ แจ้งเตือน+บันทึก (โผล่เมื่อใส่ชื่อแล้ว)
+// แท็บ 2 — เพิ่ม/แก้ไขกิจกรรม (ระบบ B1): ฟอร์ม 4 ขั้น เปิดทีละขั้น · ขั้นที่เสร็จพับเป็นแถวสรุป (แตะ "แก้" เพื่อเปิด)
+// ① หมวด+รายละเอียด → ② วันที่+ทำซ้ำ → ③ เวลา (เตือนชน + เสนอช่วงว่างที่ใกล้ที่สุด) → ④ แจ้งเตือน
+// แก้ไข: แถบ "กำลังแก้ไข" + ป้าย "เปลี่ยนแล้ว" ต่อขั้น + การ์ดขอบเขตชุดทำซ้ำ (มีผล n ครั้ง)
+// แถบล่าง: ‹ กลับ (เพิ่ม = เก็บร่างไว้ · แก้ไข = ทิ้งการแก้ไข) + บันทึก / บันทึกการแก้ไข
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Pressable, TextInput, View, type ScrollViewInstance } from 'react-native';
+import { Pressable, TextInput, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
@@ -10,24 +12,28 @@ import { MonthYearPicker } from '@/components/month-year-picker';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
 import { TimeRangeModal } from '@/components/time-range-modal';
-import { Btn, Card, Chip, ChipRow, PriBadge, Toggle, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CATS, CAT_OPTIONS, DANGER, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
-import { MONTH_TH_FULL, addDays, beYear, durText, fmtMin, fromISO, hoursText, thaiDate, todayISO } from '@/lib/dates';
-import { conflictsOn, freeSlots, maskFromDates } from '@/lib/engine';
-import { HORIZON_DAYS, type Contact, type Horizon, type RepeatRule } from '@/lib/types';
+import { Btn, Card, Chip, ChipRow, PriBadge, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
+import { ACCENT, CATS, CAT_BY_ID, CAT_OPTIONS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
+import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, durText, fmtMin, fromISO, hoursText, thaiDate, todayISO, wdMon } from '@/lib/dates';
+import { FREE_WINDOW_END, conflictsOn, freeSlots, maskFromDates, seriesDates } from '@/lib/engine';
+import { HORIZON_DAYS, type Activity, type Contact, type Horizon, type RepeatRule } from '@/lib/types';
 import { getDay, useActivities, useDayReader } from '@/stores/activities';
 import { contactChannels, useContacts } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
+type Step = 1 | 2 | 3 | 4;
+type Draft = ReturnType<typeof useDraft.getState>;
+
 const REPEATS: { key: RepeatRule; label: string }[] = [
-  { key: 'none', label: 'วันนี้' },
+  { key: 'none', label: 'ครั้งเดียว' },
   { key: 'daily', label: 'ทุกวัน' },
   { key: 'weekday', label: 'จ–ศ' },
   { key: 'weekend', label: 'ส–อา' },
   { key: 'custom', label: 'เลือกเอง' },
 ];
+const REPEAT_LABEL: Record<RepeatRule, string> = { none: 'ครั้งเดียว', daily: 'ทุกวัน', weekday: 'ทุก จ–ศ', weekend: 'ทุก ส–อา', custom: 'เลือกวันเอง' };
 
 // ช่วงเวลาสำเร็จรูป — แตะแล้วตั้งเวลาเริ่ม (สิ้นสุด = เริ่ม + ระยะเวลาที่เลือกอยู่)
 // 02:00 = 1560 นาที (ตี 2 ของวันถัดไป — หน้าต่างวันคือ 06:00–30:00)
@@ -71,72 +77,583 @@ const HORIZONS: { key: Horizon; label: string }[] = [
   { key: '1y', label: '1 ปี' },
 ];
 
-export default function AddScreen() {
-  const d = useDraft();
-  const scrollRef = useRef<ScrollViewInstance>(null);
-  // เปิดขั้นถัดไปอัตโนมัติจากข้อมูลใน draft: เลือกหมวด+ใส่ชื่อ (ขั้น 1) แล้ว → ขั้น 2–4 ทั้งหมด
-  const hasTitle = !!d.title.trim();
+/** "พฤ 5 พ.ย." — วันสั้นในแถวสรุป */
+function shortDate(iso: string): string {
+  const dt = fromISO(iso);
+  return `${WD_TH[wdMon(iso)]} ${dt.getDate()} ${MONTH_TH[dt.getMonth()]}`;
+}
+/** "พฤ 5 พ.ย. – ศ 4 ธ.ค. 2569" */
+function dateRange(a: string, b: string): string {
+  return a === b ? thaiDate(a) : `${shortDate(a)} – ${shortDate(b)} ${beYear(fromISO(b).getFullYear())}`;
+}
 
-  // แท็บนี้ mount ค้างไว้ → ScrollView จำตำแหน่งเลื่อนเดิม (เช่น ค้างอยู่ที่ปุ่มบันทึกล่างสุด)
-  // พอโหลด draft ชุดใหม่ (กด + / แตะช่วงว่าง / แก้ไข / บันทึกแล้วล้าง) ฟอร์มหดเหลือขั้น 1
-  // แต่ iOS ไม่ดึงตำแหน่งเลื่อนกลับให้เอง → เห็นหน้าโล่งไม่มีอะไรให้กด — จึงเลื่อนกลับบนสุดทุกครั้งที่โหลดใหม่
+/** ค่าที่โหลดมาตอนเปิดฟอร์ม — เทียบหา "เปลี่ยนแล้ว" ในโหมดแก้ไข */
+function snapOf(d: Draft) {
+  return {
+    s1: JSON.stringify([d.cat, d.title.trim(), d.sub, d.loc, d.channel, d.priority, d.contactIds]),
+    s2: JSON.stringify([d.repeat, d.dates.length, d.dates[0], d.dates[d.dates.length - 1]]),
+    start: d.start,
+    end: d.end,
+    s4: JSON.stringify([d.notify, d.before]),
+  };
+}
+/** ขั้นที่เปิดเมื่อโหลดร่างชุดใหม่ — แก้ไข = ขั้นสุดท้าย (ขั้นอื่นพับเป็นสรุปให้ตรวจ) · เพิ่ม = ขั้น 1 */
+const firstOpen = (d: Draft): Step => (d.editId ? 4 : 1);
+
+export default function AddScreen() {
+  const t = useTokens();
+  const d = useDraft();
+  const router = useRouter();
+  const showToast = useUI((s) => s.showToast);
+  const acts = useActivities((s) => s.acts);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const step1Done = !!d.cat && !!d.title.trim();
+
+  // ขั้นที่เปิด + ค่าตอนโหลด — ผูกกับ loadRev (ร่างชุดใหม่ → เริ่มใหม่) โดยปรับ state ระหว่าง render แทน effect
+  const [nav, setNav] = useState(() => ({ rev: d.loadRev, open: firstOpen(d) as Step | null, snap: snapOf(d) }));
+  const cur = nav.rev === d.loadRev ? nav : { rev: d.loadRev, open: firstOpen(d) as Step | null, snap: snapOf(d) };
+  if (cur !== nav) setNav(cur);
+  // ขั้น 1 ยังไม่ครบ → ขั้น 1 เปิดเสมอ (ขั้นอื่นยังไปไม่ได้)
+  const open = step1Done ? cur.open : 1;
+  const setOpen = (n: Step | null) => setNav({ ...cur, open: n });
+
+  // แท็บนี้ mount ค้างไว้ → โหลดร่างใหม่แล้วเลื่อนกลับบนสุด (iOS ไม่ดึงตำแหน่งเลื่อนกลับเอง)
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [d.loadRev]);
+  // เปิดขั้นใหม่ → เลื่อนให้หัวขั้นนั้นอยู่บนจอ
+  // y ของหัวแต่ละขั้น (เทียบกับกล่องขั้น) + y ของกล่องขั้นในหน้า — วัดจาก onLayout
+  const stepY = useRef<Record<number, number>>({});
+  const stepsTop = useRef(0);
+  useEffect(() => {
+    if (open == null || open === 1) return;
+    const id = setTimeout(() => {
+      const y = stepY.current[open];
+      if (y != null) scrollRef.current?.scrollTo({ y: Math.max(stepsTop.current + y - 12, 0), animated: true });
+    }, 60);
+    return () => clearTimeout(id);
+  }, [open]);
+
+  const editing = d.editId ? acts.find((a) => a.id === d.editId) : undefined;
+  const askScope = !!editing && editing.repeat !== 'none' && !!d.editDate && d.editDate > editing.startDate;
+  const analysis = useScheduleAnalysis();
+  const onSave = useSave(editing, askScope, () => setOpen(1));
+
+  const dirty = !!d.cat || !!d.title || !!d.editId;
+  const goBack = () => {
+    if (d.editId) d.reset(); // แก้ไข: กลับ = ไม่บันทึกการแก้ไข
+    else if (dirty) showToast('เก็บร่างไว้แล้ว — กลับมาทำต่อได้ที่แท็บเพิ่ม');
+    if (router.canGoBack()) router.back();
+    else router.navigate('/');
+    useUI.getState().restoreSheet(); // เปิดจากแผ่นรายละเอียด → เปิดแผ่นคืน
+  };
+
+  const snap = cur.snap;
+  const changed = (n: Step) =>
+    !!d.editId &&
+    (n === 1
+      ? snapOf(d).s1 !== snap.s1
+      : n === 2
+        ? snapOf(d).s2 !== snap.s2
+        : n === 3
+          ? d.start !== snap.start || d.end !== snap.end
+          : snapOf(d).s4 !== snap.s4);
+
+  const headerRight = d.editId ? (
+    <HeaderPill
+      label="ยกเลิกแก้ไข"
+      onPress={() => {
+        d.reset();
+        showToast('ยกเลิกการแก้ไขแล้ว');
+      }}
+    />
+  ) : dirty ? (
+    <HeaderPill
+      label="ล้างค่า"
+      onPress={() => {
+        d.reset();
+        showToast('ล้างค่าฟอร์มแล้ว');
+      }}
+    />
+  ) : undefined;
+
+  const cat = d.cat ? CAT_BY_ID[d.cat] : null;
+  const contacts = useContacts((s) => s.list);
+  const who = d.cat === 'case' ? d.contactIds.map((id) => contacts.find((c) => c.id === id)?.name).filter(Boolean).join(', ') : '';
+  const s1Text = [d.title.trim(), who, d.sub, d.loc].filter(Boolean).join(' · ');
+  const last = d.dates[d.dates.length - 1];
+  const s2Text =
+    d.repeat === 'none'
+      ? `ครั้งเดียว · ${thaiDate(d.dates[0])}`
+      : `${REPEAT_LABEL[d.repeat]} · ${d.dates.length} วัน · ${dateRange(d.dates[0], last)}`;
+  const dur = d.end - d.start;
 
   return (
     <Screen
       title={d.editId ? 'แก้ไขกิจกรรม' : 'เพิ่มกิจกรรม'}
-      subtitle={!d.cat || !hasTitle ? 'ขั้นที่ 1 จาก 4' : undefined}
-      backFab
-      scrollRef={scrollRef}>
-      <DetailsSection />
-      {d.cat && hasTitle ? <ScheduleSection /> : null}
+      headerRight={headerRight}
+      scrollRef={scrollRef}
+      onBack={goBack}
+      action={{ label: d.editId ? 'บันทึกการแก้ไข' : 'บันทึก', icon: 'check', onPress: onSave }}>
+      {d.editId ? <EditBanner title={editing?.title ?? d.title} date={d.editDate} /> : null}
+
+      <View onLayout={(e: LayoutChangeEvent) => (stepsTop.current = e.nativeEvent.layout.y)} style={{ gap: 8 }}>
+        {/* ① หมวดและรายละเอียด */}
+        <View onLayout={(e: LayoutChangeEvent) => (stepY.current[1] = e.nativeEvent.layout.y)}>
+          {open === 1 ? (
+            <StepOpen n={1} title="หมวดและรายละเอียด">
+              <DetailsBody />
+              <NextBtn label="ถัดไป · วันที่และการทำซ้ำ" disabled={!step1Done} hint={!d.cat ? 'เลือกหมวดก่อน' : !step1Done ? 'ใส่ชื่อกิจกรรม' : undefined} onPress={() => setOpen(2)} />
+            </StepOpen>
+          ) : (
+            <StepSummary n={1} label="หมวดและรายละเอียด" done={step1Done} changed={changed(1)} onPress={() => setOpen(1)}>
+              {cat ? (
+                <Txt size={14.5} weight="med" numberOfLines={2} style={{ lineHeight: 20 }}>
+                  <Txt size={14.5} weight="bold" color={cat.color}>
+                    ●{' '}
+                  </Txt>
+                  {cat.short}
+                  {s1Text ? ` · ${s1Text}` : ' · ยังไม่ได้ใส่ชื่อ'}
+                </Txt>
+              ) : (
+                <Txt size={14.5} color={t.sub}>
+                  ยังไม่ได้เลือกหมวด
+                </Txt>
+              )}
+            </StepSummary>
+          )}
+        </View>
+
+        {/* ② วันที่และการทำซ้ำ */}
+        <View onLayout={(e: LayoutChangeEvent) => (stepY.current[2] = e.nativeEvent.layout.y)}>
+          {!step1Done ? (
+            <StepPending n={2} title="วันที่และการทำซ้ำ" />
+          ) : open === 2 ? (
+            <StepOpen n={2} title="วันที่และการทำซ้ำ" right={`${d.dates.length} วัน`}>
+              <DatesBody />
+              <NextBtn label="ถัดไป · เวลา" onPress={() => setOpen(3)} />
+            </StepOpen>
+          ) : (
+            <StepSummary n={2} label="วันที่และการทำซ้ำ" done changed={changed(2)} onPress={() => setOpen(2)}>
+              <Txt size={14.5} weight="med" numberOfLines={2} style={{ lineHeight: 20 }}>
+                {s2Text}
+                {d.editId && !changed(2) ? <Txt size={14.5} color={t.sub}>{' (เดิม)'}</Txt> : null}
+              </Txt>
+            </StepSummary>
+          )}
+        </View>
+
+        {/* ③ เวลา */}
+        <View onLayout={(e: LayoutChangeEvent) => (stepY.current[3] = e.nativeEvent.layout.y)}>
+          {!step1Done ? (
+            <StepPending n={3} title="เวลา" />
+          ) : open === 3 ? (
+            <StepOpen n={3} title="เวลา">
+              <TimeBody analysis={analysis} />
+              <NextBtn label="ถัดไป · แจ้งเตือน" onPress={() => setOpen(4)} />
+            </StepOpen>
+          ) : (
+            <StepSummary
+              n={3}
+              label="เวลา"
+              done={dur > 0}
+              warn={analysis.conflictDays > 0}
+              changed={changed(3)}
+              onPress={() => setOpen(3)}
+              footer={analysis.conflictDays > 0 ? <SuggestStrip analysis={analysis} inset /> : undefined}>
+              <Txt size={14.5} weight="med" numberOfLines={2} style={{ lineHeight: 20 }}>
+                <Txt size={14.5} num weight="med">
+                  {fmtMin(d.start)}–{fmtMin(d.end)}
+                </Txt>
+                <Txt size={14.5} color={t.sub}>
+                  {dur > 0 ? ` · ${durText(dur)}` : ' · เวลาไม่ถูกต้อง'}
+                </Txt>
+                {changed(3) ? (
+                  <>
+                    {'  '}
+                    <Txt size={13} num color={t.faint} style={{ textDecorationLine: 'line-through' }}>
+                      {`${fmtMin(snap.start)}–${fmtMin(snap.end)}`}
+                    </Txt>
+                  </>
+                ) : null}
+              </Txt>
+              {analysis.conflictDays > 0 ? (
+                <Txt size={12.5} weight="bold" color={t.warn} style={{ marginTop: 3 }}>
+                  {analysis.text}
+                </Txt>
+              ) : null}
+            </StepSummary>
+          )}
+        </View>
+
+        {/* ④ แจ้งเตือน (ไม่บังคับ) */}
+        <View onLayout={(e: LayoutChangeEvent) => (stepY.current[4] = e.nativeEvent.layout.y)}>
+          {!step1Done ? (
+            <StepPending n={4} title="แจ้งเตือน" right="ไม่บังคับ" />
+          ) : open === 4 ? (
+            <StepOpen n={4} title="แจ้งเตือน" right="ไม่บังคับ">
+              <NotifyBody />
+            </StepOpen>
+          ) : (
+            <StepSummary n={4} label="แจ้งเตือน" done changed={changed(4)} onPress={() => setOpen(4)}>
+              <Txt size={14.5} weight="med">
+                {d.notify ? (d.before === 0 ? 'แจ้งเมื่อถึงเวลาเริ่ม' : `แจ้งก่อนเริ่ม ${durText(d.before)}`) : 'ไม่แจ้งเตือน'}
+              </Txt>
+            </StepSummary>
+          )}
+        </View>
+
+        {askScope && editing && d.editDate ? <ScopeCard editing={editing} editDate={d.editDate} /> : null}
+      </View>
     </Screen>
   );
 }
 
-// ---------- หัวข้อขั้นตอน: เลขวงกลม (✓ เขียวเมื่อผ่านแล้ว) + ชื่อขั้น ----------
+// ---------- ชิ้นส่วนของขั้น ----------
 
-function StepSection({
-  n,
-  title,
-  done,
-  right,
-  children,
-}: {
-  n: number;
-  title: string;
-  done: boolean;
-  /** ปุ่ม/ชิปมุมขวาของหัวข้อขั้น (เช่น ล้างค่าในขั้น 1) */
-  right?: ReactNode;
-  children: ReactNode;
-}) {
+function HeaderPill({ label, onPress }: { label: string; onPress: () => void }) {
+  const t = useTokens();
   return (
-    <View style={{ gap: 10 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <View
-          style={{
-            width: 24,
-            height: 24,
-            borderRadius: 12,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: done ? GREEN : ACCENT,
-          }}>
-          {done ? <Icon name="check" size={14} color="#FFFFFF" /> : <Txt size={12} num weight="bold" color="#FFFFFF">{n}</Txt>}
-        </View>
-        <Txt size={15} weight="bold" style={{ flex: 1 }}>{title}</Txt>
-        {right ?? null}
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => ({ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: pressed ? t.rail : t.track, justifyContent: 'center' })}>
+      <Txt size={13} weight="med" color={t.sub}>
+        {label}
+      </Txt>
+    </Pressable>
+  );
+}
+
+/** วงกลมเลขขั้น — open = ส้มทึบ · done = เขียว ✓ · warn = วงส้ม "!" · pending = วงเทา */
+function StepDot({ n, kind }: { n: number; kind: 'open' | 'done' | 'warn' | 'pending' }) {
+  const t = useTokens();
+  const bg = kind === 'open' ? '#B44E2C' : kind === 'done' ? GREEN : t.card;
+  const bd = kind === 'warn' ? '#D2603A' : kind === 'pending' ? t.railDash : 'transparent';
+  return (
+    <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: bg, borderWidth: bd === 'transparent' ? 0 : 2, borderColor: bd, alignItems: 'center', justifyContent: 'center' }}>
+      {kind === 'done' ? (
+        <SvgIcon name="check" size={14} color="#FFFFFF" strokeWidth={3} />
+      ) : (
+        <Txt size={12} num weight="bold" color={kind === 'open' ? '#FFFFFF' : kind === 'warn' ? '#D2603A' : t.sub}>
+          {kind === 'warn' ? '!' : n}
+        </Txt>
+      )}
+    </View>
+  );
+}
+
+function StepOpen({ n, title, right, children }: { n: Step; title: string; right?: string; children: ReactNode }) {
+  const t = useTokens();
+  return (
+    <View style={{ gap: 8 }}>
+      <View accessibilityRole="header" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 4, paddingHorizontal: 2 }}>
+        <StepDot n={n} kind="open" />
+        <Txt size={15} weight="bold" style={{ flex: 1 }}>
+          {title}
+        </Txt>
+        {right ? (
+          <Txt size={13} weight="bold" color={t.accentInk}>
+            {right}
+          </Txt>
+        ) : null}
       </View>
       {children}
     </View>
   );
 }
 
+/** ขั้นที่ยังไปไม่ถึง (ขั้น 1 ยังไม่ครบ) — หัวจาง แตะไม่ได้ */
+function StepPending({ n, title, right }: { n: Step; title: string; right?: string }) {
+  const t = useTokens();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 4, paddingHorizontal: 2, opacity: 0.6 }}>
+      <StepDot n={n} kind="pending" />
+      <Txt size={15} weight="bold" style={{ flex: 1 }}>
+        {title}
+      </Txt>
+      {right ? (
+        <Txt size={12.5} color={t.sub}>
+          {right}
+        </Txt>
+      ) : null}
+    </View>
+  );
+}
+
+/** ขั้นที่พับ — แถวสรุปแตะได้ทั้งแถว (แก้) · footer = แถบเสนอทางแก้ต่อท้ายในการ์ดเดียวกัน */
+function StepSummary({
+  n,
+  label,
+  done,
+  warn,
+  changed,
+  onPress,
+  footer,
+  children,
+}: {
+  n: Step;
+  label: string;
+  done: boolean;
+  warn?: boolean;
+  changed?: boolean;
+  onPress: () => void;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
+  const t = useTokens();
+  return (
+    <View style={{ backgroundColor: t.card, borderRadius: 16, overflow: 'hidden', shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`แก้ขั้น ${n} ${label}`}
+        onPress={onPress}
+        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 58, paddingVertical: 9, paddingLeft: 14, paddingRight: 12, backgroundColor: pressed ? t.track : 'transparent' })}>
+        <StepDot n={n} kind={warn ? 'warn' : done ? 'done' : 'pending'} />
+        <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Txt size={12} color={t.sub}>
+              {n} · {label}
+            </Txt>
+            {changed ? (
+              <View style={{ paddingHorizontal: 7, paddingVertical: 1, borderRadius: 8, backgroundColor: 'rgba(210,96,58,0.15)' }}>
+                <Txt size={11.5} weight="bold" color={t.warn}>
+                  เปลี่ยนแล้ว
+                </Txt>
+              </View>
+            ) : null}
+          </View>
+          {children}
+        </View>
+        <Txt size={13} weight="bold" color={t.accentInk}>
+          แก้
+        </Txt>
+      </Pressable>
+      {footer}
+    </View>
+  );
+}
+
+function NextBtn({ label, onPress, disabled, hint }: { label: string; onPress: () => void; disabled?: boolean; hint?: string }) {
+  const t = useTokens();
+  return (
+    <View style={{ alignItems: 'flex-end', gap: 4, paddingTop: 2 }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !!disabled }}
+        disabled={disabled}
+        onPress={onPress}
+        style={({ pressed }) => ({ height: 44, paddingLeft: 18, paddingRight: 12, borderRadius: 22, backgroundColor: disabled ? t.track : pressed ? '#000000' : t.ink, flexDirection: 'row', alignItems: 'center', gap: 4, opacity: disabled ? 0.7 : 1 })}>
+        <Txt size={14} weight="bold" color={disabled ? t.faint : t.bg}>
+          {label}
+        </Txt>
+        <SvgIcon name="chevR" size={16} color={disabled ? t.faint : t.bg} strokeWidth={2.4} />
+      </Pressable>
+      {disabled && hint ? (
+        <Txt size={12} color={t.faint}>
+          {hint}
+        </Txt>
+      ) : null}
+    </View>
+  );
+}
+
+function EditBanner({ title, date }: { title: string; date: string | null }) {
+  const t = useTokens();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingHorizontal: 2 }}>
+      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(90,126,168,0.14)', alignItems: 'center', justifyContent: 'center' }}>
+        <SvgIcon name="edit" size={16} color="#3F5E82" strokeWidth={2} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+        <Txt size={12.5} color={t.sub}>
+          กำลังแก้ไข{date ? ` · เปิดจาก ${thaiDate(date)}` : ''}
+        </Txt>
+        <Txt size={17} weight="bold" numberOfLines={3} style={{ lineHeight: 24 }}>
+          {title}
+        </Txt>
+      </View>
+    </View>
+  );
+}
+
+// ---------- วิเคราะห์เวลาชน + เสนอช่วงว่าง ----------
+
+interface Analysis {
+  per: { date: string; items: ReturnType<typeof getDay>; conflicts: ReturnType<typeof getDay>; slots: PreviewSlot[] }[];
+  conflictDays: number;
+  /** "ชน “ตื่นนอน” 06:00–06:30 ทั้ง 22 วัน" */
+  text: string;
+  /** เวลาเริ่มที่ใกล้ที่สุด (ความยาวเท่าเดิม) ที่ไม่ชนเลยทุกวันที่เลือก — null = หาไม่เจอ */
+  suggest: number | null;
+  multi: boolean;
+}
+
+/** ตรวจได้สูงสุดกี่วันตอนหาช่วงว่างร่วม (ชุดยาว 1 ปี ตรวจแค่ช่วงต้น ๆ พอ) */
+const SUGGEST_SAMPLE = 62;
+
+function useScheduleAnalysis(): Analysis {
+  const d = useDraft();
+  const getDay = useDayReader(); // อ่านผ่าน hook — อัปเดตเมื่อข้อมูลเปลี่ยน (ปลอดภัยกับ React Compiler)
+  return useMemo(() => {
+    const itemsOf = (date: string) => getDay(date).filter((i) => i.id !== d.editId);
+    const per = d.dates.slice(0, 5).map((date) => {
+      const items = itemsOf(date);
+      // ช่วงว่าง — แยกท่อนดึก (01:00–06:00) ออกมาเป็นอีกชิ้น เพื่อไม่ให้ช่วงกลางวันถูกลากยาวข้ามคืน
+      return { date, items, conflicts: conflictsOn(items, d.start, d.end), slots: splitAtNight(freeSlots(items)).slice(0, 6) };
+    });
+    let conflictDays = 0;
+    const hits = new Map<number, { title: string; start: number; end: number; n: number }>();
+    for (const date of d.dates) {
+      const c = conflictsOn(itemsOf(date), d.start, d.end);
+      if (!c.length) continue;
+      conflictDays++;
+      for (const x of c) {
+        const h = hits.get(x.id) ?? { title: x.title, start: x.startMin, end: x.endMin, n: 0 };
+        h.n++;
+        hits.set(x.id, h);
+      }
+    }
+    const total = d.dates.length;
+    const ranked = [...hits.values()].sort((a, b) => b.n - a.n);
+    const days = total === 1 ? '' : conflictDays === total ? ` ทั้ง ${total} วัน` : ` ใน ${conflictDays} จาก ${total} วัน`;
+    const short = (s: string) => (s.length > 24 ? `${s.slice(0, 23)}…` : s);
+    const text = !ranked.length
+      ? ''
+      : ranked.length === 1
+        ? `ชน “${short(ranked[0].title)}” ${fmtMin(ranked[0].start)}–${fmtMin(ranked[0].end)}${days}`
+        : `ชนกับ ${ranked.length} กิจกรรม เช่น “${short(ranked[0].title)}”${days}`;
+
+    let suggest: number | null = null;
+    const dur = d.end - d.start;
+    if (conflictDays && dur > 0) {
+      const sample = d.dates.slice(0, SUGGEST_SAMPLE).map(itemsOf);
+      // เสนอเฉพาะช่วงกลางวัน (ถึง 24:00) — ยกเว้นกิจกรรมเดิมตั้งไว้ดึกอยู่แล้ว (ไม่เสนอให้ไปตี 2 แทนเวลาเย็น)
+      const limit = d.end > FREE_WINDOW_END ? DAY_END : FREE_WINDOW_END;
+      const ok = (s: number) => s >= DAY_START && s + dur <= limit && sample.every((items) => conflictsOn(items, s, s + dur).length === 0);
+      // ไล่ห่างจากเวลาเดิมทีละ 15 นาที — เวลาหลังก่อนเวลาก่อน (เลื่อนออกไปมักง่ายกว่าเลื่อนเข้ามา)
+      for (let k = 1; k * SNAP <= DAY_END - DAY_START && suggest === null; k++) {
+        if (ok(d.start + k * SNAP)) suggest = d.start + k * SNAP;
+        else if (ok(d.start - k * SNAP)) suggest = d.start - k * SNAP;
+      }
+    }
+    return { per, conflictDays, text, suggest, multi: total > 1 };
+  }, [getDay, d.dates, d.start, d.end, d.editId]);
+}
+
+/** แถบเสนอช่วงว่างที่ใกล้ที่สุด (ความยาวเท่าเดิม) — แตะ "ใช้" แล้วย้ายเวลาให้เลย */
+function SuggestStrip({ analysis, inset }: { analysis: Analysis; inset?: boolean }) {
+  const t = useTokens();
+  const d = useDraft();
+  const showToast = useUI((s) => s.showToast);
+  const dur = d.end - d.start;
+  const s = analysis.suggest;
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 8,
+        paddingRight: 12,
+        paddingLeft: inset ? 50 : 12,
+        borderTopWidth: inset ? 1 : 0,
+        borderTopColor: t.line,
+        borderRadius: inset ? 0 : 12,
+        backgroundColor: 'rgba(210,96,58,0.07)',
+      }}>
+      <Txt size={12.5} color={t.sub} style={{ flex: 1, lineHeight: 18 }}>
+        {s == null ? (analysis.multi ? 'ไม่มีช่วงที่ว่างตรงกันทุกวัน — บันทึกซ้อนได้' : 'ไม่มีช่วงว่างพอในวันนี้ — บันทึกซ้อนได้') : analysis.multi ? 'ช่วงที่ว่างทุกวันและใกล้ที่สุด' : 'ช่วงว่างที่ใกล้ที่สุด'}
+      </Txt>
+      {s != null ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            d.set({ start: s, end: s + dur });
+            showToast(`ย้ายไป ${fmtMin(s)}–${fmtMin(s + dur)} แล้ว`, { label: 'เลิกทำ', run: () => useDraft.getState().set({ start: d.start, end: d.end }) });
+          }}
+          style={({ pressed }) => ({ height: 40, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1.5, borderColor: '#B44E2C', backgroundColor: pressed ? 'rgba(180,78,44,0.08)' : t.card, justifyContent: 'center' })}>
+          <Txt size={13} num weight="bold" color={t.accentInk}>
+            ใช้ {fmtMin(s)}–{fmtMin(s + dur)}
+          </Txt>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+// ---------- บันทึก ----------
+
+function useSave(editing: Activity | undefined, askScope: boolean, openStep1: () => void) {
+  const d = useDraft();
+  const router = useRouter();
+  const showToast = useUI((s) => s.showToast);
+  const { add, editActivity } = useActivities();
+  return async () => {
+    if (!d.cat || !d.title.trim()) {
+      openStep1();
+      return showToast(!d.cat ? 'เลือกหมวดก่อน' : 'ใส่ชื่อกิจกรรม');
+    }
+    if (d.end <= d.start) return showToast('เวลาสิ้นสุดต้องมากกว่าเริ่ม');
+    const isOnce = d.repeat === 'none';
+    const isCustom = d.repeat === 'custom';
+    const startDate = d.dates[0];
+    // แก้ไขชุดเดิมที่ยังไม่ได้เลือกระยะเวลาใหม่ → จบวันเดิม (keepEnd) ไม่รีเซ็ตเป็นค่าตาม horizon
+    const endDate = isOnce ? null : isCustom ? d.dates[d.dates.length - 1] : d.keepEnd ? d.keepEnd.endDate : addDays(startDate, HORIZON_DAYS[d.horizon] - 1);
+
+    const fields = {
+      title: d.title.trim(),
+      cat: d.cat as CatId,
+      sub: d.sub || null,
+      loc: d.loc || null,
+      channel: d.cat === 'case' ? d.channel : null,
+      priority: d.cat === 'case' ? d.priority : null,
+      startMin: d.start,
+      endMin: d.end,
+      repeat: d.repeat,
+      daysMask: isOnce ? 0 : maskFromDates(d.dates),
+      // "เลือกเอง" เก็บวันที่ที่เลือกจริง — daysMask อย่างเดียวจะงอกทุกวันในสัปดาห์เดียวกันที่อยู่ในช่วง
+      dates: isCustom ? [...d.dates] : null,
+      startDate,
+      endDate,
+      notify: d.notify,
+      notifyBefore: d.before,
+      detachedFrom: null,
+      status: 'active' as const,
+      contactIds: d.cat === 'case' ? d.contactIds : [],
+      color: null, // สีจากไฟล์ Time Table เท่านั้น — กิจกรรมที่สร้างในแอปใช้สีตามหมวด
+    };
+
+    // วันที่ให้แท็บวันนี้เปิดโชว์หลังบันทึก — แก้เฉพาะ/ตั้งแต่ครั้งนี้ = วันที่เปิดมาแก้
+    let focusDate = startDate;
+    try {
+      if (d.editId) {
+        if (!editing) return showToast('ไม่พบกิจกรรมนี้แล้ว');
+        // แก้ไขกิจกรรมที่นำเข้ามา: รักษาสีเดิมที่จำจากไฟล์ไว้
+        const scope = askScope ? d.scope : 'all';
+        await editActivity(editing, { ...fields, detachedFrom: editing.detachedFrom, color: editing.color }, scope, d.editDate);
+        if (scope !== 'all' && d.editDate) focusDate = d.editDate;
+        showToast(scope === 'one' ? 'บันทึกเฉพาะครั้งนี้แล้ว ✓' : scope === 'future' ? 'บันทึกตั้งแต่ครั้งนี้เป็นต้นไปแล้ว ✓' : 'บันทึกการแก้ไขแล้ว ✓');
+      } else {
+        await add(fields);
+        showToast(`เพิ่มแล้ว ${d.dates.length} วัน ✓`);
+      }
+    } catch (e) {
+      // เขียนลงเครื่องไม่สำเร็จ — คงฟอร์มไว้ให้กดบันทึกใหม่ได้ ไม่ล้างทิ้ง
+      console.warn('[add] save failed', e);
+      return showToast('บันทึกไม่สำเร็จ — ลองกดบันทึกอีกครั้ง');
+    }
+    d.reset();
+    useUI.getState().closeSheet(); // บันทึกแล้วจบงาน — ทิ้งแผ่นที่พักไว้ ไม่ให้เด้งขึ้นทับหน้าวันนี้
+    // ให้แท็บวันนี้เปิดโชว์วันของกิจกรรมที่เพิ่งบันทึก — ผู้ใช้เห็นผลทันทีแม้ลงวันอื่น
+    useUI.getState().setFocusDate(focusDate);
+    router.navigate('/');
+  };
+}
+
 // ---------- ส่วนบน: หมวด + รายละเอียด ----------
 
-function DetailsSection() {
+function DetailsBody() {
   const t = useTokens();
   const d = useDraft();
   const router = useRouter();
@@ -152,27 +669,8 @@ function DetailsSection() {
   // คนที่เลือกไว้ (ตามลำดับที่กด) — ใช้กางรายละเอียดช่องทางติดต่อใต้แถวชิป
   const pickedContacts = d.contactIds.map((id) => contacts.find((c) => c.id === id)).filter((c): c is Contact => !!c);
 
-  // มีอะไรให้ล้างไหม — ชิป "ล้างค่า" โผล่เฉพาะตอนฟอร์มมีข้อมูลแล้ว (reset ทั้ง draft: หมวด/ชื่อ/วัน/เวลา/แจ้งเตือน)
-  const dirty = !!d.cat || !!d.title || !!d.editId;
-
   return (
-    <StepSection
-      n={1}
-      title="เลือกหมวดและรายละเอียด"
-      done={!!d.cat && !!d.title.trim()}
-      right={
-        dirty ? (
-          <Chip
-            small
-            icon="restore"
-            label="ล้างค่า"
-            onPress={() => {
-              d.reset();
-              showToast('ล้างค่าฟอร์มแล้ว');
-            }}
-          />
-        ) : undefined
-      }>
+    <>
       {/* หมวด + รายละเอียด รวมในการ์ดพื้นหลังเดียว — ส่วนรายละเอียดโผล่ใต้เส้นคั่นเมื่อเลือกหมวดแล้ว */}
       <Card style={{ gap: 12 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
@@ -181,14 +679,16 @@ function DetailsSection() {
             return (
               <Pressable
                 key={c.id}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: active }}
                 onPress={() => d.set({ cat: c.id })}
                 style={{
                   width: '47.5%',
                   padding: 14,
                   borderRadius: 18,
-                  backgroundColor: active ? c.color + '22' : t.card2,
+                  backgroundColor: active ? c.color + '22' : t.bg,
                   borderWidth: 1.5,
-                  borderColor: active ? c.color : t.line,
+                  borderColor: active ? c.color : 'transparent',
                   gap: 8,
                 }}>
                 <Icon name={c.icon} size={22} color={c.color} />
@@ -204,9 +704,10 @@ function DetailsSection() {
             <TextInput
               value={d.title}
               onChangeText={(title) => d.set({ title })}
-              placeholder="พิมพ์ชื่อ…"
+              placeholder="พิมพ์ชื่อกิจกรรม…"
               placeholderTextColor={t.faint}
-              style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: t.line, padding: 12, color: t.ink, fontFamily: FONT.uiMed, fontSize: 15 }}
+              accessibilityLabel="ชื่อกิจกรรม"
+              style={{ backgroundColor: t.bg, borderRadius: 12, borderWidth: 1, borderColor: t.line, minHeight: 48, paddingHorizontal: 12, paddingVertical: 10, color: t.ink, fontFamily: FONT.uiMed, fontSize: 15 }}
             />
             <ChipRow>
               {quickPicks[d.cat].map((q) => (
@@ -348,321 +849,293 @@ function DetailsSection() {
           </>
         ) : null}
       </Card>
-    </StepSection>
+    </>
   );
 }
 
-// ---------- ส่วนล่าง: วันเวลา + ทำซ้ำ + พรีวิว + แจ้งเตือน ----------
+// ---------- ② วันที่และการทำซ้ำ ----------
 
-function ScheduleSection() {
+function DatesBody() {
   const t = useTokens();
   const d = useDraft();
-  const router = useRouter();
   const showToast = useUI((s) => s.showToast);
-  const { add, editActivity, acts } = useActivities();
-  const getDay = useDayReader(); // อ่านผ่าน hook — อัปเดตเมื่อข้อมูลเปลี่ยน (ปลอดภัยกับ React Compiler)
-
   const anchor = d.dates[0]; // draft การันตีมีอย่างน้อย 1 วันเสมอ
   const [ym, setYm] = useState(() => {
     const dt = fromISO(anchor);
     return { y: dt.getFullYear(), m: dt.getMonth() };
   });
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [timePickerOpen, setTimePickerOpen] = useState(false);
-  // โหมด "ช่วงเวลา" ที่เลือกอยู่ = นาทีเริ่มของพรีเซ็ต (null = เลือกเอง)
-  // เก็บเป็น state แทนการเทียบกับ d.start ตรง ๆ — ปรับละเอียด เริ่ม/สิ้นสุด แล้วยังอยู่โหมดพรีเซ็ตเดิม ไม่เด้งไป "เลือกเอง"
-  const [periodStart, setPeriodStart] = useState<number | null>(() => PERIOD_PRESETS.find((p) => p.start === d.start)?.start ?? null);
-
-  // ฟอร์มหน้าเดียว mount ค้างไว้ — พอ loadActivity/loadSlot เปลี่ยนวันแรก ให้เลื่อนปฏิทินตาม
-  useEffect(() => {
+  // ปฏิทิน: เปิดเองอัตโนมัติเมื่อต้องเลือกวันเอง (ครั้งเดียว / เลือกเอง) · ทำซ้ำตามสูตร = พับไว้ แตะ "ดูบนปฏิทิน"
+  const [calPref, setCalPref] = useState<boolean | null>(null);
+  const calOpen = calPref ?? (d.repeat === 'none' || d.repeat === 'custom');
+  // วันแรกเปลี่ยน (โหลดร่าง/แตะวัน) → เลื่อนปฏิทินตาม — ปรับ state ระหว่าง render แทน effect
+  const [seenAnchor, setSeenAnchor] = useState(anchor);
+  if (seenAnchor !== anchor) {
+    setSeenAnchor(anchor);
     const dt = fromISO(anchor);
     setYm({ y: dt.getFullYear(), m: dt.getMonth() });
-  }, [anchor]);
-
-  // โหลด draft ชุดใหม่ (แก้ไขกิจกรรม / มาจากช่องว่าง / ล้างค่า) → ตั้งโหมดช่วงเวลาใหม่ตามเวลาที่โหลดมา
-  useEffect(() => {
-    const s = useDraft.getState().start;
-    setPeriodStart(PERIOD_PRESETS.find((p) => p.start === s)?.start ?? null);
-  }, [d.loadRev]);
-
-  // กิจกรรมเดิมที่กำลังแก้ไข — ชุดทำซ้ำ + รู้วันที่เปิดมา → ให้เลือกขอบเขตการแก้ไข
-  const editing = d.editId ? acts.find((a) => a.id === d.editId) : undefined;
-  const askScope = !!editing && editing.repeat !== 'none' && !!d.editDate && d.editDate > editing.startDate;
-
-  const timeInvalid = d.end <= d.start;
-  const duration = d.end - d.start;
-  // ขั้น 2 ถูกแก้จากค่าตั้งต้น (วันนี้วันเดียว ไม่ทำซ้ำ) หรือยัง — ใช้ตัดสินว่าจะโชว์ปุ่มรีเซ็ตวันที่
+  }
+  const last = d.dates[d.dates.length - 1];
   const datesDirty = d.repeat !== 'none' || d.dates.length > 1 || d.dates[0] !== todayISO();
-  // วิเคราะห์การชน + พรีวิว — ตัดกิจกรรมที่กำลังแก้ไขออก
-  const analysis = useMemo(() => {
-    const per = d.dates.slice(0, 5).map((date) => {
-      const items = getDay(date).filter((i) => i.id !== d.editId);
-      // ช่วงว่าง — แยกท่อนดึก (01:00–06:00) ออกมาเป็นอีกชิ้น เพื่อไม่ให้ช่วงกลางวันถูกลากยาวข้ามคืน
-      return { date, items, conflicts: conflictsOn(items, d.start, d.end), slots: splitAtNight(freeSlots(items)).slice(0, 6) };
-    });
-    const conflictDays = d.dates.filter((date) => {
-      const items = getDay(date).filter((i) => i.id !== d.editId);
-      return conflictsOn(items, d.start, d.end).length > 0;
-    }).length;
-    return { per, conflictDays };
-  }, [getDay, d.dates, d.start, d.end, d.editId]);
-
-  const onSave = async () => {
-    if (!d.cat) return showToast('เลือกหมวดก่อน');
-    if (!d.title.trim()) return showToast('ใส่ชื่อกิจกรรม');
-    if (timeInvalid) return showToast('เวลาสิ้นสุดต้องมากกว่าเริ่ม');
-    const isOnce = d.repeat === 'none';
-    const isCustom = d.repeat === 'custom';
-    const startDate = d.dates[0];
-    // แก้ไขชุดเดิมที่ยังไม่ได้เลือกระยะเวลาใหม่ → จบวันเดิม (keepEnd) ไม่รีเซ็ตเป็นค่าตาม horizon
-    const endDate = isOnce
-      ? null
-      : isCustom
-        ? d.dates[d.dates.length - 1]
-        : d.keepEnd
-          ? d.keepEnd.endDate
-          : addDays(startDate, HORIZON_DAYS[d.horizon] - 1);
-
-    const fields = {
-      title: d.title.trim(),
-      cat: d.cat as CatId,
-      sub: d.sub || null,
-      loc: d.loc || null,
-      channel: d.cat === 'case' ? d.channel : null,
-      priority: d.cat === 'case' ? d.priority : null,
-      startMin: d.start,
-      endMin: d.end,
-      repeat: d.repeat,
-      daysMask: isOnce ? 0 : maskFromDates(d.dates),
-      // "เลือกเอง" เก็บวันที่ที่เลือกจริง — daysMask อย่างเดียวจะงอกทุกวันในสัปดาห์เดียวกันที่อยู่ในช่วง
-      dates: isCustom ? [...d.dates] : null,
-      startDate,
-      endDate,
-      notify: d.notify,
-      notifyBefore: d.before,
-      detachedFrom: null,
-      status: 'active' as const,
-      contactIds: d.cat === 'case' ? d.contactIds : [],
-      color: null, // สีจากไฟล์ Time Table เท่านั้น — กิจกรรมที่สร้างในแอปใช้สีตามหมวด
-    };
-
-    // วันที่ให้แท็บวันนี้เปิดโชว์หลังบันทึก — แก้เฉพาะ/ตั้งแต่ครั้งนี้ = วันที่เปิดมาแก้
-    let focusDate = startDate;
-    try {
-      if (d.editId) {
-        if (!editing) return showToast('ไม่พบกิจกรรมนี้แล้ว');
-        // แก้ไขกิจกรรมที่นำเข้ามา: รักษาสีเดิมที่จำจากไฟล์ไว้
-        const scope = askScope ? d.scope : 'all';
-        await editActivity(editing, { ...fields, detachedFrom: editing.detachedFrom, color: editing.color }, scope, d.editDate);
-        if (scope !== 'all' && d.editDate) focusDate = d.editDate;
-        showToast(scope === 'one' ? 'บันทึกเฉพาะครั้งนี้แล้ว ✓' : scope === 'future' ? 'บันทึกตั้งแต่ครั้งนี้เป็นต้นไปแล้ว ✓' : 'บันทึกการแก้ไขแล้ว ✓');
-      } else {
-        await add(fields);
-        showToast(`เพิ่มแล้ว ${d.dates.length} วัน ✓`);
-      }
-    } catch (e) {
-      // เขียนลงเครื่องไม่สำเร็จ — คงฟอร์มไว้ให้กดบันทึกใหม่ได้ ไม่ล้างทิ้ง
-      console.warn('[add] save failed', e);
-      return showToast('บันทึกไม่สำเร็จ — ลองกดบันทึกอีกครั้ง');
-    }
-    d.reset();
-    useUI.getState().closeSheet(); // บันทึกแล้วจบงาน — ทิ้งแผ่นที่พักไว้ ไม่ให้เด้งขึ้นทับหน้าวันนี้
-    // ให้แท็บวันนี้เปิดโชว์วันของกิจกรรมที่เพิ่งบันทึก — ผู้ใช้เห็นผลทันทีแม้ลงวันอื่น
-    useUI.getState().setFocusDate(focusDate);
-    router.navigate('/');
-  };
 
   return (
-    <>
-      <StepSection
-        n={2}
-        title="วันที่และการทำซ้ำ"
-        done={d.dates.length > 0}
-        right={
-          // มีวันที่ให้ล้างไหม — โผล่เมื่อไม่ใช่ "วันนี้วันเดียว" แล้ว (ล้างเฉพาะขั้นนี้ ไม่แตะหมวด/ชื่อ/เวลา)
-          datesDirty ? (
-            <Chip
-              small
-              icon="restore"
-              label="รีเซ็ตวันที่"
-              onPress={() => {
-                d.resetDates();
-                showToast('รีเซ็ตเป็นวันนี้วันเดียวแล้ว');
-              }}
-            />
-          ) : undefined
-        }>
-        {/* ทำซ้ำ + ปฏิทินเลือกวันที่ รวมในการ์ดพื้นหลังเดียว คั่นด้วยเส้นบาง — สรุปจำนวนวันอยู่ท้ายการ์ด */}
-        <Card style={{ gap: 10 }}>
-          <Txt size={14} color={t.faint} style={{ textAlign: 'center' }}>
-            {d.repeat === 'none' ? `ลงวันเดียว: ${thaiDate(d.dates[0])}` : `รวม ${d.dates.length} วัน · เริ่ม ${thaiDate(d.dates[0])}`}
-          </Txt>
+    <Card style={{ gap: 10, padding: 12 }}>
+      <Segmented<RepeatRule> options={REPEATS} value={d.repeat} onChange={(r) => d.setRepeat(r)} />
 
-          <ChipRow>
-            {REPEATS.map((r) => (
-              <Chip key={r.key} small label={r.label} active={d.repeat === r.key} onPress={() => d.setRepeat(r.key)} />
+      {d.repeat !== 'none' && d.repeat !== 'custom' ? (
+        <>
+          <Txt size={12.5} color={t.sub}>
+            ลงต่อเนื่องนาน
+          </Txt>
+          <ChipRow style={{ gap: 6, marginTop: -4 }}>
+            {/* แก้ไขชุดเดิมที่ช่วงไม่ตรงชิปไหน — คงวันสิ้นสุดเดิมไว้จนกว่าจะเลือกระยะเวลาใหม่เอง */}
+            {d.keepEnd ? <Chip small label={d.keepEnd.endDate ? `เดิม: ถึง ${shortDate(d.keepEnd.endDate)}` : 'เดิม: ไม่มีวันสิ้นสุด'} active /> : null}
+            {HORIZONS.map((h) => (
+              <Chip key={h.key} small label={h.label} active={!d.keepEnd && d.horizon === h.key} onPress={() => d.setHorizon(h.key)} />
             ))}
           </ChipRow>
-          {d.repeat !== 'none' && d.repeat !== 'custom' ? (
+        </>
+      ) : null}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: calOpen }}
+        onPress={() => setCalPref(!calOpen)}
+        style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 12, borderRadius: 12, backgroundColor: pressed ? t.track : t.bg, flexDirection: 'row', alignItems: 'center', gap: 8 })}>
+        <SvgIcon name="calendar" size={16} color={t.sub} strokeWidth={1.8} />
+        <Txt size={13} style={{ flex: 1 }} numberOfLines={2}>
+          {d.repeat === 'none' ? (
             <>
-              <Txt size={13} weight="med" color={t.sub}>ระยะเวลาที่ลง</Txt>
-              <ChipRow>
-                {/* แก้ไขชุดเดิมที่ช่วงไม่ตรงชิปไหน — คงวันสิ้นสุดเดิมไว้จนกว่าจะเลือกระยะเวลาใหม่เอง */}
-                {d.keepEnd ? (
-                  <Chip small label={d.keepEnd.endDate ? `เดิม: ถึง ${thaiDate(d.keepEnd.endDate)}` : 'เดิม: ไม่มีวันสิ้นสุด'} active />
-                ) : null}
-                {HORIZONS.map((h) => (
-                  <Chip key={h.key} small label={h.label} active={!d.keepEnd && d.horizon === h.key} onPress={() => d.setHorizon(h.key)} />
-                ))}
-              </ChipRow>
+              ลงวันเดียว · <Txt size={13} weight="bold">{thaiDate(anchor)}</Txt>
             </>
-          ) : null}
+          ) : (
+            <>
+              รวม <Txt size={13} weight="bold">{d.dates.length} วัน</Txt> · {dateRange(anchor, last)}
+            </>
+          )}
+        </Txt>
+        <Txt size={13} weight="bold" color={t.accentInk}>
+          {calOpen ? 'ซ่อนปฏิทิน' : d.repeat === 'none' ? 'เปลี่ยนวัน ›' : 'ดูบนปฏิทิน ›'}
+        </Txt>
+      </Pressable>
 
-          <View style={{ height: 1, backgroundColor: t.line }} />
-
-          <Pressable onPress={() => setPickerOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <Txt size={14} weight="bold">{MONTH_TH_FULL[ym.m]} {beYear(ym.y)}</Txt>
-            <Icon name="chevD" size={16} color={t.sub} />
-          </Pressable>
+      {calOpen ? (
+        <>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Pressable accessibilityRole="button" onPress={() => setPickerOpen(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40 }}>
+              <Txt size={14} weight="bold">
+                {MONTH_TH_FULL[ym.m]} {beYear(ym.y)}
+              </Txt>
+              <Icon name="chevD" size={16} color={t.sub} />
+            </Pressable>
+            {datesDirty ? (
+              <Chip
+                small
+                icon="restore"
+                label="รีเซ็ตเป็นวันนี้"
+                onPress={() => {
+                  d.resetDates();
+                  showToast('รีเซ็ตเป็นวันนี้วันเดียวแล้ว');
+                }}
+              />
+            ) : null}
+          </View>
           <MonthGrid
             year={ym.y}
             month={ym.m}
             mode="select"
             selected={d.dates}
-            onPressDay={(iso) => d.toggleDate(iso)}
+            // ครั้งเดียว: แตะวัน = ย้ายไปวันนั้น · แบบอื่น: แตะเพิ่ม/เอาออก (กลายเป็น "เลือกเอง")
+            onPressDay={(iso) => (d.repeat === 'none' ? d.set({ dates: [iso] }) : d.toggleDate(iso))}
           />
-
-        </Card>
-      </StepSection>
+          <Txt size={12} color={t.faint}>
+            {d.repeat === 'none' ? 'แตะวันเพื่อย้ายไปวันนั้น' : 'แตะวันเพื่อเพิ่ม/เอาออก — แก้เองแล้วจะเป็น "เลือกเอง"'}
+          </Txt>
+        </>
+      ) : null}
       <MonthYearPicker visible={pickerOpen} year={ym.y} month={ym.m} onClose={() => setPickerOpen(false)} onPick={(y, m) => setYm({ y, m })} />
+    </Card>
+  );
+}
 
-      <StepSection n={3} title="เวลา" done={!timeInvalid}>
-        {/* เวลา */}
-        <Card style={{ gap: 10 }}>
-          <Txt size={13} weight="med" color={t.sub}>ช่วงเวลา</Txt>
-          <ChipRow>
-            {PERIOD_PRESETS.map((p) => (
-              <Chip
-                key={p.label}
-                small
-                label={p.label}
-                active={periodStart === p.start}
-                onPress={() => {
-                  setPeriodStart(p.start);
-                  d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) });
-                }}
-              />
-            ))}
-            {/* "เลือกเอง" active เมื่อไม่ได้อยู่ในโหมดพรีเซ็ต — เปิดตัวเลือกเวลา (ยกเลิกได้ ยังไม่เปลี่ยนโหมด) */}
-            <Chip small label="เลือกเอง" active={periodStart === null} onPress={() => setTimePickerOpen(true)} />
-          </ChipRow>
+// ---------- ③ เวลา ----------
 
-          {/* ระยะเวลา — แสดงตลอด (ทั้งโหมดพรีเซ็ต เลือกเอง และหลังแตะช่วงว่าง) พร้อมบอกความยาวปัจจุบัน */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Txt size={13} weight="med" color={t.sub} style={{ flex: 1 }}>ระยะเวลา</Txt>
-            <Txt size={13} num weight="bold" color={timeInvalid ? DANGER : ACCENT}>
-              {timeInvalid ? 'เวลาไม่ถูกต้อง' : durText(duration)}
-            </Txt>
-          </View>
-          <ChipRow>
-            {[1, 2, 3, 4, 5, 7].map((n) => (
-              <Chip
-                key={n}
-                small
-                label={`${n} ชม.`}
-                active={duration === n * 60}
-                onPress={() => d.set({ end: Math.min(d.start + n * 60, DAY_END) })}
-              />
-            ))}
-          </ChipRow>
+function TimeBody({ analysis }: { analysis: Analysis }) {
+  const t = useTokens();
+  const d = useDraft();
+  const showToast = useUI((s) => s.showToast);
+  const [timePickerOpen, setTimePickerOpen] = useState(false);
+  // โหมด "ช่วงเวลา" ที่เลือกอยู่ = นาทีเริ่มของพรีเซ็ต (null = เลือกเอง)
+  // เก็บเป็น state แทนการเทียบกับ d.start ตรง ๆ — ปรับละเอียด เริ่ม/สิ้นสุด แล้วยังอยู่โหมดพรีเซ็ตเดิม ไม่เด้งไป "เลือกเอง"
+  const [period, setPeriod] = useState(() => ({ rev: d.loadRev, start: PERIOD_PRESETS.find((p) => p.start === d.start)?.start ?? null }));
+  const periodStart = period.rev === d.loadRev ? period.start : (PERIOD_PRESETS.find((p) => p.start === d.start)?.start ?? null);
+  const setPeriodStart = (start: number | null) => setPeriod({ rev: d.loadRev, start });
+  const timeInvalid = d.end <= d.start;
+  const duration = d.end - d.start;
 
-          <Txt size={13} weight="med" color={t.sub}>ปรับละเอียด (ทีละ 15 นาที)</Txt>
-          <TimeStepper label="เริ่ม" value={d.start} onChange={(v) => d.set({ start: v })} />
-          <TimeStepper label="สิ้นสุด" value={d.end} onChange={(v) => d.set({ end: v })} />
-          {timeInvalid ? <Txt size={12} color="#C0392B">เวลาสิ้นสุดต้องมากกว่าเริ่ม</Txt> : null}
-        </Card>
-        <TimeRangeModal
-          visible={timePickerOpen}
-          start={d.start}
-          end={d.end}
-          onClose={() => setTimePickerOpen(false)}
-          onConfirm={(s, e) => {
-            setPeriodStart(null); // ตั้งเวลาเองแล้ว → ออกจากโหมดพรีเซ็ต
-            d.set({ start: s, end: e });
-            setTimePickerOpen(false);
-          }}
-        />
-
-        {/* เตือนเวลาชน (ไม่บล็อก) */}
-        {analysis.conflictDays > 0 ? (
-          <Card style={{ borderColor: '#D2603A55', backgroundColor: '#D2603A14' }}>
-            <Txt size={13} color="#D2603A" weight="med">
-              ⚠ เวลาที่เลือกชนกับกิจกรรมเดิมใน {analysis.conflictDays} วัน — บันทึกต่อได้
-            </Txt>
-          </Card>
-        ) : null}
-
-        {/* พรีวิวรายวัน (≤3 วัน) */}
-        {d.dates.length <= 5 ? (
-          analysis.per.map((p) => (
-            <DayPreview
-              key={p.date}
-              {...p}
-              newStart={d.start}
-              newEnd={d.end}
-              onPickSlot={(s, e) => {
-                setPeriodStart(PERIOD_PRESETS.find((p) => p.start === s)?.start ?? null);
-                d.set({ start: s, end: e });
-                showToast(`ใช้ช่วงว่าง ${fmtMin(s)}–${fmtMin(e)} แล้ว`);
+  return (
+    <>
+      <Card style={{ gap: 10 }}>
+        <Txt size={12.5} color={t.sub}>
+          เริ่มช่วง
+        </Txt>
+        <ChipRow style={{ gap: 6, marginTop: -4 }}>
+          {PERIOD_PRESETS.map((p) => (
+            <Chip
+              key={p.label}
+              small
+              label={p.label}
+              active={periodStart === p.start}
+              onPress={() => {
+                setPeriodStart(p.start);
+                d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) });
               }}
             />
-          ))
-        ) : (
-          <Txt size={12} color={t.faint} style={{ textAlign: 'center' }}>
-            เลือกไว้ {d.dates.length} วัน — พรีวิวรายวันแสดงเมื่อเลือกไม่เกิน 3 วัน
+          ))}
+          {/* "เลือกเอง" active เมื่อไม่ได้อยู่ในโหมดพรีเซ็ต — เปิดตัวเลือกเวลา (ยกเลิกได้ ยังไม่เปลี่ยนโหมด) */}
+          <Chip small label="เลือกเอง…" active={periodStart === null} onPress={() => setTimePickerOpen(true)} />
+        </ChipRow>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>
+            ระยะเวลา
           </Txt>
-        )}
+          <Txt size={13} num weight="bold" color={timeInvalid ? t.warn : t.accentInk}>
+            {timeInvalid ? 'เวลาไม่ถูกต้อง' : durText(duration)}
+          </Txt>
+        </View>
+        <ChipRow style={{ gap: 6, marginTop: -4 }}>
+          {[1, 2, 3, 4, 5, 7].map((n) => (
+            <Chip key={n} small label={`${n} ชม.`} active={duration === n * 60} onPress={() => d.set({ end: Math.min(d.start + n * 60, DAY_END) })} />
+          ))}
+        </ChipRow>
 
-      </StepSection>
-
-      <StepSection n={4} title="แจ้งเตือนและบันทึก" done={false}>
-        {/* แจ้งเตือน */}
-        <Card style={{ gap: 10 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Txt size={14} weight="med" style={{ flex: 1 }}>แจ้งเตือน</Txt>
-            <Toggle value={d.notify} onChange={(v) => d.set({ notify: v })} />
-          </View>
-          {d.notify ? (
-            <ChipRow>
-              {/* 0 = แจ้งทันทีตอนถึงเวลาเริ่ม */}
-              {[0, 1, 5, 10, 15, 30, 60, 120].map((m) => (
-                <Chip key={m} small label={m === 0 ? 'แจ้งทันที' : `${m} นาที`} active={d.before === m} onPress={() => d.set({ before: m })} />
-              ))}
-            </ChipRow>
-          ) : null}
-        </Card>
-
-        {askScope && d.editDate ? (
-          <Card style={{ gap: 10 }}>
-            <Txt size={14} weight="med">กิจกรรมนี้เป็นชุดทำซ้ำ — ใช้การแก้ไขกับครั้งไหน?</Txt>
-            <ChipRow>
-              <Chip small label={`เฉพาะ ${thaiDate(d.editDate)}`} active={d.scope === 'one'} onPress={() => d.set({ scope: 'one' })} />
-              <Chip small label="ตั้งแต่ครั้งนี้เป็นต้นไป" active={d.scope === 'future'} onPress={() => d.set({ scope: 'future' })} />
-              <Chip small label="ทั้งชุด (รวมย้อนหลัง)" active={d.scope === 'all'} onPress={() => d.set({ scope: 'all' })} />
-            </ChipRow>
-            <Txt size={12} color={t.faint}>
-              {d.scope === 'one'
-                ? 'ใช้ชื่อ เวลา และรายละเอียดใหม่กับวันนี้วันเดียว — การเปลี่ยนวันที่/การทำซ้ำจะไม่ถูกใช้'
-                : d.scope === 'future'
-                  ? 'ครั้งก่อนหน้าและสถิติย้อนหลังคงเดิม — สถานะที่บันทึกไว้ตั้งแต่วันนี้ย้ายตามไปด้วย'
-                  : 'เปลี่ยนทุกครั้งในชุด รวมที่ผ่านมาแล้ว — ชั่วโมงในสถิติย้อนหลังจะเปลี่ยนตาม'}
-            </Txt>
-          </Card>
+        <View style={{ height: 1, backgroundColor: t.line }} />
+        <TimeStepper label="เริ่ม" value={d.start} onChange={(v) => d.set({ start: v })} />
+        <TimeStepper label="สิ้นสุด" value={d.end} onChange={(v) => d.set({ end: v })} />
+        {timeInvalid ? (
+          <Txt size={12} color={t.warn}>
+            เวลาสิ้นสุดต้องมากกว่าเริ่ม
+          </Txt>
         ) : null}
+      </Card>
+      <TimeRangeModal
+        visible={timePickerOpen}
+        start={d.start}
+        end={d.end}
+        onClose={() => setTimePickerOpen(false)}
+        onConfirm={(s, e) => {
+          setPeriodStart(null); // ตั้งเวลาเองแล้ว → ออกจากโหมดพรีเซ็ต
+          d.set({ start: s, end: e });
+          setTimePickerOpen(false);
+        }}
+      />
 
-        <Btn label={d.editId ? 'บันทึกการแก้ไข' : 'บันทึกกิจกรรม'} onPress={onSave} />
-      </StepSection>
+      {/* เตือนเวลาชน (ไม่บล็อก) + เสนอช่วงว่างที่ใกล้ที่สุด */}
+      {analysis.conflictDays > 0 ? (
+        <View style={{ backgroundColor: t.card, borderRadius: 16, borderWidth: 1.5, borderColor: '#D2603A', overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12 }}>
+            <SvgIcon name="alert" size={18} color={t.warn} strokeWidth={2} />
+            <Txt size={13} weight="bold" color={t.warn} style={{ flex: 1, lineHeight: 19 }}>
+              {analysis.text} — บันทึกต่อได้
+            </Txt>
+          </View>
+          <SuggestStrip analysis={analysis} />
+        </View>
+      ) : null}
+
+      {/* พรีวิวรายวัน (≤5 วัน) */}
+      {d.dates.length <= 5 ? (
+        analysis.per.map((p) => (
+          <DayPreview
+            key={p.date}
+            {...p}
+            newStart={d.start}
+            newEnd={d.end}
+            onPickSlot={(s, e) => {
+              setPeriodStart(PERIOD_PRESETS.find((x) => x.start === s)?.start ?? null);
+              d.set({ start: s, end: e });
+              showToast(`ใช้ช่วงว่าง ${fmtMin(s)}–${fmtMin(e)} แล้ว`);
+            }}
+          />
+        ))
+      ) : (
+        <Txt size={12} color={t.faint} style={{ textAlign: 'center' }}>
+          เลือกไว้ {d.dates.length} วัน — พรีวิวรายวันแสดงเมื่อเลือกไม่เกิน 5 วัน
+        </Txt>
+      )}
     </>
+  );
+}
+
+// ---------- ④ แจ้งเตือน ----------
+
+function NotifyBody() {
+  const t = useTokens();
+  const d = useDraft();
+  return (
+    <Card style={{ gap: 10, paddingVertical: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 48, gap: 10 }}>
+        <Txt size={14.5} style={{ flex: 1 }}>
+          แจ้งเตือนก่อนเริ่ม
+        </Txt>
+        <Txt size={13} color={t.sub}>
+          {d.notify ? 'เปิด' : 'ปิด'}
+        </Txt>
+        <Toggle value={d.notify} onChange={(v) => d.set({ notify: v })} />
+      </View>
+      {d.notify ? (
+        <ChipRow style={{ gap: 6, paddingBottom: 8 }}>
+          {/* 0 = แจ้งทันทีตอนถึงเวลาเริ่ม */}
+          {[0, 1, 5, 10, 15, 30, 60, 120].map((m) => (
+            <Chip key={m} small label={m === 0 ? 'ตอนเริ่ม' : m >= 60 ? `${m / 60} ชม.` : `${m} นาที`} active={d.before === m} onPress={() => d.set({ before: m })} />
+          ))}
+        </ChipRow>
+      ) : null}
+    </Card>
+  );
+}
+
+// ---------- ขอบเขตการแก้ไขชุดทำซ้ำ ----------
+
+function ScopeCard({ editing, editDate }: { editing: Activity; editDate: string }) {
+  const t = useTokens();
+  const d = useDraft();
+  // ครั้งที่โดนแก้ ตามขอบเขต — คิดจากชุดเดิม (ก่อนแก้)
+  const all = useMemo(() => seriesDates(editing), [editing]);
+  const hit = d.scope === 'one' ? [editDate] : d.scope === 'future' ? all.filter((x) => x >= editDate) : all;
+  const openEnd = !editing.endDate && d.scope !== 'one';
+  const effect = !hit.length
+    ? 'ไม่มีครั้งที่ได้รับผล'
+    : openEnd
+      ? `มีผลทุกครั้งตั้งแต่ ${shortDate(hit[0])} ${beYear(fromISO(hit[0]).getFullYear())} (ไม่มีวันสิ้นสุด)`
+      : `มีผล ${hit.length} ครั้ง · ${dateRange(hit[0], hit[hit.length - 1])}`;
+  return (
+    <View style={{ marginTop: 6, backgroundColor: t.card, borderRadius: 16, borderWidth: 1.5, borderColor: '#D2603A', padding: 14, gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Icon name="repeat" size={18} color={t.accentInk} />
+        <Txt size={14.5} weight="bold" style={{ flex: 1 }}>
+          ชุดทำซ้ำ — ใช้การแก้ไขกับครั้งไหน?
+        </Txt>
+      </View>
+      <ChipRow style={{ gap: 6 }}>
+        <Chip small label={`เฉพาะ ${shortDate(editDate)}`} active={d.scope === 'one'} onPress={() => d.set({ scope: 'one' })} />
+        <Chip small label="ตั้งแต่ครั้งนี้เป็นต้นไป" active={d.scope === 'future'} onPress={() => d.set({ scope: 'future' })} />
+        <Chip small label="ทั้งชุด (รวมย้อนหลัง)" active={d.scope === 'all'} onPress={() => d.set({ scope: 'all' })} />
+      </ChipRow>
+      <View style={{ gap: 4, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: t.bg }}>
+        <Txt size={13} weight="bold">
+          {effect}
+        </Txt>
+        <Txt size={12.5} color={t.sub} style={{ lineHeight: 19 }}>
+          {d.scope === 'one'
+            ? 'ใช้ชื่อ เวลา และรายละเอียดใหม่กับครั้งนี้ครั้งเดียว — การเปลี่ยนวันที่/การทำซ้ำจะไม่ถูกใช้'
+            : d.scope === 'future'
+              ? 'ครั้งก่อนหน้าและสถิติย้อนหลังคงเดิม — สถานะที่บันทึกไว้ตั้งแต่วันนี้ย้ายตามไปด้วย'
+              : 'เปลี่ยนทุกครั้งในชุด รวมที่ผ่านมาแล้ว — ชั่วโมงในสถิติย้อนหลังจะเปลี่ยนตาม'}
+        </Txt>
+      </View>
+    </View>
   );
 }
 
@@ -672,8 +1145,8 @@ function TimeStepper({ label, value, onChange }: { label: string; value: number;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       <Txt size={13} color={t.sub} style={{ width: 48 }}>{label}</Txt>
-      <Pressable onPress={() => step(-1)} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
-        <Txt size={18} color={t.sub}>−</Txt>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${label} ลด 15 นาที`} onPress={() => step(-1)} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
+        <SvgIcon name="minus" size={18} color={t.ink} strokeWidth={2.2} />
       </Pressable>
       <View style={{ flex: 1, alignItems: 'center' }}>
         <Txt size={20} num weight="bold">
@@ -681,8 +1154,8 @@ function TimeStepper({ label, value, onChange }: { label: string; value: number;
           {value > 1440 ? ' +1' : ''}
         </Txt>
       </View>
-      <Pressable onPress={() => step(1)} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
-        <Txt size={18} color={t.sub}>+</Txt>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${label} เพิ่ม 15 นาที`} onPress={() => step(1)} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
+        <SvgIcon name="plus" size={18} color={t.ink} strokeWidth={2.2} />
       </Pressable>
     </View>
   );
@@ -711,10 +1184,10 @@ function DayPreview({ date, items, conflicts, slots, newStart, newEnd, onPickSlo
     width: `${pct(e) - pct(s)}%` as const,
   });
   return (
-    <Card tone="card2" style={{ gap: 8 }}>
+    <Card style={{ gap: 8 }}>
       <Txt size={13} weight="med">{thaiDate(date)} · มีกิจกรรมเดิม {items.length} รายการ</Txt>
       <View style={{ gap: 2 }}>
-        <View style={{ height: 10, borderRadius: 5, backgroundColor: t.chip, overflow: 'hidden' }}>
+        <View style={{ height: 10, borderRadius: 5, backgroundColor: t.track, overflow: 'hidden' }}>
           {PREVIEW_TICKS.map((m) => (
             <View key={m} style={{ position: 'absolute', top: 0, bottom: 0, width: 1, backgroundColor: t.line2, left: `${pct(m)}%` }} />
           ))}

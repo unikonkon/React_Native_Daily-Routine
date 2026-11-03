@@ -12,7 +12,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { StepBtn } from '@/components/today/parts';
-import { Btn, Card, Chip, ChipRow, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
+import { Card, Chip, ChipRow, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, DANGER, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
 import { conflictsOn } from '@/lib/engine';
@@ -283,7 +283,20 @@ export default function CopyScreen() {
     <Screen
       title="คัดลอกกิจกรรม"
       subtitle={step === 1 ? 'ขั้นที่ 1 จาก 2 · เลือกต้นทาง' : copyMode === 'item' ? 'ขั้นที่ 2 จาก 2 · เลือกวันปลายทาง' : 'ขั้นที่ 2 จาก 2 · เลือกวันเริ่มวาง'}
-      back>
+      variant="sub"
+      // ขั้น 2: ‹ กลับ = ย้อนไปขั้น 1 (ไม่ออกจากหน้า) · ปุ่มหลักตามขั้น: ถัดไป → วาง/แทนที่
+      onBack={step === 2 && !busy ? () => setStep(1) : undefined}
+      action={
+        step === 1
+          ? { label: 'ถัดไป · เลือกปลายทาง', icon: 'chevR', onPress: () => setStep(2), disabled: !step1Done }
+          : {
+              label: busy ? 'กำลังวาง…' : !total ? 'เลือกปลายทางก่อน' : pasteMode === 'replace' ? `แทนที่ ${total} รายการ` : `วาง ${total} รายการ`,
+              icon: 'copy',
+              tone: pasteMode === 'replace' ? 'danger' : 'accent',
+              disabled: !total || busy,
+              onPress: onPaste,
+            }
+      }>
       {/* โหมดคัดลอก — สลับแล้วเริ่มเลือกใหม่ (ต้นทางคนละความหมาย) */}
       <Card style={{ gap: 8 }}>
         <Segmented
@@ -449,7 +462,6 @@ export default function CopyScreen() {
                   ? 'แตะวันบนตาราง แล้วติ๊กกิจกรรมที่จะคัดลอก'
                   : 'แตะวันบนตารางเพื่อเลือกทั้งวัน (เลือกได้หลายวัน)'}
             </Txt>
-            <Btn label="ถัดไป" disabled={!step1Done} onPress={() => setStep(2)} renderIcon={(c, s) => <Icon name="chevR" size={s} color={c} />} />
           </Card>
         </>
       ) : (
@@ -574,17 +586,6 @@ export default function CopyScreen() {
                   ? 'ยังไม่ได้เลือกวันปลายทาง'
                   : 'ยังไม่ได้เลือกวันเริ่มวาง'}
             </Txt>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <Btn style={{ flex: 1 }} kind="ghost" label="ย้อนกลับ" disabled={busy} onPress={() => setStep(1)} />
-              <Btn
-                style={{ flex: 1 }}
-                kind={pasteMode === 'replace' ? 'danger' : 'green'}
-                label={busy ? 'กำลังวาง…' : pasteMode === 'replace' ? `แทนที่ ${total || ''}`.trim() : `วาง ${total || ''} รายการ`.trim()}
-                disabled={!total || busy}
-                renderIcon={(c, s) => <Icon name="copy" size={s} color={c} />}
-                onPress={onPaste}
-              />
-            </View>
           </Card>
         </>
       )}

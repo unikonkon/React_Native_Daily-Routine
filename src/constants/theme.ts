@@ -1,6 +1,8 @@
 // Design tokens — ตรงตาม prototype `Daily Routine Planner (1).html` (APP_STRUCTURE.md §10)
 
 export type ThemeName = 'light' | 'dark';
+/** ค่าที่ผู้ใช้เลือกในตั้งค่า — 'system' = ตามโหมดของเครื่อง */
+export type ThemePref = ThemeName | 'system';
 
 export const ACCENT = '#D2603A';
 

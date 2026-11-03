@@ -107,7 +107,7 @@ export function freeSlots(items: DayItem[], minDur: number = MIN_FREE_GAP): Free
 }
 
 /** ช่วงว่างเฉพาะกลางวัน — ตัดที่ 24:00 (ไม่นับ 00:00–06:00 = เวลานอน) สำหรับโหมด "วันที่ว่าง" */
-const FREE_WINDOW_END = 1440; // 24:00 (นาทีในหน้าต่าง 06:00–30:00)
+export const FREE_WINDOW_END = 1440; // 24:00 (นาทีในหน้าต่าง 06:00–30:00)
 export function daytimeFreeSlots(items: DayItem[], minDur: number = MIN_FREE_GAP): FreeSlot[] {
   return freeSlots(items, minDur)
     .map((s) => ({ start: s.start, end: Math.min(s.end, FREE_WINDOW_END) }))
@@ -210,6 +210,8 @@ export function rescRangeDates(range: RescRange): { from: string; to: string } {
 interface Stats {
   rate: number; // 0–1 done/scheduled
   doneWeek: number;
+  /** รายการที่ถึงกำหนดสัปดาห์นี้ (ตัวหารของ rate) */
+  dueWeek: number;
   streak: number;
   hoursByCat: Record<string, number>;
 }
@@ -249,7 +251,7 @@ export function computeStats(acts: Activity[], occ: OccMap, now: number): Stats 
     else break;
   }
 
-  return { rate: scheduled ? done / scheduled : 0, doneWeek: done, streak, hoursByCat };
+  return { rate: scheduled ? done / scheduled : 0, doneWeek: done, dueWeek: scheduled, streak, hoursByCat };
 }
 
 // ---------- สถิติแบบเลือกช่วง (หน้าสถิติ §6.1) ----------

@@ -21,7 +21,7 @@ export default function CategoriesScreen() {
   const [open, setOpen] = useState<CatId | null>(null);
 
   return (
-    <Screen title="จัดการหมวดหมู่" subtitle="6 หมวด · แก้ลิสต์ตัวเลือกได้" back>
+    <Screen title="หมวดหมู่และตัวเลือก" subtitle="ชื่อที่ใช้บ่อย ประเภท และสถานที่ของแต่ละหมวด" variant="sub">
       <Card>
         {CATS.map((c, i) => {
           const opened = open === c.id;

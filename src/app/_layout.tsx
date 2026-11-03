@@ -11,6 +11,7 @@ import { Pressable, Text, View } from 'react-native';
 import { ActivitySheet } from '@/components/activity-sheet';
 import { RescheduleModal } from '@/components/reschedule-modal';
 import { ToastHost } from '@/components/toast';
+import { useThemeName } from '@/components/ui';
 import { PALETTES } from '@/constants/theme';
 import { useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
@@ -29,7 +30,7 @@ export default function RootLayout() {
   const [booted, setBooted] = useState(false);
   // โหลดฐานข้อมูลไม่สำเร็จ — เดิมกลืน error แล้วเปิดแอปเป็นหน้าว่าง (เหมือนข้อมูลหาย และบันทึกทับได้)
   const [bootError, setBootError] = useState<string | null>(null);
-  const theme = useSettings((s) => s.theme);
+  const theme = useThemeName();
 
   const boot = useCallback(() => {
     Promise.all([useSettings.getState().boot(), useActivities.getState().boot(), useContacts.getState().boot()])

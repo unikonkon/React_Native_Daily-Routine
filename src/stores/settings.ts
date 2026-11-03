@@ -1,13 +1,14 @@
 import { create } from 'zustand';
 
-import { CAT_OPTIONS, CATS, QUICK_PICKS, type CatId, type ThemeName } from '@/constants/theme';
+import { CAT_OPTIONS, CATS, QUICK_PICKS, type CatId, type ThemePref } from '@/constants/theme';
 import * as db from '@/lib/db';
 
 /** ตัวเลือกย่อยเริ่มต้นของทุกหมวด (หมวดที่ไม่มีชุดตัวเลือก = ลิสต์ว่าง) */
 const DEFAULT_CAT_OPTIONS = Object.fromEntries(CATS.map((c) => [c.id, CAT_OPTIONS[c.id]?.defaults ?? []])) as Record<CatId, string[]>;
 
 interface SettingsState {
-  theme: ThemeName;
+  /** โหมดแสดงผลที่เลือก — ใช้ useThemeName() (components/ui) เพื่อได้ธีมที่ใช้จริง */
+  theme: ThemePref;
   notifMaster: boolean;
   morning: boolean;
   /** quick-pick chips ต่อหมวด — เริ่มจาก QUICK_PICKS แก้ไขได้ใน settings/categories */
@@ -19,7 +20,7 @@ interface SettingsState {
   /** รายการ URL ที่เคยบันทึก ใหม่ → เก่า (สูงสุด 5, ไม่ซ้ำ) — คงอยู่แม้ยกเลิกการเชื่อมต่อ ไว้สลับ/เชื่อมต่อใหม่ */
   sheetsUrls: string[];
   boot: () => Promise<void>;
-  setTheme: (t: ThemeName) => void;
+  setTheme: (t: ThemePref) => void;
   setNotifMaster: (v: boolean) => void;
   setMorning: (v: boolean) => void;
   setQuickPicks: (cat: CatId, list: string[]) => void;
@@ -57,7 +58,7 @@ function parseCatLists(raw: string | undefined, fallback: Record<CatId, string[]
 }
 
 export const useSettings = create<SettingsState>((set, get) => ({
-  theme: 'light',
+  theme: 'system',
   notifMaster: true,
   morning: true,
   quickPicks: QUICK_PICKS,
@@ -68,7 +69,8 @@ export const useSettings = create<SettingsState>((set, get) => ({
   boot: async () => {
     const s = await db.loadSettings();
     set({
-      theme: (s.theme as ThemeName) ?? 'light',
+      // ยังไม่เคยเลือก = ตามระบบ · ค่าเดิมที่บันทึกไว้ (light/dark) คงไว้ตามที่ผู้ใช้เคยเลือก
+      theme: s.theme === 'light' || s.theme === 'dark' || s.theme === 'system' ? s.theme : 'system',
       notifMaster: s.notif_master !== '0',
       morning: s.morning_summary !== '0',
       quickPicks: parseCatLists(s.quick_picks, QUICK_PICKS),

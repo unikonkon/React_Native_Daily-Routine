@@ -1,20 +1,24 @@
-// แท็บ 4 — ตั้งค่า: การ์ดสถิติ + เมนู (APP_STRUCTURE.md §6)
+// แท็บ 3 — ตั้งค่า (ระบบ B1): การ์ดสรุปสัปดาห์ (→ สถิติ · ค้างบันทึก → ทบทวน) + เมนู 3 กลุ่ม
+// การจัดการ · การแจ้งเตือนและการแสดงผล (โหมด สว่าง/มืด/ตามระบบ) · ข้อมูลและขั้นสูง (ข้อมูลตัวอย่างมีขั้นยืนยัน)
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
-import { Icon } from '@/components/icon';
+import { StatusDot } from '@/components/b1/status-circle';
+import { useNow } from '@/components/b1/use-now';
 import { Screen } from '@/components/screen';
+import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Card, Row, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CATS, GREEN } from '@/constants/theme';
-import { MONTH_TH_FULL, beYear, fromISO, nowMin, todayISO } from '@/lib/dates';
+import { CATS, GREEN, type ThemePref } from '@/constants/theme';
+import { MONTH_TH_FULL, addDays, beYear, fromISO, nowMin, todayISO } from '@/lib/dates';
 import { restoreAll } from '@/lib/db';
 import { computeStats } from '@/lib/engine';
+import { overdueBetween } from '@/lib/progress';
 import { buildMockMonth } from '@/lib/mock';
 import { TT_SOURCE_LABEL } from '@/lib/mock-timetable';
 import { requestResync } from '@/lib/notifications';
-import { useActivities } from '@/stores/activities';
+import { useActivities, useDayReader } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
@@ -27,7 +31,6 @@ export default function SettingsScreen() {
   const settings = useSettings();
 
   const stats = useMemo(() => computeStats(acts, occ, nowMin()), [acts, occ]);
-  const maxH = Math.max(...Object.values(stats.hoursByCat), 1);
 
   const syncNotif = (master: boolean, morning: boolean) => requestResync(acts, occ, master, morning);
 
@@ -53,116 +56,180 @@ export default function SettingsScreen() {
     }
   };
 
+  const getDay = useDayReader();
+  const now = useNow();
+  const overdue7 = useMemo(() => overdueBetween(getDay, addDays(now.date, -6), now.date, now).length, [getDay, now]);
+  const split = CATS.filter((c) => stats.hoursByCat[c.id]).map((c) => ({ ...c, h: stats.hoursByCat[c.id] }));
+  const totalH = split.reduce((a, c) => a + c.h, 0);
+
   return (
-    <Screen title="ตั้งค่า" subtitle="สถิติ & ค่าระบบ">
-      {/* สถิติ — แตะเพื่อเปิดหน้ารายงานสถิติเต็ม (สัปดาห์ · เดือน · ทั้งหมด) */}
-      <Pressable onPress={() => router.push('/settings/stats')}>
-        <Card style={{ gap: 14 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-            <ProgressRing pct={stats.rate} />
-            <View style={{ flex: 1, gap: 4 }}>
-              <Txt size={14} weight="bold">ความสำเร็จสัปดาห์นี้</Txt>
-              <Txt size={12} color={t.sub}>🔥 {stats.streak} วันติดต่อ (streak)</Txt>
-              <Txt size={12} color={t.sub}>✓ เสร็จสัปดาห์นี้ {stats.doneWeek} รายการ</Txt>
-            </View>
-            <Icon name="chevR" size={18} color={t.faint} />
+    <Screen title="ตั้งค่า">
+      {/* สรุปสัปดาห์นี้ — แตะหัวการ์ดเปิดสถิติเต็ม · แถวค้างบันทึก → หน้าทบทวน */}
+      <View style={{ backgroundColor: t.card, borderRadius: 16, paddingTop: 12, paddingHorizontal: 16, shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`ความสำเร็จสัปดาห์นี้ ${Math.round(stats.rate * 100)}% — ดูสถิติทั้งหมด`}
+          onPress={() => router.push('/settings/stats')}
+          style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, opacity: pressed ? 0.7 : 1 })}>
+          <ProgressRing pct={stats.rate} />
+          <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+            <Txt size={15} weight="bold">
+              ความสำเร็จสัปดาห์นี้
+            </Txt>
+            <Txt size={12.5} color={t.sub}>
+              เสร็จ {stats.doneWeek}/{stats.dueWeek}
+              {stats.streak > 0 ? (
+                <Txt size={12.5} weight="bold" color={t.greenInk}>
+                  {` · ติดต่อกัน ${stats.streak} วัน`}
+                </Txt>
+              ) : null}
+            </Txt>
           </View>
-          <View style={{ gap: 6 }}>
-            {CATS.filter((c) => stats.hoursByCat[c.id]).map((c) => {
-              const h = stats.hoursByCat[c.id];
-              return (
-                <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Txt size={11} color={t.sub} style={{ width: 76 }} numberOfLines={1}>{c.short}</Txt>
-                  <View style={{ flex: 1, height: 8, borderRadius: 4, backgroundColor: t.chip }}>
-                    <View style={{ width: `${(h / maxH) * 100}%`, height: 8, borderRadius: 4, backgroundColor: c.color }} />
+          <Txt size={13.5} weight="bold" color={t.accentInk}>
+            สถิติ
+          </Txt>
+          <SvgIcon name="chevR" size={16} color={t.accentInk} strokeWidth={2.2} />
+        </Pressable>
+
+        <View accessible accessibilityLabel={`ชั่วโมงตามหมวด: ${split.map((c) => `${c.short} ${c.h.toFixed(1)}`).join(', ') || 'ยังไม่มี'}`} style={{ marginTop: 8, gap: 6, paddingBottom: overdue7 ? 0 : 14 }}>
+          {split.length ? (
+            <>
+              <View style={{ height: 8, borderRadius: 4, overflow: 'hidden', flexDirection: 'row', gap: 2 }}>
+                {split.map((c) => (
+                  <View key={c.id} style={{ flex: c.h / totalH, backgroundColor: c.color }} />
+                ))}
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 2 }}>
+                {split.map((c) => (
+                  <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.color }} />
+                    <Txt size={12} color={t.sub}>
+                      {c.short}{' '}
+                      <Txt size={12} num color={t.ink}>
+                        {c.h.toFixed(1)}
+                      </Txt>
+                    </Txt>
                   </View>
-                  <Txt size={11} num color={t.faint} style={{ width: 36, textAlign: 'right' }}>
-                    {h.toFixed(1)}ช
-                  </Txt>
-                </View>
-              );
-            })}
-            {Object.keys(stats.hoursByCat).length === 0 ? (
-              <Txt size={12} color={t.faint}>ยังไม่มีรายการที่ทำเสร็จสัปดาห์นี้</Txt>
-            ) : null}
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line2, paddingTop: 10 }}>
-            <Txt size={12.5} weight="med" color={ACCENT} style={{ flex: 1 }}>ดูรายงานสถิติทั้งหมด · สัปดาห์ · เดือน · ทั้งหมด</Txt>
-            <Icon name="chevR" size={16} color={ACCENT} />
-          </View>
-        </Card>
-      </Pressable>
+                ))}
+              </View>
+            </>
+          ) : (
+            <Txt size={12} color={t.faint}>
+              ยังไม่มีรายการที่ทำเสร็จสัปดาห์นี้
+            </Txt>
+          )}
+        </View>
 
-      {/* การจัดการ */}
-      <Card>
-        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>การจัดการ</Txt>
-        <Row icon="grid" label="จัดการหมวดหมู่" sub="6 หมวด · P1–P6" onPress={() => router.push('/settings/categories')} />
-        <Row icon="user" label="สมุดรายชื่อ" sub={`${nContacts} รายชื่อ`} onPress={() => router.push('/settings/contacts')} />
-        <Row icon="copy" label="คัดลอกกิจกรรม" sub="เลือกจากสัปดาห์/เดือน → วางลงวันที่ต้องการ" onPress={() => router.push('/settings/copy')} />
-        <Row icon="bars" label="จัดการข้อมูล" sub="ดูความจุ & ลบข้อมูล รายปี · เดือน · สัปดาห์ · วัน" onPress={() => router.push('/settings/manage')} last />
-      </Card>
+        {overdue7 ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/review')}
+            style={({ pressed }) => ({ marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, opacity: pressed ? 0.7 : 1 })}>
+            <StatusDot state="overdue" />
+            <Txt size={14} weight="bold" color={t.warn} style={{ flex: 1 }}>
+              ค้างบันทึก {overdue7} รายการ
+            </Txt>
+            <Txt size={13.5} weight="bold" color={t.accentInk}>
+              ทบทวน
+            </Txt>
+            <SvgIcon name="chevR" size={16} color={t.accentInk} strokeWidth={2.2} />
+          </Pressable>
+        ) : null}
+      </View>
 
-      {/* การแจ้งเตือน */}
-      <Card>
-        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>การแจ้งเตือน</Txt>
+      <Section title="การจัดการ">
+        <Row icon="user" label="สมุดรายชื่อ" sub={`${nContacts} รายชื่อ · ใช้กับนัดเคส`} onPress={() => router.push('/settings/contacts')} />
+        <Row icon="grid" label="หมวดหมู่" sub={`${CATS.length} หมวด · ชื่อที่ใช้บ่อย ประเภท สถานที่`} onPress={() => router.push('/settings/categories')} />
+        <Row icon="copy" label="คัดลอกกิจกรรม" sub="เลือกจากสัปดาห์/เดือน → วางวันอื่น" onPress={() => router.push('/settings/copy')} last />
+      </Section>
+
+      <Section title="การแจ้งเตือนและการแสดงผล">
         <Row
-          icon="bell"
           label="เปิดการแจ้งเตือน"
-          sub="งบ 50 รายการ · ใต้ลิมิต iOS"
-          right={<Toggle value={settings.notifMaster} onChange={(v) => { settings.setNotifMaster(v); syncNotif(v, settings.morning); }} />}
+          sub="ตั้งเวลาเตือนรายกิจกรรมได้ในฟอร์มเพิ่ม"
+          right={
+            <Toggle
+              label="เปิดการแจ้งเตือน"
+              value={settings.notifMaster}
+              onChange={(v) => {
+                settings.setNotifMaster(v);
+                syncNotif(v, settings.morning);
+              }}
+            />
+          }
         />
         <Row
-          icon="sun"
-          label="สรุปตอนเช้า"
-          sub="ทุกวัน 06:00 · สรุปนัดเคส (งานธุรกิจ/ทีม) ของวันนั้น"
-          last
-          right={<Toggle value={settings.morning} onChange={(v) => { settings.setMorning(v); syncNotif(settings.notifMaster, v); }} />}
+          label="สรุปตอนเช้า 06:00"
+          sub="แจ้งนัดเคสของวันนั้น"
+          right={
+            <Toggle
+              label="สรุปตอนเช้า"
+              value={settings.morning}
+              onChange={(v) => {
+                settings.setMorning(v);
+                syncNotif(settings.notifMaster, v);
+              }}
+            />
+          }
         />
-      </Card>
+        <View style={{ minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 }}>
+          <Txt size={14.5} style={{ flex: 1 }}>
+            โหมดแสดงผล
+          </Txt>
+          <View style={{ width: 216 }}>
+            <Segmented<ThemePref>
+              options={[
+                { key: 'light', label: 'สว่าง' },
+                { key: 'dark', label: 'มืด' },
+                { key: 'system', label: 'ตามระบบ' },
+              ]}
+              value={settings.theme}
+              onChange={settings.setTheme}
+            />
+          </View>
+        </View>
+      </Section>
 
-      {/* ธีม */}
-      <Card style={{ gap: 8 }}>
-        <Txt size={12} weight="bold" color={t.faint}>โหมดแสดงผล</Txt>
-        <Segmented
-          options={[
-            { key: 'light', label: 'สว่าง' },
-            { key: 'dark', label: 'มืด' },
-          ]}
-          value={settings.theme}
-          onChange={settings.setTheme}
-        />
-      </Card>
-
-      {/* ข้อมูล */}
-      <Card>
-        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>ข้อมูล</Txt>
-        <Row icon="share" label="Export / Import / Google Sheets" sub="CSV · JSON · ส่งขึ้น Sheets ทางเดียว" onPress={() => router.push('/settings/data')} last />
-      </Card>
-
-      {/* ข้อมูลตัวอย่าง (Demo) */}
-      <Card>
-        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>ข้อมูลตัวอย่าง (Demo)</Txt>
+      <Section title="ข้อมูลและขั้นสูง">
         <Row
-          icon="grid"
-          label="นำเข้าตารางตัวอย่าง 1 เดือน"
-          sub={`${TT_SOURCE_LABEL} → เดือน${monthLabel} — แทนที่ข้อมูลเดิม`}
-          onPress={() => setConfirmSeed(true)}
-          last
+          icon="download"
+          label="สำรอง / นำเข้า · Google Sheets"
+          sub={settings.sheetsUrl ? 'เชื่อม Google Sheets แล้ว' : 'Excel · CSV · JSON · ส่งขึ้น Sheets'}
+          subColor={settings.sheetsUrl ? t.greenInk : undefined}
+          onPress={() => router.push('/settings/data')}
         />
-      </Card>
+        <Row icon="trash" label="ล้างข้อมูลเก่า" sub="ดูความจุ · ลบรายปี · เดือน · สัปดาห์ · วัน (มีขั้นยืนยัน)" onPress={() => router.push('/settings/manage')} />
+        <Row
+          label="ข้อมูลตัวอย่าง"
+          sub={`ตาราง 1 เดือน (${monthLabel}) ไว้ทดลอง — แทนที่ข้อมูลเดิม`}
+          last
+          right={
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setConfirmSeed(true)}
+              style={({ pressed }) => ({ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: pressed ? t.rail : t.track, justifyContent: 'center' })}>
+              <Txt size={13.5} weight="bold">
+                ใส่ตัวอย่าง
+              </Txt>
+            </Pressable>
+          }
+        />
+      </Section>
 
       {confirmSeed ? (
-        <Card tone="card2" style={{ gap: 10 }}>
-          <Txt size={14} weight="bold">นำเข้าตารางตัวอย่างเป็นเดือน{monthLabel}?</Txt>
-          <Txt size={12} color={t.sub}>
+        <View style={{ backgroundColor: t.card, borderRadius: 16, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 10 }}>
+          <Txt size={15} weight="bold">
+            นำเข้าตารางตัวอย่างเป็นเดือน{monthLabel}?
+          </Txt>
+          <Txt size={12.5} color={t.sub} style={{ lineHeight: 19 }}>
             ใช้ตารางจริงจากไฟล์ {TT_SOURCE_LABEL} มาลงเดือนนี้ทั้งเดือน (จับคู่ตามวันในสัปดาห์ · เก็บสีเดิมของไฟล์){'\n'}
-            จะลบข้อมูลปัจจุบันทั้งหมด (กิจกรรม/สถานะ/รายชื่อ) ก่อน — เหมาะสำหรับทดสอบสถิติ · จัดการข้อมูล · Export / Import
+            จะลบข้อมูลปัจจุบันทั้งหมด (กิจกรรม/สถานะ/รายชื่อ) ก่อน — สำรองไว้ก่อนที่ ข้อมูล → สำรอง
           </Txt>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" disabled={seeding} onPress={() => setConfirmSeed(false)} />
-            <Btn style={{ flex: 1 }} kind="danger" label={seeding ? 'กำลังนำเข้า…' : 'นำเข้า (แทนที่)'} disabled={seeding} onPress={seedNow} />
+            <Btn style={{ flex: 1 }} kind="ghost" label="ไม่ใส่" disabled={seeding} onPress={() => setConfirmSeed(false)} />
+            <Btn style={{ flex: 1 }} kind="danger" label={seeding ? 'กำลังนำเข้า…' : 'แทนที่ด้วยตัวอย่าง'} disabled={seeding} onPress={seedNow} />
           </View>
-        </Card>
+        </View>
       ) : null}
 
       <Txt size={11} color={t.faint} style={{ textAlign: 'center', marginTop: 4 }}>
@@ -172,19 +239,32 @@ export default function SettingsScreen() {
   );
 }
 
+/** หัวกลุ่มเมนู + การ์ดรวมแถว */
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const t = useTokens();
+  return (
+    <View style={{ gap: 6 }}>
+      <Txt size={13} weight="bold" color={t.sub} style={{ marginHorizontal: 2 }}>
+        {title}
+      </Txt>
+      <Card style={{ paddingVertical: 0, paddingHorizontal: 14 }}>{children}</Card>
+    </View>
+  );
+}
+
 function ProgressRing({ pct }: { pct: number }) {
   const t = useTokens();
-  const R = 30;
+  const R = 23;
   const C = 2 * Math.PI * R;
   return (
-    <View style={{ width: 76, height: 76, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={76} height={76} style={{ position: 'absolute', transform: [{ rotate: '-90deg' }] }}>
-        <Circle cx={38} cy={38} r={R} stroke={t.chip} strokeWidth={7} fill="none" />
+    <View style={{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center' }}>
+      <Svg width={56} height={56} style={{ position: 'absolute', transform: [{ rotate: '-90deg' }] }}>
+        <Circle cx={28} cy={28} r={R} stroke={t.track} strokeWidth={7} fill="none" />
         <Circle
-          cx={38}
-          cy={38}
+          cx={28}
+          cy={28}
           r={R}
-          stroke={pct >= 0.7 ? GREEN : ACCENT}
+          stroke={pct >= 0.7 ? GREEN : '#D2603A'}
           strokeWidth={7}
           fill="none"
           strokeLinecap="round"
@@ -192,7 +272,7 @@ function ProgressRing({ pct }: { pct: number }) {
           strokeDashoffset={C * (1 - pct)}
         />
       </Svg>
-      <Txt size={17} num weight="bold">{Math.round(pct * 100)}%</Txt>
+      <Txt size={14} num weight="bold">{Math.round(pct * 100)}%</Txt>
     </View>
   );
 }

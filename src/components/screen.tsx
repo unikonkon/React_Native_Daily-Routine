@@ -1,6 +1,6 @@
 // โครงหน้าจอทุกแท็บ: header + เนื้อหา
 // หน้าแท็บ → header แสดง "แถบแท็บ" (active = pill ส้ม icon+label, อื่น = ไอคอนล้วน) แทนหัวข้อ
-// หน้าย่อย (back) → header แบบเดิม: ปุ่มย้อนกลับ + หัวข้อ 30px
+// หน้าย่อย (variant="sub") → หัวเรื่อง 26px + แถบล่าง ‹ กลับ + ปุ่มหลัก
 // สลับธีมได้ที่เดียว: ตั้งค่า → โหมดแสดงผล
 import { usePathname, useRouter } from 'expo-router';
 import React from 'react';
@@ -8,7 +8,6 @@ import { Pressable, ScrollView, View, type ScrollViewInstance } from 'react-nati
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BACK_FAB_SPACE, BackFab } from '@/components/back-fab';
 import { BOTTOM_BAR_SPACE, SubBar, type SubBarAction } from '@/components/b1/bottom-bar';
 import { SvgIcon } from '@/components/svg-icon';
 import { Icon } from '@/components/icon';
@@ -22,15 +21,11 @@ interface ScreenProps {
   children: React.ReactNode;
   /** scroll = ห่อด้วย ScrollView (ค่าปกติ) — ปิดเมื่อหน้ามี list/timeline จัดการ scroll เอง */
   scroll?: boolean;
-  /** แสดงปุ่มย้อนกลับ + หัวข้อ (หน้า settings ย่อย) แทนแถบแท็บ */
-  back?: boolean;
-  /** เพิ่มปุ่ม "กลับ" ลอยล่าง (fabbar) ให้หน้านี้ — ใช้กับหน้าที่มักถูกเปิดต่อจากที่อื่น เช่น สมุดรายชื่อ · ฟอร์มเพิ่ม/แก้ไข */
-  backFab?: boolean;
   /** ref ไปยัง ScrollView ภายใน — ให้หน้าเลื่อนเนื้อหาเองได้ (เช่น เลื่อนขึ้นไปฟอร์มแก้ไข) */
   scrollRef?: React.Ref<ScrollViewInstance>;
   /**
    * 'sub' = หน้าย่อยแบบ B1: หัวเรื่อง 26px (ไม่มีปุ่มกลับด้านบน) + แถบล่าง ‹ กลับ + ปุ่มหลัก (action)
-   * ค่าเริ่มต้น: หน้าแท็บ (แถบแท็บด้านบน) หรือหน้าย่อยแบบเดิมเมื่อ back = true
+   * ค่าเริ่มต้น: หน้าแท็บ (แถบแท็บด้านบน)
    */
   variant?: 'sub';
   /** ปุ่มหลักในแถบล่างของหน้าย่อย B1 */
@@ -39,6 +34,8 @@ interface ScreenProps {
   onBack?: () => void;
   /** แสดงปุ่มเวลาว่างข้างแถบแท็บ (ค่าเริ่มต้น: เฉพาะแท็บวันนี้) */
   showFreeToggle?: boolean;
+  /** ปุ่มมุมขวาของแถบแท็บ (แทนปุ่มเวลาว่าง) เช่น "ล้างค่า" ในฟอร์มเพิ่ม */
+  headerRight?: React.ReactNode;
 }
 
 /** แถบแท็บย้ายขึ้นไปอยู่ใน header แล้ว — ไม่มีแถบล่างอีกต่อไป (คงชื่อไว้เพื่อระยะ padding ล่าง) */
@@ -144,7 +141,7 @@ function TabStrip() {
   );
 }
 
-export function Screen({ title, subtitle, children, scroll = true, back, backFab, scrollRef, variant, action, onBack, showFreeToggle }: ScreenProps) {
+export function Screen({ title, subtitle, children, scroll = true, scrollRef, variant, action, onBack, showFreeToggle, headerRight }: ScreenProps) {
   const t = useTokens();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -152,14 +149,17 @@ export function Screen({ title, subtitle, children, scroll = true, back, backFab
 
   // ออกจากหน้าย่อยด้วยปุ่มระบบ/ปัดจอ (ไม่ได้ผ่านปุ่มในแอป) — คืนแผ่นที่พักไว้ให้ด้วยตอนหน้านี้ถูกปิด
   const sub = variant === 'sub';
+  // แถบล่าง ‹ กลับ + ปุ่มหลัก — หน้าย่อย B1 ทุกหน้า และหน้าแท็บที่ส่ง action มา (ฟอร์มเพิ่ม/แก้ไข)
+  const bar = sub || !!action;
   React.useEffect(() => {
-    if (!back && !sub) return;
+    if (!sub) return;
     return () => useUI.getState().restoreSheet();
-  }, [back, sub]);
+  }, [sub]);
 
   const goBack = () => {
     if (onBack) return onBack();
-    router.back();
+    if (router.canGoBack()) router.back();
+    else router.navigate('/');
     useUI.getState().restoreSheet(); // กลับจากหน้าที่กระโดดมาจากแผ่นรายละเอียด → เปิดแผ่นคืน
   };
 
@@ -175,34 +175,12 @@ export function Screen({ title, subtitle, children, scroll = true, back, backFab
         </Txt>
       ) : null}
     </View>
-  ) : back ? (
-    // หน้าย่อย — header เดิม: ปุ่มย้อนกลับ + หัวข้อ 30px
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingTop: 8, paddingBottom: 10, gap: 10 }}>
-      <Pressable
-        onPress={() => {
-          router.back();
-          useUI.getState().restoreSheet(); // กลับจากหน้าที่กระโดดมาจากแผ่นรายละเอียด → เปิดแผ่นคืน
-        }}
-        style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: t.card, borderWidth: 1, borderColor: t.line, alignItems: 'center', justifyContent: 'center' }}>
-        <Icon name="chevL" size={20} color={t.sub} />
-      </Pressable>
-      <View style={{ flex: 1 }}>
-        <Txt size={30} weight="bold">
-          {title}
-        </Txt>
-        {subtitle ? (
-          <Txt size={13} color={t.sub}>
-            {subtitle}
-          </Txt>
-        ) : null}
-      </View>
-    </View>
   ) : (
     // หน้าแท็บ — แถบแท็บแทนหัวข้อ (subtitle แสดงใต้แถบถ้ามี)
     <View style={{ paddingHorizontal: 18, paddingTop: 8, paddingBottom: 10, gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <TabStrip />
-        {(showFreeToggle ?? pathname === '/') ? <DayliyUseToggle /> : null}
+        {headerRight ?? ((showFreeToggle ?? pathname === '/') ? <DayliyUseToggle /> : null)}
       </View>
       {subtitle ? (
         <Txt size={13} color={t.sub} style={{ paddingHorizontal: 4 }}>
@@ -220,7 +198,7 @@ export function Screen({ title, subtitle, children, scroll = true, back, backFab
           ref={scrollRef}
           contentContainerStyle={{
             paddingHorizontal: 18,
-            paddingBottom: TABBAR_H + insets.bottom + 24 + (sub ? BOTTOM_BAR_SPACE : backFab ? BACK_FAB_SPACE : 0), // เผื่อที่ให้แถบลอยล่าง
+            paddingBottom: TABBAR_H + insets.bottom + 24 + (bar ? BOTTOM_BAR_SPACE : 0), // เผื่อที่ให้แถบลอยล่าง
             gap: 14,
           }}
           showsVerticalScrollIndicator={false}>
@@ -229,8 +207,8 @@ export function Screen({ title, subtitle, children, scroll = true, back, backFab
       ) : (
         <View style={{ flex: 1 }}>{children}</View>
       )}
-      {/* fabbar ลอยล่าง กลับ — เฉพาะหน้าที่ขอ (backFab): สมุดรายชื่อ · ฟอร์มเพิ่ม/แก้ไข */}
-      {sub ? <SubBar onBack={goBack} action={action} /> : backFab ? <BackFab /> : null}
+      {/* แถบล่าง ‹ กลับ + ปุ่มหลัก — หน้าย่อยทุกหน้า และฟอร์มเพิ่ม/แก้ไข */}
+      {bar ? <SubBar onBack={goBack} action={action} /> : null}
     </View>
   );
 }
