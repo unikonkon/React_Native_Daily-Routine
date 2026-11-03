@@ -4,12 +4,22 @@
 import { create } from 'zustand';
 
 import { LEGACY_SUB, type CatId, type PriorityId } from '@/constants/theme';
-import { todayISO } from '@/lib/dates';
-import { computeDates } from '@/lib/engine';
-import type { Activity, Channel, Horizon, RepeatRule } from '@/lib/types';
+import { daysBetween, todayISO } from '@/lib/dates';
+import { computeDates, seriesDates } from '@/lib/engine';
+import { HORIZON_DAYS, type Activity, type Channel, type EditScope, type Horizon, type RepeatRule } from '@/lib/types';
+
+/** วันสิ้นสุดเดิมของชุดที่กำลังแก้ไข — คงไว้จนกว่าผู้ใช้จะเลือก "ระยะเวลาที่ลง" ใหม่เอง (null ข้างใน = ไม่มีวันสิ้นสุด) */
+export interface KeepEnd {
+  endDate: string | null;
+}
 
 interface DraftState {
   editId: number | null; // โหมดแก้ไข
+  /** วันของ occurrence ที่เปิดแก้ไข (จากแผ่นรายละเอียด) — ใช้กับขอบเขต "เฉพาะครั้งนี้/ตั้งแต่ครั้งนี้" */
+  editDate: string | null;
+  /** ขอบเขตการแก้ไขชุดทำซ้ำ */
+  scope: EditScope;
+  keepEnd: KeepEnd | null;
   cat: CatId | null;
   title: string;
   loc: string;
@@ -34,12 +44,16 @@ interface DraftState {
   /** ล้างเฉพาะขั้น "วันที่และการทำซ้ำ" — กลับไปวันนี้วันเดียว (ข้อมูลอื่นในฟอร์มคงไว้) */
   resetDates: () => void;
   reset: () => void;
-  loadActivity: (a: Activity) => void;
+  /** date = วันของ occurrence ที่เปิดแก้ไข (ไม่ส่ง = แก้ทั้งชุด) */
+  loadActivity: (a: Activity, date?: string) => void;
   loadSlot: (date: string, start: number, end: number) => void;
 }
 
 const initial = {
   editId: null,
+  editDate: null as string | null,
+  scope: 'all' as EditScope,
+  keepEnd: null as KeepEnd | null,
   cat: null,
   title: '',
   loc: '',
@@ -65,14 +79,16 @@ export const useDraft = create<DraftState>((set, get) => ({
   setRepeat: (repeat) => {
     const anchor = get().dates[0] ?? todayISO();
     // 'custom' = ผู้ใช้เลือกวันเองบนปฏิทิน → คงวันที่เลือกไว้ ไม่คำนวณใหม่
-    const dates = repeat === 'custom' ? get().dates : computeDates(repeat, get().horizon, anchor);
+    // แก้ไขชุดเดิม: เปลี่ยนกฎแล้วยังจบวันเดิม (keepEnd) จนกว่าจะเลือกระยะเวลาใหม่เอง
+    const keep = get().keepEnd;
+    const dates = repeat === 'custom' ? get().dates : computeDates(repeat, get().horizon, anchor, keep ? keep.endDate : undefined);
     set({ repeat, dates: dates.length ? dates : [anchor] });
   },
 
   setHorizon: (horizon) => {
     const anchor = get().dates[0] ?? todayISO();
     const dates = computeDates(get().repeat, horizon, anchor);
-    set({ horizon, dates: dates.length ? dates : [anchor] });
+    set({ horizon, keepEnd: null, dates: dates.length ? dates : [anchor] }); // เลือกระยะเวลาเอง → เลิกใช้วันสิ้นสุดเดิม
   },
 
   toggleDate: (iso) => {
@@ -82,16 +98,28 @@ export const useDraft = create<DraftState>((set, get) => ({
     set({ dates: dates.length ? dates : [todayISO()], repeat: dates.length > 1 ? 'custom' : get().repeat === 'none' ? 'none' : 'custom' });
   },
 
-  resetDates: () => set({ dates: [todayISO()], repeat: initial.repeat, horizon: initial.horizon }),
+  resetDates: () => set({ dates: [todayISO()], repeat: initial.repeat, horizon: initial.horizon, keepEnd: null }),
 
   reset: () => set((s) => ({ ...initial, dates: [todayISO()], loadRev: s.loadRev + 1 })),
 
-  loadActivity: (a) => {
-    // โหมดแก้ไข: เริ่มจากวันแรกของ series — ถ้าผู้ใช้เปลี่ยน repeat/horizon จะคำนวณวันใหม่จากตรงนั้น
+  loadActivity: (a, date) => {
+    // โหมดแก้ไข: เริ่มจากวันแรกของ series และ "คงช่วงเดิม" ไว้ — เดิมโหลดด้วย horizon 1 เดือนตายตัว
+    // ทำให้แค่แก้ชื่อ ชุด 1 ปีก็ถูกตัดเหลือ 30 วัน และชุด "เลือกเอง" เหลือวันเดียว
+    const computed = a.repeat !== 'none' && a.repeat !== 'custom';
+    // ช่วงเดิมตรงกับชิประยะเวลาพอดี → ติดชิปนั้น · ไม่ตรง (นำเข้า/ไม่มีวันจบ) → คงวันสิ้นสุดเดิมไว้ตรง ๆ
+    const span = a.endDate ? daysBetween(a.startDate, a.endDate) + 1 : -1;
+    const horizon = (Object.keys(HORIZON_DAYS) as Horizon[]).find((h) => HORIZON_DAYS[h] === span);
+    const keepEnd = computed && !horizon ? { endDate: a.endDate } : null;
+    const repeating = a.repeat !== 'none';
     set((s) => ({
       ...initial,
       loadRev: s.loadRev + 1,
       editId: a.id,
+      editDate: date ?? null,
+      // เปิดจากวันกลางชุด → ค่าเริ่มต้น "ตั้งแต่ครั้งนี้" (ไม่แตะประวัติ) · เปิดจากวันแรก/ไม่ใช่ชุด → ทั้งชุด
+      scope: repeating && date && date > a.startDate ? 'future' : 'all',
+      keepEnd,
+      horizon: horizon ?? initial.horizon,
       cat: a.cat,
       title: a.title,
       loc: a.loc ?? '',
@@ -103,7 +131,7 @@ export const useDraft = create<DraftState>((set, get) => ({
       start: a.startMin,
       end: a.endMin,
       repeat: a.repeat,
-      dates: a.repeat === 'none' || a.repeat === 'custom' ? [a.startDate] : computeDates(a.repeat, '1m', a.startDate),
+      dates: computed ? computeDates(a.repeat, horizon ?? initial.horizon, a.startDate, keepEnd ? keepEnd.endDate : undefined) : seriesDates(a),
       notify: a.notify,
       before: a.notifyBefore,
     }));

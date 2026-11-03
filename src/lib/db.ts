@@ -94,7 +94,26 @@ function migrate(d: SQLite.SQLiteDatabase) {
       PRAGMA user_version = 4;
     `);
   }
+  if (v < 5) {
+    // ชุด "เลือกเอง" เก็บวันที่ที่เลือกจริงเป็น JSON array — เดิมเก็บแค่ days_mask ทำให้งอกวันที่ไม่ได้เลือก
+    d.execSync(`
+      ALTER TABLE activities ADD COLUMN dates TEXT;
+      PRAGMA user_version = 5;
+    `);
+  }
 }
+
+/** activities.dates (JSON array) ↔ string[] — ค่าเสีย/ว่างถือเป็น null (กลับไปใช้ days_mask) */
+function decodeDates(raw: string | null | undefined): string[] | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) && v.length ? (v as string[]) : null;
+  } catch {
+    return null;
+  }
+}
+const encodeDates = (dates: string[] | null) => (dates && dates.length ? JSON.stringify(dates) : null);
 
 // ---------- โหลดตอนเปิดแอป (ครั้งเดียว) ----------
 
@@ -117,6 +136,7 @@ interface ActivityRow {
   detached_from: number | null;
   status: string;
   color: string | null;
+  dates?: string | null; // คอลัมน์ v5 — สำรองข้อมูลรุ่นเก่าไม่มีฟิลด์นี้
 }
 
 export async function loadActivities(): Promise<Activity[]> {
@@ -139,6 +159,7 @@ export async function loadActivities(): Promise<Activity[]> {
     endMin: r.end_min,
     repeat: r.repeat as Activity['repeat'],
     daysMask: r.days_mask,
+    dates: decodeDates(r.dates),
     startDate: r.start_date,
     endDate: r.end_date,
     notify: !!r.notify,
@@ -177,37 +198,91 @@ export async function loadSettings(): Promise<Record<string, string>> {
 
 // ---------- เขียน (เรียกจาก stores แบบ optimistic) ----------
 
-export async function insertActivity(a: Omit<Activity, 'id'>): Promise<number> {
-  const d = getDb();
-  const res = await d.runAsync(
+/** INSERT แถวกิจกรรม 1 แถว (ไม่รวมรายชื่อ) — ใช้ได้ทั้ง db หลักและ txn ใน transaction */
+async function insertActivityRow(conn: SQLite.SQLiteDatabase, a: Omit<Activity, 'id'>): Promise<number> {
+  const res = await conn.runAsync(
     `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-       repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status, color)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
-    a.repeat, a.daysMask, a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore,
+    a.repeat, a.daysMask, encodeDates(a.dates), a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore,
     a.detachedFrom, a.status, a.color,
   );
-  const id = res.lastInsertRowId;
-  await setActivityContacts(id, a.contactIds);
+  return res.lastInsertRowId;
+}
+
+export async function insertActivity(a: Omit<Activity, 'id'>): Promise<number> {
+  const d = getDb();
+  const id = await insertActivityRow(d, a);
+  await setActivityContacts(d, id, a.contactIds);
   return id;
 }
 
 export async function updateActivity(a: Activity): Promise<void> {
-  await getDb().runAsync(
+  const d = getDb();
+  await d.runAsync(
     `UPDATE activities SET title=?, cat=?, sub=?, loc=?, channel=?, priority=?, start_min=?, end_min=?,
-       repeat=?, days_mask=?, start_date=?, end_date=?, notify=?, notify_before=?, status=?, color=? WHERE id=?`,
+       repeat=?, days_mask=?, dates=?, start_date=?, end_date=?, notify=?, notify_before=?, status=?, color=? WHERE id=?`,
     a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
-    a.repeat, a.daysMask, a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore, a.status, a.color, a.id,
+    a.repeat, a.daysMask, encodeDates(a.dates), a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore, a.status,
+    a.color, a.id,
   );
-  await setActivityContacts(a.id, a.contactIds);
+  await setActivityContacts(d, a.id, a.contactIds);
 }
 
-async function setActivityContacts(id: number, contactIds: number[]) {
-  const d = getDb();
-  await d.runAsync('DELETE FROM activity_contacts WHERE activity_id=?', id);
+async function setActivityContacts(conn: SQLite.SQLiteDatabase, id: number, contactIds: number[]) {
+  await conn.runAsync('DELETE FROM activity_contacts WHERE activity_id=?', id);
   for (const c of contactIds) {
-    await d.runAsync('INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id) VALUES (?,?)', id, c);
+    await conn.runAsync('INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id) VALUES (?,?)', id, c);
   }
+}
+
+/**
+ * แก้ไข "ตั้งแต่วัน from เป็นต้นไป" ของชุดทำซ้ำ — ทำใน transaction เดียว:
+ *  ชุดเดิมจบก่อน from (end_date/dates ตาม head) · สร้างชุดใหม่ (tail) · ย้ายสถานะรายวันตั้งแต่ from ไปชุดใหม่
+ * tail = null → แค่ตัดท้ายชุดเดิม (การแก้ไขทำให้ไม่เหลือวันตั้งแต่ from) — คืน id ชุดใหม่ หรือ null
+ */
+export async function splitSeries(
+  id: number,
+  from: string,
+  head: { endDate: string; dates: string[] | null },
+  tail: Omit<Activity, 'id'> | null,
+): Promise<number | null> {
+  let newId: number | null = null;
+  await getDb().withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync('UPDATE activities SET end_date=?, dates=? WHERE id=?', head.endDate, encodeDates(head.dates), id);
+    if (tail) {
+      newId = await insertActivityRow(txn, tail);
+      await setActivityContacts(txn, newId, tail.contactIds);
+      await txn.runAsync('UPDATE occurrences SET activity_id=? WHERE activity_id=? AND date >= ?', newId, id, from);
+    } else {
+      await txn.runAsync('DELETE FROM occurrences WHERE activity_id=? AND date >= ?', id, from);
+    }
+  });
+  return newId;
+}
+
+/**
+ * แก้ไข "เฉพาะครั้งนี้" ของชุดทำซ้ำ — ยกเลิกวันนั้นในชุดเดิม แล้วสร้างกิจกรรมครั้งเดียวแทน (ใน transaction เดียว)
+ * carry = สถานะรายวันเดิม (ทำแล้ว/ข้าม) ที่ยกไปให้กิจกรรมใหม่ ไม่ให้ประวัติหาย
+ */
+export async function detachOccurrence(
+  id: number,
+  date: string,
+  one: Omit<Activity, 'id'>,
+  carry: OccStatus | null,
+): Promise<number> {
+  let newId = 0;
+  await getDb().withExclusiveTransactionAsync(async (txn) => {
+    newId = await insertActivityRow(txn, one);
+    await setActivityContacts(txn, newId, one.contactIds);
+    await txn.runAsync(
+      "INSERT INTO occurrences (activity_id, date, status) VALUES (?,?,'cancelled') ON CONFLICT DO UPDATE SET status=excluded.status",
+      id, date,
+    );
+    if (carry) await txn.runAsync('INSERT INTO occurrences (activity_id, date, status) VALUES (?,?,?)', newId, date, carry);
+  });
+  return newId;
 }
 
 export async function setEndDate(id: number, endDate: string | null): Promise<void> {
@@ -278,16 +353,7 @@ export async function saveSetting(key: string, value: string): Promise<void> {
 export async function insertActivities(list: Omit<Activity, 'id'>[]): Promise<void> {
   const d = getDb();
   await d.withExclusiveTransactionAsync(async (txn) => {
-    for (const a of list) {
-      await txn.runAsync(
-        `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-           repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status, color)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
-        a.repeat, a.daysMask, a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore,
-        a.detachedFrom, a.status, a.color,
-      );
-    }
+    for (const a of list) await insertActivityRow(txn, a);
   });
 }
 
@@ -331,15 +397,20 @@ export async function purgeRange(from: string, to: string): Promise<void> {
     for (const a of spanning) {
       const headBefore = a.start_date < from;
       const tailAfter = a.end_date === null || a.end_date > to;
+      // ชุด "เลือกเอง" ที่มีรายการวันที่ — ตัดรายการให้ตรงกับท่อนที่เหลือด้วย ไม่งั้นวันในกรอบที่ลบจะยังโผล่
+      const list = decodeDates(a.dates);
+      const headDates = list ? encodeDates(list.filter((x) => x < from)) : null;
+      const tailDates = list ? encodeDates(list.filter((x) => x > to)) : null;
       if (headBefore && tailAfter) {
         // คร่อมทั้งกรอบ — ท่อนแรกจบก่อนกรอบ, ท่อนหลังเริ่มหลังกรอบ (สำเนาแถว + ย้าย exception ฝั่งหลังตาม)
-        await txn.runAsync('UPDATE activities SET end_date=? WHERE id=?', before, a.id);
+        await txn.runAsync('UPDATE activities SET end_date=?, dates=? WHERE id=?', before, headDates, a.id);
         const res = await txn.runAsync(
           `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-             repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+             repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.start_min, a.end_min,
-          a.repeat, a.days_mask, after, a.end_date, a.notify, a.notify_before, a.detached_from, a.status,
+          a.repeat, a.days_mask, tailDates, after, a.end_date, a.notify, a.notify_before, a.detached_from, a.status,
+          a.color,
         );
         const newId = res.lastInsertRowId;
         await txn.runAsync('UPDATE occurrences SET activity_id=? WHERE activity_id=? AND date > ?', newId, a.id, to);
@@ -350,9 +421,9 @@ export async function purgeRange(from: string, to: string): Promise<void> {
           await txn.runAsync('INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id) VALUES (?,?)', newId, l.contact_id);
         }
       } else if (headBefore) {
-        await txn.runAsync('UPDATE activities SET end_date=? WHERE id=?', before, a.id);
+        await txn.runAsync('UPDATE activities SET end_date=?, dates=? WHERE id=?', before, headDates, a.id);
       } else if (tailAfter) {
-        await txn.runAsync('UPDATE activities SET start_date=? WHERE id=?', after, a.id);
+        await txn.runAsync('UPDATE activities SET start_date=?, dates=? WHERE id=?', after, tailDates, a.id);
       }
     }
   });
@@ -402,10 +473,11 @@ export async function restoreAll(data: BackupData, mode: 'replace' | 'merge'): P
     for (const a of data.activities) {
       const res = await txn.runAsync(
         `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-           repeat, days_mask, start_date, end_date, notify, notify_before, detached_from, status, color)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`,
+           repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)`,
         a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.start_min, a.end_min,
-        a.repeat, a.days_mask, a.start_date, a.end_date, a.notify, a.notify_before, a.status, a.color ?? null,
+        a.repeat, a.days_mask, a.dates ?? null, a.start_date, a.end_date, a.notify, a.notify_before, a.status,
+        a.color ?? null,
       );
       actIdMap[a.id] = res.lastInsertRowId;
     }

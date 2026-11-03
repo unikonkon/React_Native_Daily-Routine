@@ -19,6 +19,11 @@ export interface Activity {
   endMin: number; // เกิน 1440 = ข้ามเที่ยงคืน
   repeat: RepeatRule;
   daysMask: number; // bit0=จันทร์ … bit6=อาทิตย์
+  /**
+   * repeat='custom': วันที่ที่ผู้ใช้เลือกจริง (ISO เรียงแล้ว) — ไม่ใช่ทุกวันที่ตรง daysMask ในช่วง
+   * null = กฎอื่น หรือข้อมูลรุ่นเก่าที่ยังใช้ daysMask ในช่วง startDate–endDate
+   */
+  dates: string[] | null;
   startDate: string; // ISO YYYY-MM-DD
   endDate: string | null;
   notify: boolean;
@@ -52,6 +57,9 @@ export interface FreeSlot {
   start: number;
   end: number;
 }
+
+/** ขอบเขตการแก้ไขกิจกรรมชุดทำซ้ำ — เฉพาะครั้งนี้ / ตั้งแต่ครั้งนี้เป็นต้นไป / ทั้งชุด (รวมย้อนหลัง) */
+export type EditScope = 'one' | 'future' | 'all';
 
 /** occ[date][activityId] = สถานะที่เบี่ยงจาก planned (exception-based) */
 export type OccMap = Record<string, Record<number, OccStatus>>;

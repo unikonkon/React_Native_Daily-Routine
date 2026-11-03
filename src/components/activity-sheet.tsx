@@ -115,7 +115,7 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   const onEdit = () => {
     const a = acts.find((x) => x.id === item.id);
     if (a) {
-      useDraft.getState().loadActivity(a);
+      useDraft.getState().loadActivity(a, item.date); // จำวันที่เปิด — ใช้กับขอบเขต "เฉพาะครั้งนี้/ตั้งแต่ครั้งนี้"
       useUI.getState().parkSheet();
       router.push('/add');
     }

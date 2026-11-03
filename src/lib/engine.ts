@@ -2,16 +2,44 @@
 // ข้อมูลเข้า = activities + occurrence map จาก store ที่โหลดไว้แล้ว → ไม่ query ฐานข้อมูลซ้ำ
 
 import { CAT_OPTIONS, DAY_END, FREE_START, LEGACY_SUB, MIN_FREE_GAP, SNAP } from '@/constants/theme';
-import { addDays, mondayOf, todayISO, wdMon } from '@/lib/dates';
+import { addDays, daysBetween, mondayOf, todayISO, wdMon } from '@/lib/dates';
 import type { Activity, DayItem, FreeSlot, Horizon, OccMap, RepeatRule } from '@/lib/types';
 import { HORIZON_DAYS } from '@/lib/types';
+
+// ชุด "เลือกเอง": Set ของวันที่ ต่อ activity object (object ใหม่ทุก mutation → cache ไม่ค้างค่าเก่า)
+const customSets = new WeakMap<Activity, Set<string>>();
+function customSet(a: Activity, dates: string[]): Set<string> {
+  let set = customSets.get(a);
+  if (!set) {
+    set = new Set(dates);
+    customSets.set(a, set);
+  }
+  return set;
+}
 
 /** กิจกรรมนี้เกิดในวัน date หรือไม่ (ตามกฎ series) */
 export function occursOn(a: Activity, date: string): boolean {
   if (a.status !== 'active') return false;
   if (date < a.startDate || (a.endDate != null && date > a.endDate)) return false;
   if (a.repeat === 'none') return a.startDate === date;
+  // "เลือกเอง" ที่มีรายการวันที่ = เฉพาะวันที่เลือกจริง (ข้อมูลรุ่นเก่าไม่มีรายการ → ถอยไปใช้ daysMask แบบเดิม)
+  if (a.repeat === 'custom' && a.dates) return customSet(a, a.dates).has(date);
   return ((a.daysMask >> wdMon(date)) & 1) === 1;
+}
+
+/** ชุดไม่มีวันสิ้นสุด (end_date = null) — ขยายดูล่วงหน้าแค่ 1 ปีสำหรับฟอร์ม/พรีวิว */
+const OPEN_END_DAYS = 365;
+
+/** วันที่ทั้งหมดของชุด (ไม่สนสถานะรายวัน) — ใช้โหลดชุดเข้าฟอร์มแก้ไข และตัดแบ่งชุด */
+export function seriesDates(a: Activity): string[] {
+  if (a.repeat === 'none') return [a.startDate];
+  if (a.repeat === 'custom' && a.dates) return [...a.dates];
+  const last = a.endDate ?? addDays(a.startDate, OPEN_END_DAYS - 1);
+  const out: string[] = [];
+  for (let d = a.startDate; d <= last; d = addDays(d, 1)) {
+    if (((a.daysMask >> wdMon(d)) & 1) === 1) out.push(d);
+  }
+  return out;
 }
 
 /** กิจกรรมทั้งหมดของวันหนึ่ง + สถานะรายวัน (ตัด occurrence ที่ cancelled) เรียงตามเวลาเริ่ม */
@@ -98,11 +126,15 @@ export function conflictsOn(items: DayItem[], s: number, e: number): DayItem[] {
   );
 }
 
-/** วันที่ทั้งหมดตามกฎทำซ้ำ+horizon เริ่มจาก anchor (ใช้ในฟอร์มเพิ่มกิจกรรม) */
-export function computeDates(rule: RepeatRule, horizon: Horizon, anchor: string): string[] {
+/**
+ * วันที่ทั้งหมดตามกฎทำซ้ำเริ่มจาก anchor (ใช้ในฟอร์มเพิ่มกิจกรรม)
+ * until = วันสิ้นสุดที่กำหนดไว้แล้ว (เช่นช่วงเดิมของชุดตอนแก้ไข) — ไม่ส่ง = ใช้ horizon
+ */
+export function computeDates(rule: RepeatRule, horizon: Horizon, anchor: string, until?: string | null): string[] {
   // 'custom' ไม่มีสูตรคำนวณ — ผู้ใช้เลือกวันเองบนปฏิทิน คืน anchor ไว้กันลิสต์ว่าง
   if (rule === 'none' || rule === 'custom') return [anchor];
-  const days = HORIZON_DAYS[horizon];
+  const days =
+    until === undefined ? HORIZON_DAYS[horizon] : until === null ? OPEN_END_DAYS : Math.max(daysBetween(anchor, until) + 1, 1);
   const out: string[] = [];
   for (let i = 0; i < days; i++) {
     const d = addDays(anchor, i);

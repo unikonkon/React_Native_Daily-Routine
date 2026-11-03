@@ -212,6 +212,7 @@ function parseMonthBlock(rows: TTCell[][]): TimeTableImport | null {
         endMin: it.end,
         repeat: 'none',
         daysMask: 0,
+        dates: null,
         startDate: date,
         endDate: null,
         notify: false, // นำเข้าเป็นชุดใหญ่ — ไม่ตั้งเตือนอัตโนมัติกันแย่งงบ 50 รายการ

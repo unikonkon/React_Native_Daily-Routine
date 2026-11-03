@@ -359,7 +359,7 @@ function ScheduleSection() {
   const d = useDraft();
   const router = useRouter();
   const showToast = useUI((s) => s.showToast);
-  const { add, update, acts } = useActivities();
+  const { add, editActivity, acts } = useActivities();
   const getDay = useDayReader(); // อ่านผ่าน hook — อัปเดตเมื่อข้อมูลเปลี่ยน (ปลอดภัยกับ React Compiler)
 
   const anchor = d.dates[0]; // draft การันตีมีอย่างน้อย 1 วันเสมอ
@@ -385,6 +385,10 @@ function ScheduleSection() {
     setPeriodStart(PERIOD_PRESETS.find((p) => p.start === s)?.start ?? null);
   }, [d.loadRev]);
 
+  // กิจกรรมเดิมที่กำลังแก้ไข — ชุดทำซ้ำ + รู้วันที่เปิดมา → ให้เลือกขอบเขตการแก้ไข
+  const editing = d.editId ? acts.find((a) => a.id === d.editId) : undefined;
+  const askScope = !!editing && editing.repeat !== 'none' && !!d.editDate && d.editDate > editing.startDate;
+
   const timeInvalid = d.end <= d.start;
   const duration = d.end - d.start;
   // ขั้น 2 ถูกแก้จากค่าตั้งต้น (วันนี้วันเดียว ไม่ทำซ้ำ) หรือยัง — ใช้ตัดสินว่าจะโชว์ปุ่มรีเซ็ตวันที่
@@ -408,12 +412,16 @@ function ScheduleSection() {
     if (!d.title.trim()) return showToast('ใส่ชื่อกิจกรรม');
     if (timeInvalid) return showToast('เวลาสิ้นสุดต้องมากกว่าเริ่ม');
     const isOnce = d.repeat === 'none';
+    const isCustom = d.repeat === 'custom';
     const startDate = d.dates[0];
+    // แก้ไขชุดเดิมที่ยังไม่ได้เลือกระยะเวลาใหม่ → จบวันเดิม (keepEnd) ไม่รีเซ็ตเป็นค่าตาม horizon
     const endDate = isOnce
       ? null
-      : d.repeat === 'custom'
+      : isCustom
         ? d.dates[d.dates.length - 1]
-        : addDays(startDate, HORIZON_DAYS[d.horizon] - 1);
+        : d.keepEnd
+          ? d.keepEnd.endDate
+          : addDays(startDate, HORIZON_DAYS[d.horizon] - 1);
 
     const fields = {
       title: d.title.trim(),
@@ -426,6 +434,8 @@ function ScheduleSection() {
       endMin: d.end,
       repeat: d.repeat,
       daysMask: isOnce ? 0 : maskFromDates(d.dates),
+      // "เลือกเอง" เก็บวันที่ที่เลือกจริง — daysMask อย่างเดียวจะงอกทุกวันในสัปดาห์เดียวกันที่อยู่ในช่วง
+      dates: isCustom ? [...d.dates] : null,
       startDate,
       endDate,
       notify: d.notify,
@@ -436,19 +446,29 @@ function ScheduleSection() {
       color: null, // สีจากไฟล์ Time Table เท่านั้น — กิจกรรมที่สร้างในแอปใช้สีตามหมวด
     };
 
-    if (d.editId) {
-      const prev = acts.find((a) => a.id === d.editId);
-      // แก้ไขกิจกรรมที่นำเข้ามา: รักษาสีเดิมที่จำจากไฟล์ไว้
-      update({ ...fields, id: d.editId, detachedFrom: prev?.detachedFrom ?? null, color: prev?.color ?? null });
-      showToast('บันทึกการแก้ไขแล้ว ✓');
-    } else {
-      await add(fields);
-      showToast(`เพิ่มแล้ว ${d.dates.length} วัน ✓`);
+    // วันที่ให้แท็บวันนี้เปิดโชว์หลังบันทึก — แก้เฉพาะ/ตั้งแต่ครั้งนี้ = วันที่เปิดมาแก้
+    let focusDate = startDate;
+    try {
+      if (d.editId) {
+        if (!editing) return showToast('ไม่พบกิจกรรมนี้แล้ว');
+        // แก้ไขกิจกรรมที่นำเข้ามา: รักษาสีเดิมที่จำจากไฟล์ไว้
+        const scope = askScope ? d.scope : 'all';
+        await editActivity(editing, { ...fields, detachedFrom: editing.detachedFrom, color: editing.color }, scope, d.editDate);
+        if (scope !== 'all' && d.editDate) focusDate = d.editDate;
+        showToast(scope === 'one' ? 'บันทึกเฉพาะครั้งนี้แล้ว ✓' : scope === 'future' ? 'บันทึกตั้งแต่ครั้งนี้เป็นต้นไปแล้ว ✓' : 'บันทึกการแก้ไขแล้ว ✓');
+      } else {
+        await add(fields);
+        showToast(`เพิ่มแล้ว ${d.dates.length} วัน ✓`);
+      }
+    } catch (e) {
+      // เขียนลงเครื่องไม่สำเร็จ — คงฟอร์มไว้ให้กดบันทึกใหม่ได้ ไม่ล้างทิ้ง
+      console.warn('[add] save failed', e);
+      return showToast('บันทึกไม่สำเร็จ — ลองกดบันทึกอีกครั้ง');
     }
     d.reset();
     useUI.getState().closeSheet(); // บันทึกแล้วจบงาน — ทิ้งแผ่นที่พักไว้ ไม่ให้เด้งขึ้นทับหน้าวันนี้
-    // ให้แท็บวันนี้เปิดโชว์วันแรกของกิจกรรมที่เพิ่งบันทึก — ผู้ใช้เห็นผลทันทีแม้ลงวันอื่น
-    useUI.getState().setFocusDate(startDate);
+    // ให้แท็บวันนี้เปิดโชว์วันของกิจกรรมที่เพิ่งบันทึก — ผู้ใช้เห็นผลทันทีแม้ลงวันอื่น
+    useUI.getState().setFocusDate(focusDate);
     router.navigate('/');
   };
 
@@ -487,8 +507,12 @@ function ScheduleSection() {
             <>
               <Txt size={13} weight="med" color={t.sub}>ระยะเวลาที่ลง</Txt>
               <ChipRow>
+                {/* แก้ไขชุดเดิมที่ช่วงไม่ตรงชิปไหน — คงวันสิ้นสุดเดิมไว้จนกว่าจะเลือกระยะเวลาใหม่เอง */}
+                {d.keepEnd ? (
+                  <Chip small label={d.keepEnd.endDate ? `เดิม: ถึง ${thaiDate(d.keepEnd.endDate)}` : 'เดิม: ไม่มีวันสิ้นสุด'} active />
+                ) : null}
                 {HORIZONS.map((h) => (
-                  <Chip key={h.key} small label={h.label} active={d.horizon === h.key} onPress={() => d.setHorizon(h.key)} />
+                  <Chip key={h.key} small label={h.label} active={!d.keepEnd && d.horizon === h.key} onPress={() => d.setHorizon(h.key)} />
                 ))}
               </ChipRow>
             </>
@@ -617,6 +641,24 @@ function ScheduleSection() {
             </ChipRow>
           ) : null}
         </Card>
+
+        {askScope && d.editDate ? (
+          <Card style={{ gap: 10 }}>
+            <Txt size={14} weight="med">กิจกรรมนี้เป็นชุดทำซ้ำ — ใช้การแก้ไขกับครั้งไหน?</Txt>
+            <ChipRow>
+              <Chip small label={`เฉพาะ ${thaiDate(d.editDate)}`} active={d.scope === 'one'} onPress={() => d.set({ scope: 'one' })} />
+              <Chip small label="ตั้งแต่ครั้งนี้เป็นต้นไป" active={d.scope === 'future'} onPress={() => d.set({ scope: 'future' })} />
+              <Chip small label="ทั้งชุด (รวมย้อนหลัง)" active={d.scope === 'all'} onPress={() => d.set({ scope: 'all' })} />
+            </ChipRow>
+            <Txt size={12} color={t.faint}>
+              {d.scope === 'one'
+                ? 'ใช้ชื่อ เวลา และรายละเอียดใหม่กับวันนี้วันเดียว — การเปลี่ยนวันที่/การทำซ้ำจะไม่ถูกใช้'
+                : d.scope === 'future'
+                  ? 'ครั้งก่อนหน้าและสถิติย้อนหลังคงเดิม — สถานะที่บันทึกไว้ตั้งแต่วันนี้ย้ายตามไปด้วย'
+                  : 'เปลี่ยนทุกครั้งในชุด รวมที่ผ่านมาแล้ว — ชั่วโมงในสถิติย้อนหลังจะเปลี่ยนตาม'}
+            </Txt>
+          </Card>
+        ) : null}
 
         <Btn label={d.editId ? 'บันทึกการแก้ไข' : 'บันทึกกิจกรรม'} onPress={onSave} />
       </StepSection>

@@ -195,6 +195,7 @@ export default function CopyScreen() {
             endMin: it.endMin,
             repeat: 'none', // วางเป็นครั้งเดียวต่อวันปลายทาง ไม่สร้างชุดทำซ้ำซ้อนของเดิม
             daysMask: 0,
+            dates: null,
             startDate: p.date,
             endDate: null,
             notify: it.notify,

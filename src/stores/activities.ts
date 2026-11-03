@@ -6,10 +6,11 @@ import { create } from 'zustand';
 
 import { addDays } from '@/lib/dates';
 import * as db from '@/lib/db';
-import { dayItems } from '@/lib/engine';
+import { dayItems, seriesDates } from '@/lib/engine';
 import { requestResync } from '@/lib/notifications';
-import type { Activity, DayItem, OccMap, OccStatus } from '@/lib/types';
+import type { Activity, DayItem, EditScope, OccMap, OccStatus } from '@/lib/types';
 import { useSettings } from '@/stores/settings';
+import { useUI } from '@/stores/ui';
 
 interface RescTarget {
   date: string;
@@ -27,6 +28,11 @@ interface ActivitiesState {
   boot: () => Promise<void>;
   add: (a: Omit<Activity, 'id'>) => Promise<Activity>;
   update: (a: Activity) => void;
+  /**
+   * บันทึกฟอร์มแก้ไข — prev = กิจกรรมเดิม, fields = ค่าใหม่จากฟอร์ม
+   * ชุดทำซ้ำเลือกขอบเขตได้: 'one' แยกวัน date ออกเป็นครั้งเดียว · 'future' แบ่งชุดที่ date · 'all' แก้ทั้งชุด
+   */
+  editActivity: (prev: Activity, fields: Omit<Activity, 'id'>, scope: EditScope, date: string | null) => Promise<void>;
   /** status null = กลับเป็น planned */
   setStatus: (item: DayItem, status: OccStatus | null) => void;
   deleteOne: (item: DayItem) => void;
@@ -38,6 +44,21 @@ function resync(s: Pick<ActivitiesState, 'acts' | 'occ'>) {
   const { notifMaster, morning } = useSettings.getState();
   requestResync(s.acts, s.occ, notifMaster, morning);
 }
+
+/**
+ * เขียนลง SQLite ไม่สำเร็จ — state ใน memory (optimistic) ไม่ตรงกับเครื่องแล้ว
+ * บอกผู้ใช้ + โหลดจากฐานข้อมูลใหม่ให้หน้าจอกลับมาตรงกับที่บันทึกไว้จริง
+ */
+function onWriteError(e: unknown) {
+  console.warn('[activities] write failed', e);
+  useUI.getState().showToast('บันทึกลงเครื่องไม่สำเร็จ — โหลดข้อมูลล่าสุดใหม่แล้ว');
+  useActivities.getState().boot().catch(() => {});
+}
+
+/** งานเขียนแบบ fire-and-forget (UI ไม่รอ) — พลาดเมื่อไรให้ onWriteError จัดการ ไม่ปล่อยเป็น unhandled rejection */
+const persist = (p: Promise<unknown>) => {
+  p.catch(onWriteError);
+};
 
 export const useActivities = create<ActivitiesState>((set, get) => {
   const bump = (patch: Partial<ActivitiesState>) => {
@@ -71,7 +92,65 @@ export const useActivities = create<ActivitiesState>((set, get) => {
 
     update: (a) => {
       bump({ acts: get().acts.map((x) => (x.id === a.id ? a : x)) });
-      db.updateActivity(a);
+      persist(db.updateActivity(a));
+    },
+
+    editActivity: async (prev, fields, scope, date) => {
+      const whole = prev.repeat === 'none' || scope === 'all' || !date || (scope === 'future' && date <= prev.startDate);
+      if (whole) {
+        // ทั้งชุด (หรือกิจกรรมครั้งเดียว / แก้จากวันแรกของชุด) — แก้แถวเดิมตรง ๆ
+        get().update({ ...fields, id: prev.id });
+        return;
+      }
+
+      if (scope === 'one') {
+        // เฉพาะวัน date: ยกเลิกวันนั้นในชุด + สร้างครั้งเดียวด้วยค่าใหม่ (ยกสถานะทำแล้ว/ข้ามเดิมตามไปด้วย)
+        const one: Omit<Activity, 'id'> = {
+          ...fields,
+          repeat: 'none',
+          daysMask: 0,
+          dates: null,
+          startDate: date,
+          endDate: null,
+          detachedFrom: prev.id,
+        };
+        const old = get().occ[date]?.[prev.id];
+        const carry = old === 'done' || old === 'skipped' ? old : null;
+        const newId = await db.detachOccurrence(prev.id, date, one, carry);
+        const day: Record<number, OccStatus> = { ...(get().occ[date] ?? {}), [prev.id]: 'cancelled' };
+        if (carry) day[newId] = carry;
+        bump({ acts: [...get().acts, { ...one, id: newId }], occ: { ...get().occ, [date]: day } });
+        return;
+      }
+
+      // ตั้งแต่ date เป็นต้นไป: ชุดเดิมจบเมื่อวานของ date (ประวัติก่อนหน้าไม่เปลี่ยน) · ชุดใหม่รับค่าจากฟอร์ม
+      const cut = addDays(date, -1);
+      const headDates = prev.repeat === 'custom' ? seriesDates(prev).filter((x) => x < date) : null;
+      const head = { endDate: cut, dates: headDates };
+      let tail: Omit<Activity, 'id'> | null = null;
+      if (fields.repeat === 'custom' && fields.dates) {
+        const rest = fields.dates.filter((x) => x >= date);
+        if (rest.length) tail = { ...fields, dates: rest, startDate: rest[0], endDate: rest[rest.length - 1] };
+      } else if (fields.repeat === 'none') {
+        // เปลี่ยนชุดเป็น "ครั้งเดียว" — วันแรกของฟอร์มยังเป็นวันแรกของชุดเดิม (อดีต) จึงลงที่วัน date แทน
+        tail = { ...fields, startDate: fields.startDate >= date ? fields.startDate : date };
+      } else if (fields.endDate === null || fields.endDate >= date) {
+        tail = { ...fields, startDate: fields.startDate > date ? fields.startDate : date };
+      }
+
+      const newId = await db.splitSeries(prev.id, date, head, tail);
+      // ย้ายสถานะรายวันตั้งแต่ date ไปชุดใหม่ใน memory ให้ตรงกับฐานข้อมูล (ไม่มีชุดใหม่ = ทิ้ง)
+      const occ: OccMap = { ...get().occ };
+      for (const d of Object.keys(occ)) {
+        if (d < date || occ[d][prev.id] === undefined) continue;
+        const day = { ...occ[d] };
+        if (newId !== null) day[newId] = day[prev.id];
+        delete day[prev.id];
+        occ[d] = day;
+      }
+      const acts = get().acts.map((a) => (a.id === prev.id ? { ...a, ...head } : a));
+      if (tail && newId !== null) acts.push({ ...tail, id: newId });
+      bump({ acts, occ });
     },
 
     setStatus: (item, status) => {
@@ -81,14 +160,14 @@ export const useActivities = create<ActivitiesState>((set, get) => {
       else day[item.id] = status;
       occ[item.date] = day;
       bump({ occ });
-      db.setOccurrence(item.id, item.date, status);
+      persist(db.setOccurrence(item.id, item.date, status));
     },
 
     deleteOne: (item) => {
       if (item.repeat === 'none') {
         // ครั้งเดียว = ลบทั้งรายการ
         bump({ acts: get().acts.filter((a) => a.id !== item.id) });
-        db.cancelActivity(item.id);
+        persist(db.cancelActivity(item.id));
       } else {
         get().setStatus(item, 'cancelled');
       }
@@ -99,10 +178,10 @@ export const useActivities = create<ActivitiesState>((set, get) => {
       const cut = addDays(item.date, -1);
       if (item.repeat === 'none' || cut < item.startDate) {
         bump({ acts: get().acts.filter((a) => a.id !== item.id) });
-        db.cancelActivity(item.id);
+        persist(db.cancelActivity(item.id));
       } else {
         bump({ acts: get().acts.map((a) => (a.id === item.id ? { ...a, endDate: cut } : a)) });
-        db.setEndDate(item.id, cut);
+        persist(db.setEndDate(item.id, cut));
       }
     },
 
@@ -118,6 +197,7 @@ export const useActivities = create<ActivitiesState>((set, get) => {
         endMin: to.end,
         repeat: 'none',
         daysMask: 0,
+        dates: null,
         startDate: to.date,
         endDate: null,
         notify: item.notify,
@@ -127,8 +207,14 @@ export const useActivities = create<ActivitiesState>((set, get) => {
         contactIds: item.contactIds,
         color: item.color,
       };
-      const newId = await db.insertActivity(fields);
-      db.insertRescheduleLog(newId, item.date, item.startMin, to.date, to.start, reason || null);
+      let newId: number;
+      try {
+        newId = await db.insertActivity(fields);
+      } catch (e) {
+        onWriteError(e);
+        return;
+      }
+      persist(db.insertRescheduleLog(newId, item.date, item.startMin, to.date, to.start, reason || null));
 
       const occ = { ...get().occ, [item.date]: { ...(get().occ[item.date] ?? {}), [item.id]: 'rescheduled' as const } };
       const prev = get().rescCounts[item.id] ?? 0;
@@ -137,7 +223,7 @@ export const useActivities = create<ActivitiesState>((set, get) => {
         occ,
         rescCounts: { ...get().rescCounts, [newId]: prev + 1 },
       });
-      db.setOccurrence(item.id, item.date, 'rescheduled');
+      persist(db.setOccurrence(item.id, item.date, 'rescheduled'));
     },
   };
 });
