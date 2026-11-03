@@ -2,8 +2,8 @@
 // ① หมวด+รายละเอียด → ② วันที่+ทำซ้ำ → ③ เวลา (เตือนชน + เสนอช่วงว่างที่ใกล้ที่สุด) → ④ แจ้งเตือน
 // แก้ไข: แถบ "กำลังแก้ไข" + ป้าย "เปลี่ยนแล้ว" ต่อขั้น + การ์ดขอบเขตชุดทำซ้ำ (มีผล n ครั้ง)
 // แถบล่าง: ‹ กลับ (เพิ่ม = เก็บร่างไว้ · แก้ไข = ทิ้งการแก้ไข) + บันทึก / บันทึกการแก้ไข
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, TextInput, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native';
 
 import { Icon } from '@/components/icon';
@@ -116,6 +116,13 @@ export default function AddScreen() {
   // ขั้น 1 ยังไม่ครบ → ขั้น 1 เปิดเสมอ (ขั้นอื่นยังไปไม่ได้)
   const open = step1Done ? cur.open : 1;
   const setOpen = (n: Step | null) => setNav({ ...cur, open: n });
+
+  // เปิดแท็บเพิ่มด้วยร่างว่าง (ยังไม่เลือกหมวด) → ตั้งเวลาตั้งต้นใหม่ = ช่วงว่าง 1 ชม. แรกหลังตอนนี้
+  useFocusEffect(
+    useCallback(() => {
+      useDraft.getState().refreshDefaultTime();
+    }, []),
+  );
 
   // แท็บนี้ mount ค้างไว้ → โหลดร่างใหม่แล้วเลื่อนกลับบนสุด (iOS ไม่ดึงตำแหน่งเลื่อนกลับเอง)
   useEffect(() => {

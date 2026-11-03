@@ -88,8 +88,8 @@ export default function TodayScreen() {
   };
 
   const openAdd = () => {
-    useDraft.getState().reset();
-    useDraft.getState().set({ dates: [view === 'day' ? focus : todayISO()] });
+    // ร่างใหม่ของวันที่ดูอยู่ — เวลาตั้งต้น = ช่วงว่าง 1 ชม. แรกหลังตอนนี้ของวันนั้น
+    useDraft.getState().reset(view === 'day' ? focus : todayISO());
     router.push('/add');
   };
 

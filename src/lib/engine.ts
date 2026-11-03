@@ -1,7 +1,7 @@
 // Core engine — pure functions ทั้งหมด ไม่มี I/O (APP_STRUCTURE.md §0, §5.1, §3.4)
 // ข้อมูลเข้า = activities + occurrence map จาก store ที่โหลดไว้แล้ว → ไม่ query ฐานข้อมูลซ้ำ
 
-import { CAT_OPTIONS, DAY_END, FREE_START, LEGACY_SUB, MIN_FREE_GAP, SNAP } from '@/constants/theme';
+import { CAT_OPTIONS, DAY_END, DAY_START, FREE_START, LEGACY_SUB, MIN_FREE_GAP, SNAP } from '@/constants/theme';
 import { addDays, daysBetween, mondayOf, todayISO, wdMon } from '@/lib/dates';
 import type { Activity, DayItem, FreeSlot, Horizon, OccMap, RepeatRule } from '@/lib/types';
 import { HORIZON_DAYS } from '@/lib/types';
@@ -114,6 +114,22 @@ export function daytimeFreeSlots(items: DayItem[], minDur: number = MIN_FREE_GAP
     .filter((s) => s.end - s.start >= minDur);
 }
 
+
+/**
+ * เวลาเริ่มตั้งต้นของกิจกรรมใหม่ (ยาว dur นาที) — ช่วงว่างแรกที่ยาวพอ "หลังเวลาปัจจุบัน" (เฉพาะกลางวัน ถึง 24:00)
+ * วันนี้ = หลังตอนนี้ (ปัดขึ้นทีละ 15 นาที) · วันอื่น = ตั้งแต่ต้นวัน · ไม่มีช่วงว่างพอเลย = เวลาปัจจุบัน
+ * now = "ตอนนี้" ในระบบวัน 06:00–30:00 (ดู progress.nowRef — 00:00–05:59 นับเป็นท้ายวันของเมื่อวาน)
+ */
+export function suggestStart(items: DayItem[], date: string, now: { date: string; min: number }, dur: number = 60): number {
+  const nowSnap = Math.ceil(now.min / SNAP) * SNAP;
+  const from = date === now.date ? nowSnap : DAY_START;
+  for (const s of daytimeFreeSlots(items, dur)) {
+    const st = Math.ceil(Math.max(s.start, from) / SNAP) * SNAP;
+    if (st + dur <= s.end) return st;
+  }
+  // ไม่มีช่วงว่าง — ใช้เวลาปัจจุบัน (ไม่ให้ล้นท้ายวัน)
+  return Math.min(Math.max(date === now.date ? nowSnap : DAY_START, DAY_START), DAY_END - dur);
+}
 
 export const freeMinutes = (slots: FreeSlot[]) => slots.reduce((s, x) => s + (x.end - x.start), 0);
 

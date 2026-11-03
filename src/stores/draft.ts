@@ -5,8 +5,19 @@ import { create } from 'zustand';
 
 import { LEGACY_SUB, type CatId, type PriorityId } from '@/constants/theme';
 import { daysBetween, todayISO } from '@/lib/dates';
-import { computeDates, seriesDates } from '@/lib/engine';
+import { computeDates, seriesDates, suggestStart } from '@/lib/engine';
+import { nowRef } from '@/lib/progress';
 import { HORIZON_DAYS, type Activity, type Channel, type EditScope, type Horizon, type RepeatRule } from '@/lib/types';
+import { getDay } from '@/stores/activities';
+
+/** ความยาวตั้งต้นของกิจกรรมใหม่ */
+const DEFAULT_DUR = 60;
+
+/** เวลาตั้งต้นของร่างใหม่ในวันนั้น — ช่วงว่าง 1 ชม. แรกหลังตอนนี้ · ไม่มี = เวลาปัจจุบัน */
+function defaultTime(date: string): { start: number; end: number } {
+  const start = suggestStart(getDay(date), date, nowRef(), DEFAULT_DUR);
+  return { start, end: start + DEFAULT_DUR };
+}
 
 /** วันสิ้นสุดเดิมของชุดที่กำลังแก้ไข — คงไว้จนกว่าผู้ใช้จะเลือก "ระยะเวลาที่ลง" ใหม่เอง (null ข้างใน = ไม่มีวันสิ้นสุด) */
 export interface KeepEnd {
@@ -43,7 +54,10 @@ interface DraftState {
   toggleDate: (iso: string) => void;
   /** ล้างเฉพาะขั้น "วันที่และการทำซ้ำ" — กลับไปวันนี้วันเดียว (ข้อมูลอื่นในฟอร์มคงไว้) */
   resetDates: () => void;
-  reset: () => void;
+  /** ร่างใหม่ (ล้างทุกอย่าง) — date = วันที่จะลง (ไม่ส่ง = วันนี้) · ตั้งเวลาเป็นช่วงว่าง 1 ชม. แรกหลังตอนนี้ */
+  reset: (date?: string) => void;
+  /** ร่างยังว่าง (ยังไม่เลือกหมวด/ใส่ชื่อ) — ตั้งเวลาตั้งต้นใหม่ให้ตรงกับตอนนี้ (เปิดแท็บเพิ่มหลังทิ้งไว้นาน) */
+  refreshDefaultTime: () => void;
   /** date = วันของ occurrence ที่เปิดแก้ไข (ไม่ส่ง = แก้ทั้งชุด) */
   loadActivity: (a: Activity, date?: string) => void;
   loadSlot: (date: string, start: number, end: number) => void;
@@ -72,6 +86,7 @@ const initial = {
 export const useDraft = create<DraftState>((set, get) => ({
   ...initial,
   dates: [todayISO()],
+  ...defaultTime(todayISO()), // ตอนเปิดแอปข้อมูลยังไม่โหลด — แท็บเพิ่มคำนวณใหม่ทุกครั้งที่เปิด (refreshDefaultTime)
   loadRev: 0, // อยู่นอก initial — การ set({ ...initial }) จึงไม่รีเซ็ตตัวนับกลับเป็น 0
 
   set: (p) => set(p),
@@ -100,7 +115,17 @@ export const useDraft = create<DraftState>((set, get) => ({
 
   resetDates: () => set({ dates: [todayISO()], repeat: initial.repeat, horizon: initial.horizon, keepEnd: null }),
 
-  reset: () => set((s) => ({ ...initial, dates: [todayISO()], loadRev: s.loadRev + 1 })),
+  reset: (date) => {
+    const d = date ?? todayISO();
+    set((s) => ({ ...initial, dates: [d], ...defaultTime(d), loadRev: s.loadRev + 1 }));
+  },
+
+  refreshDefaultTime: () => {
+    const s = get();
+    if (s.editId || s.cat || s.title.trim()) return; // ผู้ใช้เริ่มกรอกแล้ว — ไม่ทับเวลาที่อาจตั้งไว้
+    const t = defaultTime(s.dates[0] ?? todayISO());
+    if (t.start !== s.start || t.end !== s.end) set(t);
+  },
 
   loadActivity: (a, date) => {
     // โหมดแก้ไข: เริ่มจากวันแรกของ series และ "คงช่วงเดิม" ไว้ — เดิมโหลดด้วย horizon 1 เดือนตายตัว
