@@ -8,7 +8,7 @@ import { addDays } from '@/lib/dates';
 import * as db from '@/lib/db';
 import { dayItems, seriesDates } from '@/lib/engine';
 import { requestResync } from '@/lib/notifications';
-import type { Activity, DayItem, EditScope, OccMap, OccStatus } from '@/lib/types';
+import type { Activity, DayItem, EditScope, NoteMap, OccMap, OccStatus } from '@/lib/types';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
@@ -22,6 +22,8 @@ interface ActivitiesState {
   loaded: boolean;
   acts: Activity[];
   occ: OccMap;
+  /** โน้ตรายครั้ง notes[date][id] */
+  notes: NoteMap;
   rescCounts: Record<number, number>;
   /** เพิ่มทีละ 1 ทุก mutation — ตัวนับบอกว่าข้อมูลเปลี่ยน (การ subscribe ใน UI ให้ใช้ acts/occ ตรง ๆ) */
   version: number;
@@ -35,6 +37,8 @@ interface ActivitiesState {
   editActivity: (prev: Activity, fields: Omit<Activity, 'id'>, scope: EditScope, date: string | null) => Promise<void>;
   /** status null = กลับเป็น planned */
   setStatus: (item: DayItem, status: OccStatus | null) => void;
+  /** โน้ตของครั้งนี้ — '' / null = ลบ */
+  setNote: (item: Pick<DayItem, 'id' | 'date'>, note: string | null) => void;
   deleteOne: (item: DayItem) => void;
   deleteSeries: (item: DayItem) => void;
   reschedule: (item: DayItem, to: RescTarget, reason: string) => void;
@@ -70,16 +74,18 @@ export const useActivities = create<ActivitiesState>((set, get) => {
     loaded: false,
     acts: [],
     occ: {},
+    notes: {},
     rescCounts: {},
     version: 0,
 
     boot: async () => {
-      const [acts, occ, rescCounts] = await Promise.all([
+      const [acts, occ, notes, rescCounts] = await Promise.all([
         db.loadActivities(),
         db.loadOccurrences(),
+        db.loadNotes(),
         db.loadRescCounts(),
       ]);
-      set((s) => ({ acts, occ, rescCounts, loaded: true, version: s.version + 1 }));
+      set((s) => ({ acts, occ, notes, rescCounts, loaded: true, version: s.version + 1 }));
       resync(get());
     },
 
@@ -119,7 +125,15 @@ export const useActivities = create<ActivitiesState>((set, get) => {
         const newId = await db.detachOccurrence(prev.id, date, one, carry);
         const day: Record<number, OccStatus> = { ...(get().occ[date] ?? {}), [prev.id]: 'cancelled' };
         if (carry) day[newId] = carry;
-        bump({ acts: [...get().acts, { ...one, id: newId }], occ: { ...get().occ, [date]: day } });
+        // โน้ตของวันนั้นย้ายตามไปกิจกรรมครั้งเดียว (ตรงกับ db.detachOccurrence)
+        const notes = { ...get().notes };
+        const note = notes[date]?.[prev.id];
+        if (note !== undefined) {
+          const nd = { ...notes[date], [newId]: note };
+          delete nd[prev.id];
+          notes[date] = nd;
+        }
+        bump({ acts: [...get().acts, { ...one, id: newId }], occ: { ...get().occ, [date]: day }, notes });
         return;
       }
 
@@ -148,9 +162,17 @@ export const useActivities = create<ActivitiesState>((set, get) => {
         delete day[prev.id];
         occ[d] = day;
       }
+      const notes: NoteMap = { ...get().notes };
+      for (const d of Object.keys(notes)) {
+        if (d < date || notes[d][prev.id] === undefined) continue;
+        const day = { ...notes[d] };
+        if (newId !== null) day[newId] = day[prev.id];
+        delete day[prev.id];
+        notes[d] = day;
+      }
       const acts = get().acts.map((a) => (a.id === prev.id ? { ...a, ...head } : a));
       if (tail && newId !== null) acts.push({ ...tail, id: newId });
-      bump({ acts, occ });
+      bump({ acts, occ, notes });
     },
 
     setStatus: (item, status) => {
@@ -161,6 +183,17 @@ export const useActivities = create<ActivitiesState>((set, get) => {
       occ[item.date] = day;
       bump({ occ });
       persist(db.setOccurrence(item.id, item.date, status));
+    },
+
+    setNote: (item, note) => {
+      const text = note?.trim() ?? '';
+      const notes = { ...get().notes };
+      const day = { ...(notes[item.date] ?? {}) };
+      if (text) day[item.id] = text;
+      else delete day[item.id];
+      notes[item.date] = day;
+      set((s) => ({ notes, version: s.version + 1 })); // โน้ตไม่กระทบการแจ้งเตือน — ไม่ต้อง resync
+      persist(db.setOccNote(item.id, item.date, text || null));
     },
 
     deleteOne: (item) => {

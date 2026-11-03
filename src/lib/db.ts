@@ -4,7 +4,7 @@
 import * as SQLite from 'expo-sqlite';
 
 import { addDays } from '@/lib/dates';
-import type { Activity, Contact, OccMap, OccStatus } from '@/lib/types';
+import type { Activity, Contact, NoteMap, OccMap, OccStatus } from '@/lib/types';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -101,6 +101,20 @@ function migrate(d: SQLite.SQLiteDatabase) {
       PRAGMA user_version = 5;
     `);
   }
+  if (v < 6) {
+    // โน้ตรายครั้ง (แผ่นรายละเอียด) แยกตารางจาก occurrences — ครั้งที่ยังไม่ทำ (ไม่มีแถว exception) ก็มีโน้ตได้
+    // + องค์กร/บริษัทของรายชื่อ
+    d.execSync(`
+      CREATE TABLE IF NOT EXISTS occ_notes (
+        activity_id INTEGER NOT NULL REFERENCES activities(id),
+        date        TEXT NOT NULL,
+        note        TEXT NOT NULL,
+        PRIMARY KEY (activity_id, date)
+      ) WITHOUT ROWID;
+      ALTER TABLE contacts ADD COLUMN org TEXT;
+      PRAGMA user_version = 6;
+    `);
+  }
 }
 
 /** activities.dates (JSON array) ↔ string[] — ค่าเสีย/ว่างถือเป็น null (กลับไปใช้ days_mask) */
@@ -180,6 +194,13 @@ export async function loadOccurrences(): Promise<OccMap> {
   return occ;
 }
 
+export async function loadNotes(): Promise<NoteMap> {
+  const rows = await getDb().getAllAsync<{ activity_id: number; date: string; note: string }>('SELECT * FROM occ_notes');
+  const notes: NoteMap = {};
+  for (const r of rows) (notes[r.date] ??= {})[r.activity_id] = r.note;
+  return notes;
+}
+
 export async function loadContacts(): Promise<Contact[]> {
   return (await getDb().getAllAsync<Contact>('SELECT * FROM contacts ORDER BY name')) as Contact[];
 }
@@ -255,8 +276,10 @@ export async function splitSeries(
       newId = await insertActivityRow(txn, tail);
       await setActivityContacts(txn, newId, tail.contactIds);
       await txn.runAsync('UPDATE occurrences SET activity_id=? WHERE activity_id=? AND date >= ?', newId, id, from);
+      await txn.runAsync('UPDATE occ_notes SET activity_id=? WHERE activity_id=? AND date >= ?', newId, id, from);
     } else {
       await txn.runAsync('DELETE FROM occurrences WHERE activity_id=? AND date >= ?', id, from);
+      await txn.runAsync('DELETE FROM occ_notes WHERE activity_id=? AND date >= ?', id, from);
     }
   });
   return newId;
@@ -281,6 +304,8 @@ export async function detachOccurrence(
       id, date,
     );
     if (carry) await txn.runAsync('INSERT INTO occurrences (activity_id, date, status) VALUES (?,?,?)', newId, date, carry);
+    // โน้ตของวันนั้นตามไปอยู่กับกิจกรรมครั้งเดียวที่แยกออกมา
+    await txn.runAsync('UPDATE occ_notes SET activity_id=? WHERE activity_id=? AND date=?', newId, id, date);
   });
   return newId;
 }
@@ -306,6 +331,19 @@ export async function setOccurrence(activityId: number, date: string, status: Oc
   }
 }
 
+/** โน้ตของครั้งหนึ่ง: null/ว่าง = ลบโน้ต */
+export async function setOccNote(activityId: number, date: string, note: string | null): Promise<void> {
+  const d = getDb();
+  if (!note || !note.trim()) {
+    await d.runAsync('DELETE FROM occ_notes WHERE activity_id=? AND date=?', activityId, date);
+  } else {
+    await d.runAsync(
+      'INSERT INTO occ_notes (activity_id, date, note) VALUES (?,?,?) ON CONFLICT DO UPDATE SET note=excluded.note',
+      activityId, date, note.trim(),
+    );
+  }
+}
+
 export async function insertRescheduleLog(
   activityId: number,
   fromDate: string,
@@ -324,14 +362,14 @@ export async function upsertContact(c: Omit<Contact, 'id'> & { id?: number }): P
   const d = getDb();
   if (c.id) {
     await d.runAsync(
-      'UPDATE contacts SET name=?, priority=?, phone=?, line=?, email=?, zoom=?, googlemeet=?, note=? WHERE id=?',
-      c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null, c.id,
+      'UPDATE contacts SET name=?, priority=?, phone=?, line=?, email=?, zoom=?, googlemeet=?, note=?, org=? WHERE id=?',
+      c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null, c.org ?? null, c.id,
     );
     return c.id;
   }
   const res = await d.runAsync(
-    'INSERT INTO contacts (name, priority, phone, line, email, zoom, googlemeet, note) VALUES (?,?,?,?,?,?,?,?)',
-    c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null,
+    'INSERT INTO contacts (name, priority, phone, line, email, zoom, googlemeet, note, org) VALUES (?,?,?,?,?,?,?,?,?)',
+    c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null, c.org ?? null,
   );
   return res.lastInsertRowId;
 }
@@ -369,6 +407,7 @@ export async function purgeRange(from: string, to: string): Promise<void> {
   const d = getDb();
   await d.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync('DELETE FROM occurrences WHERE date BETWEEN ? AND ?', from, to);
+    await txn.runAsync('DELETE FROM occ_notes WHERE date BETWEEN ? AND ?', from, to);
     await txn.runAsync(
       'DELETE FROM reschedule_logs WHERE (from_date BETWEEN ? AND ?) OR (to_date BETWEEN ? AND ?)',
       from, to, from, to,
@@ -384,6 +423,7 @@ export async function purgeRange(from: string, to: string): Promise<void> {
     for (const { id } of gone) {
       await txn.runAsync('DELETE FROM activity_contacts WHERE activity_id=?', id);
       await txn.runAsync('DELETE FROM occurrences WHERE activity_id=?', id);
+      await txn.runAsync('DELETE FROM occ_notes WHERE activity_id=?', id);
       await txn.runAsync('DELETE FROM reschedule_logs WHERE activity_id=?', id);
       await txn.runAsync('DELETE FROM activities WHERE id=?', id);
     }
@@ -414,6 +454,7 @@ export async function purgeRange(from: string, to: string): Promise<void> {
         );
         const newId = res.lastInsertRowId;
         await txn.runAsync('UPDATE occurrences SET activity_id=? WHERE activity_id=? AND date > ?', newId, a.id, to);
+        await txn.runAsync('UPDATE occ_notes SET activity_id=? WHERE activity_id=? AND date > ?', newId, a.id, to);
         const links = await txn.getAllAsync<{ contact_id: number }>(
           'SELECT contact_id FROM activity_contacts WHERE activity_id=?', a.id,
         );
@@ -438,6 +479,8 @@ export interface BackupData {
   contacts: Contact[];
   activity_contacts: { activity_id: number; contact_id: number }[];
   reschedule_logs: unknown[];
+  /** v6 — สำรองรุ่นเก่าไม่มีฟิลด์นี้ */
+  occ_notes?: { activity_id: number; date: string; note: string }[];
 }
 
 export async function dumpAll(): Promise<BackupData> {
@@ -449,6 +492,7 @@ export async function dumpAll(): Promise<BackupData> {
     contacts: await d.getAllAsync('SELECT * FROM contacts'),
     activity_contacts: await d.getAllAsync('SELECT * FROM activity_contacts'),
     reschedule_logs: await d.getAllAsync('SELECT * FROM reschedule_logs'),
+    occ_notes: await d.getAllAsync('SELECT * FROM occ_notes'),
   } as BackupData;
 }
 
@@ -458,14 +502,14 @@ export async function restoreAll(data: BackupData, mode: 'replace' | 'merge'): P
   await d.withExclusiveTransactionAsync(async (txn) => {
     if (mode === 'replace') {
       await txn.execAsync(
-        'DELETE FROM activity_contacts; DELETE FROM occurrences; DELETE FROM reschedule_logs; DELETE FROM activities; DELETE FROM contacts;',
+        'DELETE FROM activity_contacts; DELETE FROM occurrences; DELETE FROM occ_notes; DELETE FROM reschedule_logs; DELETE FROM activities; DELETE FROM contacts;',
       );
     }
     const contactIdMap: Record<number, number> = {};
     for (const c of data.contacts) {
       const res = await txn.runAsync(
-        'INSERT INTO contacts (name, priority, phone, line, email, zoom, googlemeet, note) VALUES (?,?,?,?,?,?,?,?)',
-        c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null,
+        'INSERT INTO contacts (name, priority, phone, line, email, zoom, googlemeet, note, org) VALUES (?,?,?,?,?,?,?,?,?)',
+        c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null, c.org ?? null,
       );
       contactIdMap[c.id] = res.lastInsertRowId;
     }
@@ -484,6 +528,10 @@ export async function restoreAll(data: BackupData, mode: 'replace' | 'merge'): P
     for (const o of data.occurrences) {
       const id = actIdMap[o.activity_id];
       if (id) await txn.runAsync('INSERT OR REPLACE INTO occurrences (activity_id, date, status) VALUES (?,?,?)', id, o.date, o.status);
+    }
+    for (const n of data.occ_notes ?? []) {
+      const id = actIdMap[n.activity_id];
+      if (id && n.note) await txn.runAsync('INSERT OR REPLACE INTO occ_notes (activity_id, date, note) VALUES (?,?,?)', id, n.date, n.note);
     }
     for (const l of data.activity_contacts) {
       const a = actIdMap[l.activity_id];

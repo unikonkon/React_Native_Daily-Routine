@@ -2,8 +2,15 @@ import { create } from 'zustand';
 
 import type { DayItem } from '@/lib/types';
 
+/** ปุ่มในตัว toast (เช่น "เลิกทำ") — กดแล้ว toast ปิดเอง */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 interface UIState {
   toast: string | null;
+  toastAction: ToastAction | null;
   /** กิจกรรมที่เปิดอยู่ใน bottom sheet (อ้างด้วย id+date แล้วค่อย derive ใหม่ทุก render) */
   sheet: { id: number; date: string } | null;
   /** แผ่นที่ "พักไว้" ตอนกระโดดไปหน้าอื่น (เช่น เปิดสมุดรายชื่อจากนัดเคส) — กดกลับแล้วเปิดคืน */
@@ -15,7 +22,9 @@ interface UIState {
   /** โหมด "วันที่ว่าง" — แท็บวันนี้ดึงช่วงเวลาว่างออกมาให้แตะเพื่อเพิ่มกิจกรรม */
   freeMode: boolean;
   toggleFreeMode: () => void;
-  showToast: (msg: string) => void;
+  /** action = ปุ่มในตัว toast (เช่น เลิกทำ) — มีปุ่มแล้วค้างนานขึ้นให้กดทัน */
+  showToast: (msg: string, action?: ToastAction) => void;
+  hideToast: () => void;
   openSheet: (id: number, date: string) => void;
   closeSheet: () => void;
   /** ปิดแผ่นชั่วคราวแล้วจำไว้ — ใช้ก่อนพาไปหน้าอื่น */
@@ -31,6 +40,7 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useUI = create<UIState>((set) => ({
   toast: null,
+  toastAction: null,
   sheet: null,
   parkedSheet: null,
   resc: null,
@@ -38,10 +48,15 @@ export const useUI = create<UIState>((set) => ({
   freeMode: false,
 
   toggleFreeMode: () => set((s) => ({ freeMode: !s.freeMode })),
-  showToast: (msg) => {
-    set({ toast: msg });
+  showToast: (msg, action) => {
+    set({ toast: msg, toastAction: action ?? null });
     if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => set({ toast: null }), 1900); // หายเอง ~1.9s ตาม prototype
+    // หายเอง ~1.9s ตาม prototype · มีปุ่ม (เลิกทำ) ค้าง 5s ให้กดทัน
+    toastTimer = setTimeout(() => set({ toast: null, toastAction: null }), action ? 5000 : 1900);
+  },
+  hideToast: () => {
+    if (toastTimer) clearTimeout(toastTimer);
+    set({ toast: null, toastAction: null });
   },
   openSheet: (id, date) => set({ sheet: { id, date }, parkedSheet: null }),
   closeSheet: () => set({ sheet: null, parkedSheet: null }),

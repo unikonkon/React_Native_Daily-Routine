@@ -51,6 +51,7 @@ export interface Contact {
   zoom: string | null; // ลิงก์ห้อง Zoom ประจำตัว (ไม่บังคับ)
   googlemeet: string | null; // ลิงก์ห้อง Google Meet ประจำตัว (ไม่บังคับ)
   note: string | null; // ข้อมูลอื่น ๆ / หมายเหตุ (ไม่บังคับ)
+  org: string | null; // องค์กร / บริษัท (ไม่บังคับ)
 }
 
 export interface FreeSlot {
@@ -63,3 +64,6 @@ export type EditScope = 'one' | 'future' | 'all';
 
 /** occ[date][activityId] = สถานะที่เบี่ยงจาก planned (exception-based) */
 export type OccMap = Record<string, Record<number, OccStatus>>;
+
+/** notes[date][activityId] = โน้ตของครั้งนั้น (แยกจากสถานะ — ครั้งที่ยังไม่ทำก็มีโน้ตได้) */
+export type NoteMap = Record<string, Record<number, string>>;

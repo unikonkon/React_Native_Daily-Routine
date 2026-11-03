@@ -4,12 +4,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindowDimensions, View } from 'react-native';
 
+import { useNow } from '@/components/b1/use-now';
 import { Icon } from '@/components/icon';
 import { useCaseNames } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, CATS, DANGER, DAY_END, DAY_START, GREEN, type CatId } from '@/constants/theme';
-import { addDays, fmtMin, fromISO, mondayOf, nowMin, todayISO, WD_TH } from '@/lib/dates';
+import { addDays, fmtMin, fromISO, mondayOf, todayISO, WD_TH } from '@/lib/dates';
 import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
+import { dayProgress, isPast } from '@/lib/progress';
 import type { DayItem } from '@/lib/types';
 import { useDayReader } from '@/stores/activities';
 
@@ -65,7 +67,6 @@ export function TodayWeekView({
   const t = useTokens();
   const getDay = useDayReader();
   const caseNamesOf = useCaseNames();
-  const today = todayISO();
   const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
 
   // หมวดที่ "เปิดชื่อ" ไว้ — แตะหมวดใน legend เพื่อสลับ (เปิดพร้อมกันหลายหมวดได้) · นัดเคสโชว์ชื่ออยู่แล้วเป็นค่าปกติ
@@ -84,8 +85,8 @@ export function TodayWeekView({
   hours.sort((a, b) => a - b);
 
   // เส้น "ตอนนี้" (เฉพาะคอลัมน์วันนี้ ถ้าอยู่ในสัปดาห์นี้)
-  const now = nowMin();
-  const nowTop = now >= DAY_START ? now : now + 1440;
+  const nowR = useNow();
+  const nowTop = nowR.min;
 
   return (
     <View style={{ flex: 1 }}>
@@ -120,7 +121,7 @@ export function TodayWeekView({
             {days.map((d, ci) => {
               const items = getDay(d);
               const lanes = assignLanes(items);
-              const isToday = d === today;
+              const isToday = d === nowR.date;
               return (
                 <View
                   key={d}
@@ -129,7 +130,7 @@ export function TodayWeekView({
                     position: 'relative',
                     borderLeftWidth: ci === 0 ? 0 : 1,
                     borderLeftColor: t.line,
-                    backgroundColor: isToday ? ACCENT + '0f' : 'transparent',
+                    backgroundColor: isToday ? t.card : 'transparent',
                   }}>
                   {items.map((it) => {
                     const cat = CAT_BY_ID[it.cat];
@@ -137,6 +138,9 @@ export function TodayWeekView({
                     const top = pct(it.startMin);
                     const h = Math.max(pct(it.endMin) - top, 1.6);
                     const done = it.ostatus === 'done';
+                    const skipped = it.ostatus === 'skipped';
+                    // ค้างบันทึก = ผ่านเวลาแล้วแต่ยังไม่ได้บอกว่าทำหรือข้าม → เส้นประส้ม (ภาษาเดียวกับวงกลมบนราง)
+                    const overdue = it.ostatus === 'planned' && isPast(it, nowR);
                     const dim = it.ostatus === 'rescheduled' ? 0.5 : 1;
                     const dur = it.endMin - it.startMin;
                     // ป้ายชื่อในบล็อก — นัดเคสโชว์ชื่อคน (หลายคน = ชื่อแรก +n) เป็นค่าปกติ · หมวดอื่นโชว์ชื่อกิจกรรมเมื่อเปิดหมวดนั้นจาก legend
@@ -160,16 +164,22 @@ export function TodayWeekView({
                           width: `${100 / n - 5}%`,
                           minHeight: 5,
                           borderRadius: 3,
-                          backgroundColor: cat.color,
-                          opacity: (done ? 0.7 : 0.98) * dim * (freeMode ? 0.3 : 1) * (delMode && !picked ? 0.45 : 1),
-                          borderWidth: picked ? 1.5 : 0,
-                          borderColor: DANGER,
+                          backgroundColor: skipped ? t.skipFill : overdue ? cat.color + '66' : cat.color,
+                          opacity: (done ? 0.75 : 0.98) * dim * (freeMode ? 0.3 : 1) * (delMode && !picked ? 0.45 : 1),
+                          borderWidth: picked ? 1.5 : overdue ? 1.5 : 0,
+                          borderStyle: overdue && !picked ? 'dashed' : 'solid',
+                          borderColor: picked ? DANGER : '#D2603A',
                           alignItems: 'center',
                           justifyContent: 'center',
                           overflow: 'hidden',
                           paddingHorizontal: 1,
                         }}>
-                        {picked ? <Icon name="check" size={11} color="#FFFFFF" /> : showIcon ? <Icon name={cat.icon} size={11} color="#FFFFFF" /> : null}
+                        {picked ? <Icon name="check" size={11} color="#FFFFFF" /> : showIcon ? <Icon name={cat.icon} size={11} color={skipped ? t.sub : '#FFFFFF'} /> : null}
+                        {done && !picked ? (
+                          <View style={{ position: 'absolute', top: 1, right: 1, width: 12, height: 12, borderRadius: 6, backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center' }}>
+                            <Icon name="check" size={8} color="#FFFFFF" />
+                          </View>
+                        ) : null}
                         {showName ? (
                           <Txt size={8} weight="med" color="#FFFFFF" numberOfLines={nameLines} style={{ textAlign: 'center', lineHeight: 9.5 }}>
                             {label}
@@ -317,6 +327,7 @@ function WeekHeaderStrip({
 }) {
   const t = useTokens();
   const getDay = useDayReader();
+  const nowR = useNow();
   const today = todayISO();
   const { width } = useWindowDimensions();
   const listRef = useRef<FlatList<string>>(null);
@@ -370,6 +381,8 @@ function WeekHeaderStrip({
               {wdays.map((d, i) => {
                 const isToday = d === today;
                 const fm = freeMode ? freeMinutes(daytimeFreeSlots(getDay(d))) : 0; // เวลาว่างรวมของวันนั้น
+                const p = dayProgress(getDay(d), nowR);
+                const past = d <= nowR.date;
                 return (
                   <Pressable key={d} onPress={() => onPressDay(d)} style={{ flex: 1, alignItems: 'center', gap: 2 }}>
                     <Txt size={10.5} weight="med" color={i === 6 ? ACCENT : t.faint}>
@@ -383,6 +396,11 @@ function WeekHeaderStrip({
                     {freeMode ? (
                       <Txt size={11} num weight="bold" color={fm > 0 ? GREEN : t.faint}>
                         {fm > 0 ? hCompact(fm) : '—'}
+                      </Txt>
+                    ) : p.total ? (
+                      // ทำแล้ว x/y — เขียว = ครบ · ส้มเข้ม = มีค้างบันทึก · วันอนาคตบอกแค่จำนวน
+                      <Txt size={10.5} num weight="bold" color={!past ? t.faint : p.overdue ? t.warn : p.done === p.total ? t.greenInk : t.sub}>
+                        {past ? `${p.done}/${p.total}` : p.total}
                       </Txt>
                     ) : null}
                   </Pressable>

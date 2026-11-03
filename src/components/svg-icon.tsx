@@ -8,7 +8,7 @@ interface StrokeProps {
   strokeWidth: number;
   strokeLinecap: 'round';
   strokeLinejoin: 'round';
-  fill: 'none';
+  fill: string;
 }
 
 const ICONS: Record<string, (p: StrokeProps) => React.ReactNode> = {
@@ -49,7 +49,65 @@ const ICONS: Record<string, (p: StrokeProps) => React.ReactNode> = {
   ),
   moon: (p) => <Path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" {...p} />,
 
+  // ---------- มุมมองปฏิทิน (ตัวกรอง 4 ไอคอนของระบบ B1) ----------
+  viewDay: (p) => (
+    <>
+      <Rect x={3} y={5} width={18} height={16} rx={2} {...p} />
+      <Path d="M3 10h18M8 3v4M16 3v4" {...p} />
+      <Rect x={7} y={13} width={4} height={4} rx={0.8} {...p} fill={p.stroke} />
+    </>
+  ),
+  viewWeek: (p) => (
+    <>
+      <Rect x={3} y={5} width={18} height={16} rx={2} {...p} />
+      <Path d="M3 10h18M8 3v4M16 3v4" {...p} />
+      <Path d="M6.5 15.5h11" {...p} strokeWidth={p.strokeWidth * 1.6} />
+    </>
+  ),
+  viewMonth: (p) => (
+    <>
+      <Rect x={3} y={5} width={18} height={16} rx={2} {...p} />
+      <Path d="M3 10h18M8 3v4M16 3v4M3 15.5h18M9 10v11M15 10v11" {...p} />
+    </>
+  ),
+  viewYear: (p) => (
+    <>
+      <Rect x={3.5} y={3.5} width={7} height={7} rx={1.5} {...p} />
+      <Rect x={13.5} y={3.5} width={7} height={7} rx={1.5} {...p} />
+      <Rect x={3.5} y={13.5} width={7} height={7} rx={1.5} {...p} />
+      <Rect x={13.5} y={13.5} width={7} height={7} rx={1.5} {...p} />
+    </>
+  ),
+  calendar: (p) => (
+    <>
+      <Rect x={3} y={5} width={18} height={16} rx={2} {...p} />
+      <Path d="M3 10h18M8 3v4M16 3v4" {...p} />
+    </>
+  ),
+  target: (p) => (
+    <>
+      <Circle cx={12} cy={12} r={8} {...p} />
+      <Circle cx={12} cy={12} r={3} {...p} fill={p.stroke} />
+    </>
+  ),
+  clock: (p) => (
+    <>
+      <Circle cx={12} cy={12} r={9} {...p} />
+      <Polyline points="12 7 12 12 15 14" {...p} />
+    </>
+  ),
+  alert: (p) => (
+    <>
+      <Circle cx={12} cy={12} r={9} {...p} />
+      <Path d="M12 8v5M12 16.5h.01" {...p} />
+    </>
+  ),
+
   // ---------- การกระทำ / ทั่วไป ----------
+  plus: (p) => <Path d="M12 5v14M5 12h14" {...p} />,
+  minus: (p) => <Path d="M7 12h10" {...p} />,
+  chevL: (p) => <Polyline points="15 5 8 12 15 19" {...p} />,
+  chevR: (p) => <Polyline points="9 5 16 12 9 19" {...p} />,
   check: (p) => <Polyline points="20 6 9 17 4 12" {...p} />,
   x: (p) => (
     <>

@@ -5,12 +5,16 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Keyboard, Modal, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { StatusDot } from '@/components/b1/status-circle';
+import { useNow } from '@/components/b1/use-now';
 import { Icon } from '@/components/icon';
 import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Chip, ChipRow, PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, DANGER, FONT, GREEN, PRI } from '@/constants/theme';
-import { durText, fmtRange, thaiDate } from '@/lib/dates';
-import type { Contact } from '@/lib/types';
+import { addDays, durText, fmtMin, fmtRange, thaiDate } from '@/lib/dates';
+import { daytimeFreeSlots, seriesDates } from '@/lib/engine';
+import { isPast, railState } from '@/lib/progress';
+import type { Contact, OccStatus } from '@/lib/types';
 import { useActivities, useDay } from '@/stores/activities';
 import { meetLink, openLink, useContacts, zoomAppLink, zoomWebLink } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
@@ -18,7 +22,7 @@ import { useUI } from '@/stores/ui';
 
 export function ActivitySheet() {
   const sheet = useUI((s) => s.sheet);
-  return sheet ? <SheetBody id={sheet.id} date={sheet.date} /> : null;
+  return sheet ? <SheetBody key={`${sheet.id}:${sheet.date}`} id={sheet.id} date={sheet.date} /> : null;
 }
 
 /** ความสูงคีย์บอร์ดปัจจุบัน (0 = ปิด) — รองรับทั้ง iOS (will) และ Android (did) */
@@ -44,9 +48,14 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   const closeSheet = useUI((s) => s.closeSheet);
   const openResc = useUI((s) => s.openResc);
   const showToast = useUI((s) => s.showToast);
-  const { setStatus, deleteOne, deleteSeries, update, acts } = useActivities();
+  const { setStatus, setNote, reschedule, deleteOne, deleteSeries, update, acts, occ, notes } = useActivities();
+  const now = useNow();
   const contacts = useContacts((s) => s.list);
-  const item = useDay(date).find((i) => i.id === id);
+  const dayList = useDay(date);
+  const item = dayList.find((i) => i.id === id);
+  const tomorrowList = useDay(addDays(date, 1));
+  const savedNote = notes[date]?.[id] ?? '';
+  const [noteText, setNoteText] = useState(savedNote);
   const [confirm, setConfirm] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [adding, setAdding] = useState(false); // เปิดรายการรายชื่อเพื่อเพิ่มเข้าเคสนี้
@@ -63,7 +72,55 @@ function SheetBody({ id, date }: { id: number; date: string }) {
     return null;
   }
   const cat = CAT_BY_ID[item.cat];
-  const done = item.ostatus === 'done';
+  const state = railState(item, now, null);
+  const canResc = item.ostatus !== 'rescheduled';
+  const dur = item.endMin - item.startMin;
+
+  // ตัวเลือกสถานะ 3 ทาง — วงกลมชุดเดียวกับราง · กดซ้ำอันที่เลือกอยู่ = ไม่เปลี่ยน
+  const pickStatus = (next: OccStatus | null) => {
+    const cur: OccStatus | null = item.ostatus === 'planned' ? null : item.ostatus;
+    if (cur === next) return;
+    setStatus(item, next);
+    showToast(next === 'done' ? 'บันทึกว่าทำแล้ว' : next === 'skipped' ? 'บันทึกว่าข้าม' : 'เปลี่ยนเป็นยังไม่ทำ', { label: 'เลิกทำ', run: () => setStatus(item, cur) });
+  };
+
+  const saveNote = () => {
+    if (noteText.trim() === savedNote) return;
+    setNote(item, noteText);
+    showToast(noteText.trim() ? 'บันทึกโน้ตแล้ว' : 'ลบโน้ตแล้ว');
+  };
+
+  // เลื่อนด่วน: ช่วงว่างถัดไปที่ยาวพอ (วันเดียวกัน หลังตอนนี้/หลังรายการนี้) · พรุ่งนี้เวลาเดิม · เลือกเอง (Reschedule Modal)
+  const others = dayList.filter((x) => x.id !== item.id);
+  const after = Math.max(item.endMin, date === now.date ? now.min : 0);
+  const slot = daytimeFreeSlots(others).find((s) => Math.max(s.start, after) + dur <= s.end);
+  const slotStart = slot ? Math.ceil(Math.max(slot.start, after) / 15) * 15 : null;
+  const quickSlot = slotStart != null && slotStart + dur <= slot!.end ? slotStart : null;
+  const tomorrowBusy = tomorrowList.some((x) => x.id !== item.id && x.startMin < item.endMin && item.startMin < x.endMin);
+  const moveTo = (toDate: string, start: number, label: string) => {
+    reschedule(item, { date: toDate, start, end: start + dur }, '');
+    closeSheet();
+    showToast(`เลื่อนไป ${label} แล้ว`);
+  };
+
+  // สรุปของชุดทำซ้ำ (ถึงวันนี้)
+  const series = acts.find((a) => a.id === item.id);
+  const seriesStat = (() => {
+    if (!series || series.repeat === 'none') return null;
+    let total = 0;
+    let doneN = 0;
+    let skip = 0;
+    for (const d of seriesDates(series)) {
+      if (d > now.date) break;
+      const st = occ[d]?.[series.id];
+      if (st === 'cancelled' || st === 'rescheduled') continue;
+      if (!st && isPast({ date: d, endMin: series.endMin }, now) === false) continue;
+      total++;
+      if (st === 'done') doneN++;
+      if (st === 'skipped') skip++;
+    }
+    return total ? { total, done: doneN, skip } : null;
+  })();
   const caseContacts = item.contactIds
     .map((cid) => contacts.find((c) => c.id === cid))
     .filter((c): c is Contact => !!c);
@@ -170,16 +227,30 @@ function SheetBody({ id, date }: { id: number; date: string }) {
             <Txt size={12} color={cat.color} weight="med">{cat.short}</Txt>
           </View>
           {item.cat === 'case' ? <PriBadge id={item.priority} withLabel /> : null}
-          {done ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <SvgIcon name="check" size={13} color={GREEN} />
-              <Txt size={12} color={GREEN} weight="med">ทำแล้ว</Txt>
+          {item.repeat !== 'none' ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Icon name="repeat" size={13} color={t.sub} />
+              <Txt size={12} color={t.sub}>ชุดทำซ้ำ</Txt>
             </View>
           ) : null}
-          {item.ostatus === 'rescheduled' ? <Txt size={12} color="#D2603A" weight="med">เลื่อนแล้ว</Txt> : null}
+          <View style={{ flex: 1 }} />
+          <Pressable accessibilityRole="button" accessibilityLabel="ปิด" onPress={closeSheet} hitSlop={6} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' }}>
+            <SvgIcon name="x" size={16} color={t.sub} strokeWidth={2.4} />
+          </Pressable>
         </View>
 
-        <Txt size={22} weight="bold">{item.title}</Txt>
+        {state === 'overdue' ? (
+          <Txt size={12.5} weight="bold" color={t.warn}>
+            ค้างบันทึก · เลยเวลามา {date < now.date ? 'ตั้งแต่วันก่อน' : durText(now.min - item.endMin)}
+          </Txt>
+        ) : state === 'current' ? (
+          <Txt size={12.5} weight="bold" color={t.accentInk}>
+            กำลังทำ · เหลืออีก {durText(item.endMin - now.min)}
+          </Txt>
+        ) : item.ostatus === 'rescheduled' ? (
+          <Txt size={12.5} weight="bold" color={t.accentInk}>เลื่อนไปแล้ว</Txt>
+        ) : null}
+        <Txt size={21} weight="bold" style={{ lineHeight: 29 }}>{item.title}</Txt>
         <Txt size={14} num color={t.sub}>
           {thaiDate(date)} · {fmtRange(item.startMin, item.endMin)} ({durText(item.endMin - item.startMin)})
         </Txt>
@@ -243,26 +314,95 @@ function SheetBody({ id, date }: { id: number; date: string }) {
         ) : null}
 
         {!confirm ? (
-          <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <Btn
-                style={{ flex: 1 }}
-                kind={done ? 'ghost' : 'green'}
-                renderIcon={(c, s) => <SvgIcon name={done ? 'restore' : 'check'} size={s} color={c} />}
-                label={done ? 'ยังไม่ทำ' : 'ทำแล้ว'}
-                onPress={() => {
-                  setStatus(item, done ? null : 'done');
-                  if (!done) showToast('เยี่ยม! ทำสำเร็จ ✓');
-                }}
+          <View style={{ gap: 12 }}>
+            {canResc ? (
+              <View style={{ gap: 6 }}>
+                <Txt size={12.5} weight="bold" color={t.sub}>สถานะครั้งนี้</Txt>
+                <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', backgroundColor: t.track, borderRadius: 14, padding: 3, gap: 2 }}>
+                  {([
+                    ['done', 'ทำแล้ว', 'done'],
+                    ['skipped', 'ข้าม', 'skipped'],
+                    [null, 'ยังไม่ทำ', state === 'overdue' || state === 'current' ? state : 'planned'],
+                  ] as const).map(([st, label, dot]) => {
+                    const on = (item.ostatus === 'planned' ? null : item.ostatus) === st;
+                    return (
+                      <Pressable
+                        key={label}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: on }}
+                        onPress={() => pickStatus(st)}
+                        style={{ flex: 1, height: 46, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: on ? t.card : 'transparent' }}>
+                        <StatusDot state={dot} size={20} />
+                        <Txt size={13.5} weight={on ? 'bold' : 'med'} color={on ? t.ink : t.sub}>{label}</Txt>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            <View style={{ gap: 6 }}>
+              <Txt size={12.5} weight="bold" color={t.sub}>
+                โน้ตของครั้งนี้ <Txt size={12.5} color={t.faint}>(ไม่บังคับ)</Txt>
+              </Txt>
+              <TextInput
+                value={noteText}
+                onChangeText={setNoteText}
+                onBlur={saveNote}
+                onSubmitEditing={saveNote}
+                placeholder="เช่น สรุปที่คุยกัน / น้ำหนักที่ยก"
+                placeholderTextColor={t.faint}
+                multiline
+                accessibilityLabel="โน้ตของครั้งนี้"
+                style={{ minHeight: 64, maxHeight: 120, borderRadius: 12, borderWidth: 1, borderColor: t.rail, backgroundColor: t.card, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
               />
-              {item.cat === 'case' && item.ostatus !== 'rescheduled' ? (
-                <Btn style={{ flex: 1 }} kind="primary" renderIcon={(c, s) => <SvgIcon name="skip" size={s} color={c} />} label="เลื่อนนัด" onPress={() => openResc(item)} />
-              ) : null}
             </View>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <Btn style={{ flex: 1 }} kind="ghost" renderIcon={(c, s) => <SvgIcon name="edit" size={s} color={c} />} label="แก้ไข" onPress={onEdit} />
-              <Btn style={{ flex: 1 }} kind="ghost" renderIcon={(c, s) => <SvgIcon name="trash" size={s} color={c} />} label="ลบ" onPress={() => setConfirm(true)} />
+
+            {canResc ? (
+              <View style={{ gap: 6 }}>
+                <Txt size={12.5} weight="bold" color={t.sub}>เลื่อนครั้งนี้ไป</Txt>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {quickSlot != null ? (
+                    <Pressable accessibilityRole="button" onPress={() => moveTo(date, quickSlot, `${fmtMin(quickSlot)}`)} style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.freeLine, justifyContent: 'center' }}>
+                      <Txt size={13} weight="bold" color={t.greenInk}>ช่วงว่าง {fmtMin(quickSlot)}</Txt>
+                    </Pressable>
+                  ) : null}
+                  {!tomorrowBusy ? (
+                    <Pressable accessibilityRole="button" onPress={() => moveTo(addDays(date, 1), item.startMin, `พรุ่งนี้ ${fmtMin(item.startMin)}`)} style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: t.track, justifyContent: 'center' }}>
+                      <Txt size={13} weight="med">พรุ่งนี้ {fmtMin(item.startMin)}</Txt>
+                    </Pressable>
+                  ) : null}
+                  <Pressable accessibilityRole="button" onPress={() => openResc(item)} style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: t.track, justifyContent: 'center' }}>
+                    <Txt size={13} weight="med">เลือกวันเวลา…</Txt>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Btn style={{ flex: 1 }} kind="ghost" renderIcon={(c, sz) => <SvgIcon name="edit" size={sz} color={c} />} label="แก้ไขกิจกรรม" onPress={onEdit} />
+              <Pressable accessibilityRole="button" onPress={() => setConfirm(true)} style={{ height: 46, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <SvgIcon name="trash" size={16} color={t.warn} />
+                <Txt size={14} weight="bold" color={t.warn}>ลบ…</Txt>
+              </Pressable>
             </View>
+
+            {seriesStat ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: t.line, paddingTop: 10 }}>
+                <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>
+                  ชุดนี้: ทำแล้ว {seriesStat.done} จาก {seriesStat.total} ครั้ง{seriesStat.skip ? ` · ข้าม ${seriesStat.skip}` : ''}
+                </Txt>
+                <Pressable
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={() => {
+                    useUI.getState().parkSheet();
+                    router.push('/settings/stats');
+                  }}>
+                  <Txt size={12.5} weight="bold" color={t.accentInk}>ดูสถิติ ›</Txt>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
         ) : (
           <View style={{ gap: 8 }}>
@@ -480,6 +620,7 @@ function ContactEditForm({
         zoom: d.zoom || null,
         googlemeet: d.googlemeet || null,
         note: d.note || null,
+        org: d.org || null,
       });
       showToast('บันทึกรายชื่อแล้ว ✓');
       onClose();

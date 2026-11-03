@@ -65,6 +65,7 @@ export default function ContactsScreen() {
       zoom: editing?.zoom || null,
       googlemeet: editing?.googlemeet || null,
       note: editing?.note || null,
+      org: editing?.org || null,
     });
     setEditing(null);
     showToast('บันทึกรายชื่อแล้ว ✓');

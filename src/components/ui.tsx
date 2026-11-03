@@ -97,12 +97,15 @@ interface SegmentedProps<K extends string> {
 export function Segmented<K extends string>({ options, value, onChange }: SegmentedProps<K>) {
   const t = useTokens();
   return (
-    <View style={{ flexDirection: 'row', backgroundColor: t.chip, borderRadius: 99, padding: 3 }}>
+    // ระบบ B1 — รางสีเบจ มุม 14 · ตัวที่เลือก = การ์ดขาวมีเงาบาง
+    <View accessibilityRole="tablist" style={{ flexDirection: 'row', backgroundColor: t.track, borderRadius: 14, padding: 3, gap: 2 }}>
       {options.map((o) => {
         const active = o.key === value;
         return (
           <Pressable
             key={o.key}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
             onPress={() => onChange(o.key)}
             style={{
               flex: 1,
@@ -110,9 +113,15 @@ export function Segmented<K extends string>({ options, value, onChange }: Segmen
               alignItems: 'center',
               justifyContent: 'center',
               gap: 5,
-              paddingVertical: 7,
-              borderRadius: 99,
+              minHeight: 40,
+              paddingHorizontal: 4,
+              borderRadius: 11,
               backgroundColor: active ? t.card : 'transparent',
+              shadowColor: '#221C13',
+              shadowOpacity: active ? 0.12 : 0,
+              shadowRadius: 3,
+              shadowOffset: { width: 0, height: 1 },
+              elevation: active ? 1 : 0,
             }}>
             {o.icon ? <Icon name={o.icon} size={14} color={active ? (o.iconColor ?? t.ink) : t.sub} /> : null}
             <Txt size={13} weight={active ? 'bold' : 'med'} color={active ? t.ink : t.sub}>

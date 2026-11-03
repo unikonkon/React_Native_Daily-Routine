@@ -295,7 +295,7 @@ function DetailsSection() {
                     onPress={async () => {
                       const name = newName.trim();
                       if (!name) return;
-                      await upsertContact({ name, priority: 'P6', phone: null, line: null, email: null, zoom: null, googlemeet: null, note: null });
+                      await upsertContact({ name, priority: 'P6', phone: null, line: null, email: null, zoom: null, googlemeet: null, note: null, org: null });
                       setNewName('');
                       setAddingContact(false);
                       showToast(`เพิ่ม ${name} ในสมุดรายชื่อแล้ว ✓`);

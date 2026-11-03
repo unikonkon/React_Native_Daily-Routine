@@ -1,103 +1,26 @@
-// แถบนำทางช่วงเวลา ‹ ป้าย › — ใช้ร่วมมุมมองสัปดาห์/เดือนของแท็บวันนี้และแท็บสรุป
-// รวมการทำงานไว้ที่เดียว: ป้ายชื่อช่วง + เลื่อนไปหน้า/ย้อนหลัง + แตะป้ายเพื่อเปิด popup กระโดดข้ามช่วง
+// popup เลือกสัปดาห์ (ปี → เดือน → สัปดาห์) — ใช้ใน Reschedule Modal
+// (แถบ ‹ ช่วง › เดิมของแท็บวันนี้ถูกแทนด้วยแถบล่าง B1 แล้ว)
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
-import { Chip, Txt, useTokens } from '@/components/ui';
+import { Txt, useTokens } from '@/components/ui';
 import { ACCENT } from '@/constants/theme';
 import {
   MONTH_TH,
   SCHED_MAX_Y,
   SCHED_MIN_Y,
-  VIEW_MAX_Y,
-  VIEW_MIN_Y,
   addDays,
   beYear,
   fromISO,
   mondayOf,
   thaiWeekRange,
   toISO,
-  todayISO,
 } from '@/lib/dates';
 
 interface YM {
   y: number;
   m: number; // 0-based
-}
-
-function PeriodNav({
-  label,
-  onPrev,
-  onNext,
-  onPressLabel,
-  onToday,
-}: {
-  label: string;
-  onPrev: () => void;
-  onNext: () => void;
-  onPressLabel: () => void;
-  /** แสดงชิป "วันนี้" เมื่อส่งมา (ซ่อนเมื่อดูช่วงปัจจุบันอยู่แล้ว) */
-  onToday?: () => void;
-}) {
-  const t = useTokens();
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 8, gap: 4 }}>
-      <Pressable onPress={onPrev} style={{ padding: 6 }}>
-        <Icon name="chevL" size={20} color={t.sub} />
-      </Pressable>
-      <Pressable
-        onPress={onPressLabel}
-        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 4 }}>
-        <Txt size={14} weight="med">
-          {label}
-        </Txt>
-        <Icon name="chevD" size={14} color={t.sub} />
-      </Pressable>
-      {onToday ? <Chip small label="วันนี้" active color={ACCENT} onPress={onToday} /> : null}
-      <Pressable onPress={onNext} style={{ padding: 6 }}>
-        <Icon name="chevR" size={20} color={t.sub} />
-      </Pressable>
-    </View>
-  );
-}
-
-/** มุมมองสัปดาห์: ป้าย "6 ก.ค. – 12 ก.ค. 2569" + เลื่อนทีละ 7 วัน — แตะป้ายเปิด popup เลือก สัปดาห์/เดือน/ปี */
-export function WeekNav({
-  monday,
-  onChange,
-  minYear = VIEW_MIN_Y,
-  maxYear = VIEW_MAX_Y,
-}: {
-  monday: string;
-  onChange: (monday: string) => void;
-  minYear?: number;
-  maxYear?: number;
-}) {
-  const [open, setOpen] = useState(false);
-  const thisWeek = mondayOf(todayISO());
-  return (
-    <>
-      <PeriodNav
-        label={thaiWeekRange(monday)}
-        onPrev={() => onChange(addDays(monday, -7))}
-        onNext={() => onChange(addDays(monday, 7))}
-        onPressLabel={() => setOpen(true)}
-        onToday={monday !== thisWeek ? () => onChange(thisWeek) : undefined}
-      />
-      <WeekPicker
-        visible={open}
-        monday={monday}
-        minYear={minYear}
-        maxYear={maxYear}
-        onClose={() => setOpen(false)}
-        onPick={(m) => {
-          onChange(m);
-          setOpen(false);
-        }}
-      />
-    </>
-  );
 }
 
 // ---------- popup เลือกสัปดาห์: ปี → เดือน → รายการสัปดาห์ของเดือนนั้น (ใช้ซ้ำใน Reschedule Modal ด้วย) ----------

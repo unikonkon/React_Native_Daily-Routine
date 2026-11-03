@@ -1,25 +1,41 @@
-// แท็บ 1 — วันนี้: มุมมอง วัน/สัปดาห์/เดือน/ปี (ลุค mockup iOS Calendar, ธีมเดิม) + fabbar ลอยล่าง
+// แท็บ 1 — วันนี้ (ระบบ B1): มุมมอง วัน/สัปดาห์/เดือน/ปี + แถววันที่ (ไอคอนมุมมอง 4 อัน) + แถบลอยล่าง ‹ วันนี้ › · ปฏิทิน · ＋
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Icon } from '@/components/icon';
-import { WeekNav } from '@/components/period-nav';
-import { Screen, TABBAR_H } from '@/components/screen';
+import { BOTTOM_BAR_SPACE, CalendarBar } from '@/components/b1/bottom-bar';
+import { DateHeader, type CalView } from '@/components/b1/date-header';
+import { useNow } from '@/components/b1/use-now';
+import { Screen } from '@/components/screen';
+import { SvgIcon } from '@/components/svg-icon';
 import { TodayDayView } from '@/components/today/day-view';
-import { TodayDeleteBar, TodayFabBar } from '@/components/today/fab-bar';
+import { TodayDeleteBar } from '@/components/today/fab-bar';
 import { TodayMonthView } from '@/components/today/month-view';
-import { ViewSwitcher, type View3 } from '@/components/today/parts';
 import { itemKey, TodayWeekView } from '@/components/today/week-view';
 import { TodayYearView } from '@/components/today/year-view';
 import { Txt, useTokens } from '@/components/ui';
-import { DANGER } from '@/constants/theme';
-import { fromISO, mondayOf, todayISO } from '@/lib/dates';
+import { addDays, beYear, fromISO, mondayOf, MONTH_TH, MONTH_TH_FULL, todayISO, toISO, VIEW_MAX_Y, VIEW_MIN_Y } from '@/lib/dates';
+import { dayProgress, type NowRef } from '@/lib/progress';
 import type { DayItem } from '@/lib/types';
-import { useActivities } from '@/stores/activities';
+import { useActivities, useDayReader } from '@/stores/activities';
 import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
+
+/** รวมความคืบหน้าของช่วงวัน (ถึงวันนี้) — ใช้บรรทัดสรุปของหัวสัปดาห์/เดือน/ปี */
+function rangeProgress(getDay: (d: string) => DayItem[], from: string, to: string, now: NowRef) {
+  let total = 0;
+  let done = 0;
+  let overdue = 0;
+  const last = to < now.date ? to : now.date;
+  for (let d = from; d <= last; d = addDays(d, 1)) {
+    const p = dayProgress(getDay(d), now);
+    total += d === now.date ? p.total - p.waiting : p.total; // วันนี้: นับเฉพาะที่ถึงเวลาแล้ว
+    done += p.done;
+    overdue += p.overdue;
+  }
+  return { total, done, overdue, rate: total ? done / total : 0 };
+}
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -29,14 +45,18 @@ export default function TodayScreen() {
   const showToast = useUI((s) => s.showToast);
   const freeMode = useUI((s) => s.freeMode);
   const deleteOne = useActivities((s) => s.deleteOne);
+  const getDay = useDayReader();
+  const now = useNow();
 
-  const [view, setView] = useState<View3>('day');
+  const [view, setView] = useState<CalView>('day');
   const [focus, setFocus] = useState(todayISO());
   const [monday, setMonday] = useState(mondayOf(todayISO()));
   const [ym, setYm] = useState(() => {
     const d = new Date();
     return { y: d.getFullYear(), m: d.getMonth() };
   });
+  // กด "วันนี้" ขณะอยู่วันนี้แล้ว → มุมมองวันเลื่อนไปที่เส้น "ตอนนี้"
+  const [scrollNow, setScrollNow] = useState(0);
 
   // โหมดลบ (เฉพาะมุมมองสัปดาห์) — เลือกได้หลายรายการแล้วลบทีเดียว · เก็บ DayItem ไว้ทั้งตัวเพราะ deleteOne ต้องใช้ occurrence จริง
   const [delMode, setDelMode] = useState(false);
@@ -50,7 +70,7 @@ export default function TodayScreen() {
     setConfirming(false);
   };
 
-  // เปลี่ยนสัปดาห์ (ทั้งปุ่ม ‹ › และปัดหัวคอลัมน์) → ล้างรายการที่เลือก กันลบของสัปดาห์ที่มองไม่เห็นแล้ว
+  // เปลี่ยนสัปดาห์ → ล้างรายการที่เลือก กันลบของสัปดาห์ที่มองไม่เห็นแล้ว
   const changeMonday = (m: string) => {
     setPicked([]);
     setConfirming(false);
@@ -58,7 +78,7 @@ export default function TodayScreen() {
   };
 
   const togglePick = (it: DayItem) => {
-    setConfirming(false); // เปลี่ยนรายการที่เลือก → เริ่มยืนยันใหม่
+    setConfirming(false);
     setPicked((cur) => (cur.some((x) => itemKey(x) === itemKey(it)) ? cur.filter((x) => itemKey(x) !== itemKey(it)) : [...cur, it]));
   };
 
@@ -82,95 +102,133 @@ export default function TodayScreen() {
     }
   }, [focusDate]);
 
+  const changeView = (v: CalView) => {
+    exitDelMode();
+    // พามุมมองใหม่ไปช่วงเดียวกับวันที่กำลังดู
+    const d = fromISO(focus);
+    if (v === 'week') setMonday(mondayOf(focus));
+    if (v === 'month' || v === 'year') setYm({ y: d.getFullYear(), m: d.getMonth() });
+    setView(v);
+  };
+
   const goDay = (iso: string) => {
     setFocus(iso);
     setView('day');
   };
 
-  // แตะช่วงเวลาว่าง (โหมดวันที่ว่าง) → เปิดฟอร์มเพิ่ม พร้อม prefill วันและช่วงเวลา
+  // แตะช่วงเวลาว่าง → เปิดฟอร์มเพิ่ม พร้อม prefill วันและช่วงเวลา
   const openSlot = (date: string, start: number, end: number) => {
     useDraft.getState().reset();
     useDraft.getState().set({ dates: [date], start, end });
     router.push('/add');
   };
 
-  const shiftMonth = (d: number) => {
-    const dt = new Date(ym.y, ym.m + d, 1);
-    setYm({ y: dt.getFullYear(), m: dt.getMonth() });
+  const openAdd = () => {
+    useDraft.getState().reset();
+    useDraft.getState().set({ dates: [view === 'day' ? focus : todayISO()] });
+    router.push('/add');
   };
 
-  // "วันนี้" — รีเซ็ตทุก state กลับมาที่วันนี้ + สลับมามุมมองวันเสมอ
-  const now = fromISO(todayISO());
-  const goToday = () => {
-    setFocus(todayISO());
-    setMonday(mondayOf(todayISO()));
-    setYm({ y: now.getFullYear(), m: now.getMonth() });
-    setView('day');
-  };
+  const today = fromISO(todayISO());
   const atToday =
     view === 'day'
       ? focus === todayISO()
       : view === 'week'
         ? monday === mondayOf(todayISO())
         : view === 'month'
-          ? ym.y === now.getFullYear() && ym.m === now.getMonth()
-          : ym.y === now.getFullYear();
+          ? ym.y === today.getFullYear() && ym.m === today.getMonth()
+          : ym.y === today.getFullYear();
 
-  const bottomPad = TABBAR_H + insets.bottom + 70;
+  // "วันนี้" — ไปช่วงของวันนี้ในมุมมองเดิม · อยู่วันนี้แล้ว (มุมมองวัน) = เลื่อนไปที่ "ตอนนี้"
+  const goToday = () => {
+    if (view === 'day' && atToday) return setScrollNow((n) => n + 1);
+    exitDelMode();
+    setFocus(todayISO());
+    changeMonday(mondayOf(todayISO()));
+    setYm({ y: today.getFullYear(), m: today.getMonth() });
+  };
+
+  const step = (dir: 1 | -1) => {
+    if (view === 'day') setFocus(addDays(focus, dir));
+    else if (view === 'week') changeMonday(addDays(monday, dir * 7));
+    else if (view === 'month') {
+      const dt = new Date(ym.y, ym.m + dir, 1);
+      setYm({ y: dt.getFullYear(), m: dt.getMonth() });
+    } else {
+      const y = ym.y + dir;
+      if (y >= VIEW_MIN_Y && y <= VIEW_MAX_Y) setYm({ ...ym, y });
+    }
+  };
+  const unit = { day: 'วัน', week: 'สัปดาห์', month: 'เดือน', year: 'ปี' }[view];
+
+  // บรรทัดสรุปของหัวสัปดาห์/เดือน/ปี (มุมมองวันทำเอง)
+  const header = useMemo(() => {
+    if (view === 'week') {
+      const a = fromISO(monday);
+      const b = fromISO(addDays(monday, 6));
+      const p = rangeProgress(getDay, monday, addDays(monday, 6), now);
+      const title = a.getMonth() === b.getMonth() ? `${a.getDate()}–${b.getDate()} ${MONTH_TH[a.getMonth()]}` : `${a.getDate()} ${MONTH_TH[a.getMonth()]} – ${b.getDate()} ${MONTH_TH[b.getMonth()]}`;
+      return { title, summary: `${beYear(b.getFullYear())}${p.total ? ` · เสร็จ ${p.done}/${p.total}` : ''}${p.overdue ? ` · ค้าง ${p.overdue}` : ''}` };
+    }
+    if (view === 'month') {
+      const from = toISO(new Date(ym.y, ym.m, 1));
+      const p = rangeProgress(getDay, from, toISO(new Date(ym.y, ym.m + 1, 0)), now);
+      return {
+        title: `${MONTH_TH_FULL[ym.m]} ${beYear(ym.y)}`,
+        summary: from > now.date ? 'ยังไม่ถึง' : p.total ? `ถึงวันนี้เสร็จ ${Math.round(p.rate * 100)}%${p.overdue ? ` · ค้าง ${p.overdue} รายการ` : ''}` : 'ยังไม่มีรายการ',
+      };
+    }
+    if (view === 'year') {
+      const p = rangeProgress(getDay, `${ym.y}-01-01`, `${ym.y}-12-31`, now);
+      const n = fromISO(now.date);
+      return { title: `${beYear(ym.y)}`, summary: p.total ? `ทำเสร็จ ${Math.round(p.rate * 100)}%${ym.y === n.getFullYear() ? ` · ข้อมูลถึง ${n.getDate()} ${MONTH_TH[n.getMonth()]}` : ''}` : 'ยังไม่มีรายการ' };
+    }
+    return null;
+  }, [view, monday, ym, getDay, now]);
+
+  const bottomPad = insets.bottom + BOTTOM_BAR_SPACE + 16;
 
   return (
-    <Screen title="วันนี้" scroll={false}>
+    <Screen title="วันนี้" scroll={false} showFreeToggle={view !== 'year'}>
       {view === 'day' ? (
         <TodayDayView
           focus={focus}
           onChangeFocus={setFocus}
-          onBack={() => {
-            const d = fromISO(focus);
-            setYm({ y: d.getFullYear(), m: d.getMonth() });
-            setView('month');
-          }}
+          onPressTitle={() => changeView('month')}
           onPressItem={(it) => openSheet(it.id, it.date)}
           bottomPad={bottomPad}
           view={view}
-          onChangeView={setView}
-          freeMode={freeMode}
+          onChangeView={changeView}
           onPressSlot={openSlot}
+          onAdd={openAdd}
+          scrollToNowSignal={scrollNow}
+          freeMode={freeMode}
         />
-      ) : null}
+      ) : (
+        <DateHeader
+          title={header?.title ?? ''}
+          summary={header?.summary}
+          onPressTitle={view === 'month' ? () => changeView('year') : view === 'year' ? undefined : () => changeView('month')}
+          view={view}
+          onChangeView={changeView}
+        />
+      )}
 
       {view === 'week' ? (
         <>
-          {/* week ไม่มีแถวหัวที่ว่างพอจะรวมกับป้ายช่วง (ป้ายวันที่ยาว) — ปุ่มโหมดลบชิดซ้าย + ตัวสลับมุมมองชิดขวา */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingBottom: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingTop: 6, paddingBottom: 2 }}>
+            <View style={{ flex: 1 }} />
             <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: delMode }}
               onPress={() => (delMode ? exitDelMode() : setDelMode(true))}
-              hitSlop={6}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 5,
-                height: 34,
-                paddingHorizontal: 12,
-                borderRadius: 99,
-                borderWidth: 1,
-                borderColor: delMode ? DANGER : t.line,
-                backgroundColor: delMode ? DANGER + '26' : 'transparent',
-              }}>
-              <Icon name="trash" size={16} color={delMode ? DANGER : t.sub} />
-              <Txt size={13} weight={delMode ? 'bold' : 'med'} color={delMode ? DANGER : t.sub}>
-                ลบ
+              style={{ height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: delMode ? t.warn : t.track, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <SvgIcon name="trash" size={15} color={delMode ? '#FFFFFF' : t.sub} />
+              <Txt size={13} weight="med" color={delMode ? '#FFFFFF' : t.sub}>
+                {delMode ? 'เลิกเลือก' : 'เลือกลบ'}
               </Txt>
             </Pressable>
-            <View style={{ flex: 1 }} />
-            <ViewSwitcher
-              value={view}
-              onChange={(v) => {
-                exitDelMode(); // ออกจากมุมมองสัปดาห์ = จบโหมดลบ (ทิ้งรายการที่เลือกไว้)
-                setView(v);
-              }}
-            />
           </View>
-          <WeekNav monday={monday} onChange={changeMonday} />
           <TodayWeekView
             monday={monday}
             onChangeMonday={changeMonday}
@@ -191,13 +249,8 @@ export default function TodayScreen() {
           year={ym.y}
           month={ym.m}
           selected={focus}
-          onBack={() => setView('year')}
-          onPrev={() => shiftMonth(-1)}
-          onNext={() => shiftMonth(1)}
           onPressDay={goDay}
           bottomPad={bottomPad}
-          view={view}
-          onChangeView={setView}
           freeMode={freeMode}
           onPressSlot={openSlot}
           onPressItem={(it) => openSheet(it.id, it.date)}
@@ -207,38 +260,33 @@ export default function TodayScreen() {
       {view === 'year' ? (
         <TodayYearView
           year={ym.y}
-          onPrev={() => setYm({ ...ym, y: ym.y - 1 })}
-          onNext={() => setYm({ ...ym, y: ym.y + 1 })}
           onPressMonth={(m) => {
             setYm({ y: ym.y, m });
             setView('month');
           }}
           bottomPad={bottomPad}
-          view={view}
-          onChangeView={setView}
         />
       ) : null}
 
-      {/* fabbar ลอยล่าง — เฉพาะแท็บวันนี้ · ระหว่างโหมดลบสลับเป็นแถบเลือก/ยืนยันลบ */}
       {delMode ? (
         <TodayDeleteBar
           count={picked.length}
-          bottom={TABBAR_H + insets.bottom + 16}
+          bottom={insets.bottom + 20}
           confirming={confirming}
           onCancel={() => (confirming ? setConfirming(false) : exitDelMode())}
           onPressDelete={onPressDelete}
         />
       ) : (
-        <TodayFabBar
-          atToday={atToday}
-          bottom={TABBAR_H + insets.bottom + 16}
+        <CalendarBar
+          onPrev={() => step(-1)}
+          onNext={() => step(1)}
+          prevLabel={`${unit}ก่อน`}
+          nextLabel={`${unit}ถัดไป`}
           onToday={goToday}
-          onCalendar={() => setView('month')}
-          onAdd={() => {
-            useDraft.getState().reset();
-            useDraft.getState().set({ dates: [focus] });
-            router.push('/add');
-          }}
+          atToday={atToday}
+          onCalendar={() => changeView('month')}
+          calendarActive={view === 'month'}
+          onAdd={openAdd}
         />
       )}
     </Screen>

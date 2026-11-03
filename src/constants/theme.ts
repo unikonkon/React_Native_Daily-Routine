@@ -5,7 +5,7 @@ export type ThemeName = 'light' | 'dark';
 export const ACCENT = '#D2603A';
 
 const light = {
-    bg: '#F4EFE6',
+    bg: '#F7F3EC',
     card: '#FFFFFF',
     card2: '#FBF7F0',
     ink: '#221C13',
@@ -17,6 +17,17 @@ const light = {
     glass: 'rgba(247,243,236,0.72)',
   sheet: '#FFFFFF',
   overlay: 'rgba(30,24,16,0.34)',
+  // ---- ระบบ B1 (รางติ๊ก · ไอคอนมุมมอง · แถบล่าง) ----
+  track: '#EDE6DA', // ราง segmented / ปุ่มรอง
+  tabOn: '#EAE3D7', // pill แท็บที่เปิดอยู่
+  muted: '#8A8175', // ข้อความรายการที่ทำแล้ว/ข้าม · เวลาสิ้นสุด
+  rail: '#E2DACD', // เส้นราง
+  railDash: '#CFC6B6', // รางช่วงเวลาว่าง (เส้นประ)
+  accentInk: '#B44E2C', // ปุ่มหลัก / ข้อความเน้น (คอนทราสต์พอบนพื้นขาว)
+  warn: '#A33F1F', // ค้างบันทึก / ลบ
+  greenInk: '#2F6B45', // ข้อความสีเขียว (เวลาว่าง)
+  freeLine: '#CFE0D3', // กรอบเส้นประช่วงว่าง
+  skipFill: '#DDD5C8', // วงกลม "ข้าม"
 };
 
 const dark = {
@@ -32,6 +43,16 @@ const dark = {
     glass: 'rgba(24,20,14,0.72)',
   sheet: '#1c1810',
   overlay: 'rgba(0,0,0,0.6)',
+  track: '#2b251b',
+  tabOn: '#352d21',
+  muted: '#8F8573',
+  rail: '#3a3226',
+  railDash: '#4A4236',
+  accentInk: '#EE8A63',
+  warn: '#F08A64',
+  greenInk: '#6FBF8C',
+  freeLine: '#2F4A38',
+  skipFill: '#4A4236',
 };
 
 export type Palette = { [K in keyof typeof light]: string };
