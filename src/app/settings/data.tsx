@@ -237,18 +237,25 @@ export default function DataScreen() {
 
   /** นำเข้า Time Table — รับทั้ง .xlsx (อ่านสี/เซลล์ merge ด้วย) และ .csv ในปุ่มเดียว */
   const pickTimeTableImport = async () => {
+    // ไฟล์ที่ได้จาก LINE/แชท มักถูกระบุชนิดเป็น octet-stream (หรือ csv เป็น ms-excel) — ต้องรับด้วย ไม่งั้นกดเลือกไม่ได้
     const asset = await pickDocument([
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
       'text/csv',
       'text/comma-separated-values',
       'text/plain',
+      'application/octet-stream',
     ]);
     if (!asset) return;
-    const isXlsx =
-      /\.xlsx$/i.test(asset.name ?? '') || asset.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     try {
       const file = new File(asset.uri);
-      setPendingTT(isXlsx ? parseTimeTableXlsx(await file.bytes()) : parseTimeTableCsv(await file.text()));
+      const bytes = await file.bytes();
+      // แยก .xlsx จากเนื้อไฟล์ (zip ขึ้นต้นด้วย "PK") — ชื่อ/ชนิดไฟล์จากแอปแชทเชื่อไม่ได้
+      const isXlsx =
+        (bytes[0] === 0x50 && bytes[1] === 0x4b) ||
+        /\.xlsx$/i.test(asset.name ?? '') ||
+        asset.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      setPendingTT(isXlsx ? parseTimeTableXlsx(bytes) : parseTimeTableCsv(await file.text()));
     } catch (err) {
       const why = err instanceof Error ? err.message : '';
       showToast(`อ่านไฟล์ไม่ได้${why ? ` — ${why}` : ''} — ต้องเป็น .xlsx/.csv ฟอร์แมต Time Table (มีหัว MONTH และแถว Time)`);
@@ -269,7 +276,8 @@ export default function DataScreen() {
   };
 
   const pickImport = async () => {
-    const asset = await pickDocument(['application/json']);
+    // JSON ที่ส่งต่อมาทาง LINE/แชท มักเป็น octet-stream หรือ text/plain — เนื้อไฟล์ถูกตรวจซ้ำด้านล่างอยู่แล้ว
+    const asset = await pickDocument(['application/json', 'text/plain', 'application/octet-stream']);
     if (!asset) return;
     try {
       const text = await new File(asset.uri).text();

@@ -162,7 +162,7 @@ function MiniGrid({ year, month, days, today }: { year: number; month: number; d
             return (
               <View
                 key={d}
-                style={{ flex: 1, aspectRatio: 1, borderRadius: 2, backgroundColor: bg, borderWidth: d === today ? 1.5 : 0, borderColor: '#D2603A' }}
+                style={{ flex: 1, aspectRatio: 1, borderRadius: 2, backgroundColor: bg, borderWidth: inMonth && d === today ? 1.5 : 0, borderColor: '#D2603A' }}
               />
             );
           })}

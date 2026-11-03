@@ -10,17 +10,36 @@ let db: SQLite.SQLiteDatabase | null = null;
 
 function getDb(): SQLite.SQLiteDatabase {
   if (!db) {
-    db = SQLite.openDatabaseSync('routine.db');
-    migrate(db);
+    const d = SQLite.openDatabaseSync('routine.db');
+    // ตั้ง db หลัง migrate สำเร็จเท่านั้น — migrate พลาดแล้วกด "ลองใหม่" จะ migrate ซ้ำ ไม่ข้ามไปใช้ schema เก่า
+    try {
+      migrate(d);
+    } catch (e) {
+      d.closeSync();
+      throw e;
+    }
+    db = d;
   }
   return db;
+}
+
+/** migration หนึ่งขั้น (แก้ schema + PRAGMA user_version) ใน transaction เดียว — แอปถูกปิดกลางทางก็ไม่ค้างครึ่งขั้น */
+function step(d: SQLite.SQLiteDatabase, sql: string) {
+  d.execSync('BEGIN');
+  try {
+    d.execSync(sql);
+    d.execSync('COMMIT');
+  } catch (e) {
+    d.execSync('ROLLBACK');
+    throw e;
+  }
 }
 
 function migrate(d: SQLite.SQLiteDatabase) {
   d.execSync('PRAGMA journal_mode = WAL');
   const { user_version: v } = d.getFirstSync<{ user_version: number }>('PRAGMA user_version')!;
   if (v < 1) {
-    d.execSync(`
+    step(d, `
       CREATE TABLE IF NOT EXISTS activities (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         title         TEXT NOT NULL,
@@ -73,7 +92,7 @@ function migrate(d: SQLite.SQLiteDatabase) {
   }
   if (v < 2) {
     // เพิ่มช่องข้อมูลผู้ติดต่อ (ไม่บังคับ): อีเมล + หมายเหตุ
-    d.execSync(`
+    step(d, `
       ALTER TABLE contacts ADD COLUMN email TEXT;
       ALTER TABLE contacts ADD COLUMN note TEXT;
       PRAGMA user_version = 2;
@@ -81,7 +100,7 @@ function migrate(d: SQLite.SQLiteDatabase) {
   }
   if (v < 3) {
     // เพิ่มช่องลิงก์ประชุมออนไลน์ (ไม่บังคับ): Zoom + Google Meet
-    d.execSync(`
+    step(d, `
       ALTER TABLE contacts ADD COLUMN zoom TEXT;
       ALTER TABLE contacts ADD COLUMN googlemeet TEXT;
       PRAGMA user_version = 3;
@@ -89,14 +108,14 @@ function migrate(d: SQLite.SQLiteDatabase) {
   }
   if (v < 4) {
     // สีพื้นเซลล์ที่จำมาจากไฟล์ Time Table (.xlsx) — ส่งออกแล้วได้สีเดิมของผู้ใช้กลับไป
-    d.execSync(`
+    step(d, `
       ALTER TABLE activities ADD COLUMN color TEXT;
       PRAGMA user_version = 4;
     `);
   }
   if (v < 5) {
     // ชุด "เลือกเอง" เก็บวันที่ที่เลือกจริงเป็น JSON array — เดิมเก็บแค่ days_mask ทำให้งอกวันที่ไม่ได้เลือก
-    d.execSync(`
+    step(d, `
       ALTER TABLE activities ADD COLUMN dates TEXT;
       PRAGMA user_version = 5;
     `);
@@ -104,7 +123,7 @@ function migrate(d: SQLite.SQLiteDatabase) {
   if (v < 6) {
     // โน้ตรายครั้ง (แผ่นรายละเอียด) แยกตารางจาก occurrences — ครั้งที่ยังไม่ทำ (ไม่มีแถว exception) ก็มีโน้ตได้
     // + องค์กร/บริษัทของรายชื่อ
-    d.execSync(`
+    step(d, `
       CREATE TABLE IF NOT EXISTS occ_notes (
         activity_id INTEGER NOT NULL REFERENCES activities(id),
         date        TEXT NOT NULL,
@@ -117,7 +136,7 @@ function migrate(d: SQLite.SQLiteDatabase) {
   }
   if (v < 7) {
     // นัดเคสโหมด "ช่องทางติดต่อ" — ข้อมูลติดต่อของนัดนั้นเก็บเป็น JSON ในแถวกิจกรรม (ไม่เพิ่มลงสมุดรายชื่อ)
-    d.execSync(`
+    step(d, `
       ALTER TABLE activities ADD COLUMN inline_contact TEXT;
       PRAGMA user_version = 7;
     `);
@@ -237,11 +256,28 @@ export async function loadContacts(): Promise<Contact[]> {
   return (await getDb().getAllAsync<Contact>('SELECT * FROM contacts ORDER BY name')) as Contact[];
 }
 
+/**
+ * จำนวนครั้งที่เลื่อนต่อนัด "(เลื่อนมา)" — นับต่อเป็นทอดตาม detached_from (เลื่อนนัดที่เลื่อนมาแล้ว = ครั้งที่ 2, 3, …)
+ * ให้ตรงกับที่ store นับใน memory ตอนเลื่อน (rescCounts[นัดเดิม] + 1)
+ */
 export async function loadRescCounts(): Promise<Record<number, number>> {
-  const rows = await getDb().getAllAsync<{ activity_id: number; n: number }>(
-    'SELECT activity_id, COUNT(*) n FROM reschedule_logs GROUP BY activity_id',
+  const rows = await getDb().getAllAsync<{ activity_id: number; n: number; parent: number | null }>(
+    `SELECT l.activity_id, COUNT(*) n, a.detached_from parent
+     FROM reschedule_logs l LEFT JOIN activities a ON a.id = l.activity_id
+     GROUP BY l.activity_id`,
   );
-  return Object.fromEntries(rows.map((r) => [r.activity_id, r.n]));
+  const own = new Map(rows.map((r) => [r.activity_id, r]));
+  const memo = new Map<number, number>();
+  const total = (id: number, depth: number): number => {
+    const r = own.get(id);
+    if (!r || depth > 100) return 0; // นัดต้นทางที่ไม่ได้มาจากการเลื่อน = 0 · กันวนไม่รู้จบเผื่อข้อมูลเสีย
+    const hit = memo.get(id);
+    if (hit !== undefined) return hit;
+    const v = r.n + (r.parent != null ? total(r.parent, depth + 1) : 0);
+    memo.set(id, v);
+    return v;
+  };
+  return Object.fromEntries(rows.map((r) => [r.activity_id, total(r.activity_id, 0)]));
 }
 
 export async function loadSettings(): Promise<Record<string, string>> {
@@ -286,7 +322,8 @@ export async function updateActivity(a: Activity): Promise<void> {
 async function setActivityContacts(conn: SQLite.SQLiteDatabase, id: number, contactIds: number[]) {
   await conn.runAsync('DELETE FROM activity_contacts WHERE activity_id=?', id);
   for (const c of contactIds) {
-    await conn.runAsync('INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id) VALUES (?,?)', id, c);
+    // ผูกเฉพาะรายชื่อที่ยังอยู่ในสมุด — กันลิงก์ค้างไปยังรายชื่อที่ถูกลบไปแล้ว
+    await conn.runAsync('INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id) SELECT ?, id FROM contacts WHERE id=?', id, c);
   }
 }
 
@@ -504,13 +541,23 @@ export async function purgeRange(from: string, to: string): Promise<void> {
 
 // ---------- Export / Import (§6.5) ----------
 
+interface RescheduleLogRow {
+  activity_id: number;
+  from_date: string;
+  from_start: number;
+  to_date: string;
+  to_start: number;
+  reason: string | null;
+  created_at?: string;
+}
+
 export interface BackupData {
   version: 1;
   activities: ActivityRow[];
   occurrences: { activity_id: number; date: string; status: string }[];
   contacts: Contact[];
   activity_contacts: { activity_id: number; contact_id: number }[];
-  reschedule_logs: unknown[];
+  reschedule_logs: RescheduleLogRow[];
   /** v6 — สำรองรุ่นเก่าไม่มีฟิลด์นี้ */
   occ_notes?: { activity_id: number; date: string; note: string }[];
 }
@@ -538,7 +585,19 @@ export async function restoreAll(data: BackupData, mode: 'replace' | 'merge'): P
       );
     }
     const contactIdMap: Record<number, number> = {};
+    // รวมข้อมูล: รายชื่อที่มีอยู่แล้ว (ชื่อ + เบอร์ตรงกัน) ใช้ของเดิม — กู้ไฟล์เดิมซ้ำแล้วรายชื่อไม่งอกซ้ำ
+    const contactKey = (name: string, phone: string | null) => `${name.trim()}|${phone?.trim() ?? ''}`;
+    const existing = new Map<string, number>();
+    if (mode === 'merge') {
+      const rows = await txn.getAllAsync<{ id: number; name: string; phone: string | null }>('SELECT id, name, phone FROM contacts');
+      for (const r of rows) existing.set(contactKey(r.name, r.phone), r.id);
+    }
     for (const c of data.contacts) {
+      const same = existing.get(contactKey(c.name, c.phone));
+      if (same !== undefined) {
+        contactIdMap[c.id] = same;
+        continue;
+      }
       const res = await txn.runAsync(
         'INSERT INTO contacts (name, priority, phone, line, email, zoom, googlemeet, note, org) VALUES (?,?,?,?,?,?,?,?,?)',
         c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null, c.org ?? null,
@@ -556,6 +615,20 @@ export async function restoreAll(data: BackupData, mode: 'replace' | 'merge'): P
         a.color ?? null, a.inline_contact ?? null,
       );
       actIdMap[a.id] = res.lastInsertRowId;
+    }
+    // ลิงก์ "เลื่อนมา/แยกจาก" นัดเดิม — แปลงเป็น id ใหม่หลังใส่ครบทุกแถวแล้ว (แถวต้นทางอาจอยู่หลังในไฟล์)
+    for (const a of data.activities) {
+      const from = a.detached_from != null ? actIdMap[a.detached_from] : undefined;
+      if (from) await txn.runAsync('UPDATE activities SET detached_from=? WHERE id=?', from, actIdMap[a.id]);
+    }
+    // ประวัติการเลื่อนนัด (ตัวนับ "เลื่อนมาแล้ว N ครั้ง")
+    for (const l of data.reschedule_logs ?? []) {
+      const id = actIdMap[l.activity_id];
+      if (!id) continue;
+      await txn.runAsync(
+        'INSERT INTO reschedule_logs (activity_id, from_date, from_start, to_date, to_start, reason, created_at) VALUES (?,?,?,?,?,?,?)',
+        id, l.from_date, l.from_start, l.to_date, l.to_start, l.reason ?? null, l.created_at ?? new Date().toISOString().slice(0, 19).replace('T', ' '),
+      );
     }
     for (const o of data.occurrences) {
       const id = actIdMap[o.activity_id];

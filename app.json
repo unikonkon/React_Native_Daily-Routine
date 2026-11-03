@@ -37,6 +37,13 @@
           }
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#D2603A"
+        }
+      ],
       "expo-sqlite"
     ],
     "experiments": {

@@ -463,7 +463,7 @@ export default function StatsScreen() {
                         ))}
                       </View>
                     ) : (
-                      <Txt size={12} color={t.faint} style={{ paddingVertical: 6 }}>ไม่พบเคสที่ตรงกับคำค้น — ลองล้างคำค้น</Txt>
+                      <Txt size={12} color={t.faint} style={{ paddingVertical: 6 }}>{cq ? 'ไม่พบเคสที่ตรงกับคำค้น — ลองล้างคำค้น' : 'ยังไม่มีนัดเคสในช่วงนี้'}</Txt>
                     )}
                   </>
                 )
@@ -480,7 +480,7 @@ export default function StatsScreen() {
                       ))}
                     </View>
                   ) : (
-                    <Txt size={12} color={t.faint} style={{ paddingVertical: 6 }}>ไม่พบชื่อที่ตรงกับคำค้น — ลองล้างคำค้น</Txt>
+                    <Txt size={12} color={t.faint} style={{ paddingVertical: 6 }}>{q ? 'ไม่พบชื่อที่ตรงกับคำค้น — ลองล้างคำค้น' : 'ยังไม่มีเคสที่ระบุรายชื่อในช่วงนี้'}</Txt>
                   )}
                   {people.unnamed ? (
                     <Txt size={11} color={t.faint}>อีก {people.unnamed} เคสในช่วงนี้ไม่ได้ระบุผู้ติดต่อ</Txt>

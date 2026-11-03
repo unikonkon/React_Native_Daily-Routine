@@ -6,6 +6,7 @@
 
 import { DAY_END, type CatId } from '@/constants/theme';
 import { MONTH_TH, beYear, fmtMin, fromISO, toISO, todayISO } from '@/lib/dates';
+import { seriesDates } from '@/lib/engine';
 import type { Activity, DayItem, OccMap } from '@/lib/types';
 
 export interface TimeTableImport {
@@ -271,29 +272,18 @@ export function parseTimeTableCells(rows: TTCell[][]): TimeTableImport {
 
 /** รายชื่อเดือนที่มีข้อมูล (first-of-month ISO) ตั้งแต่เดือนแรกถึงเดือนสุดท้ายที่มีกิจกรรม/สถานะ (รวมเดือนปัจจุบันเสมอ) */
 export function listDataMonths(acts: Activity[], occ: OccMap): string[] {
-  let min = todayISO();
-  let max = todayISO();
-  const widen = (d: string) => {
-    if (d < min) min = d;
-    if (d > max) max = d;
-  };
+  // เฉพาะเดือนที่มีกิจกรรมจริง (ไม่นับครั้งที่ลบไปแล้ว) — ไม่เติมเดือนว่างระหว่างข้อมูลเก่ากับวันนี้
+  const months = new Set<string>();
   for (const a of acts) {
-    widen(a.startDate);
-    if (a.endDate) widen(a.endDate);
-  }
-  Object.keys(occ).forEach(widen);
-
-  const a = fromISO(min);
-  const b = fromISO(max);
-  const out: string[] = [];
-  for (let y = a.getFullYear(), m = a.getMonth(); y < b.getFullYear() || (y === b.getFullYear() && m <= b.getMonth()); ) {
-    out.push(toISO(new Date(y, m, 1)));
-    if (++m > 11) {
-      m = 0;
-      y++;
+    if (a.status !== 'active') continue;
+    for (const d of seriesDates(a)) {
+      if (occ[d]?.[a.id] === 'cancelled') continue;
+      months.add(`${d.slice(0, 7)}-01`);
     }
   }
-  return out;
+  // ยังไม่มีข้อมูลเลย = เดือนนี้ (ส่งออกเป็นตารางเปล่าไว้กรอกได้)
+  if (!months.size) months.add(`${todayISO().slice(0, 7)}-01`);
+  return [...months].sort();
 }
 
 /** ตาราง grid ทั้งเดือนของ anchor เป็นแถวเซลล์ (ใช้ทั้งส่งออก CSV และส่งขึ้น Google Sheets) */

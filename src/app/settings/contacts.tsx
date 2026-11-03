@@ -4,8 +4,8 @@
 // แถบล่าง: รายการ = ‹ กลับ + เพิ่มรายชื่อ · แก้ไข = ‹ กลับ + บันทึก
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
-import { Linking, Pressable, ScrollView, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Linking, Pressable, ScrollView, TextInput, View, type ScrollViewInstance } from 'react-native';
 
 import { Field } from '@/components/field';
 import { Icon } from '@/components/icon';
@@ -17,7 +17,7 @@ import { MONTH_TH, WD_TH, fmtMin, fromISO, nowMin, todayISO, wdMon } from '@/lib
 import { seriesDates } from '@/lib/engine';
 import type { Activity, Contact } from '@/lib/types';
 import { useActivities } from '@/stores/activities';
-import { useContacts } from '@/stores/contacts';
+import { isEmail, useContacts } from '@/stores/contacts';
 import { useUI } from '@/stores/ui';
 
 type Draft = Partial<Contact>;
@@ -275,6 +275,13 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
   const showToast = useUI((s) => s.showToast);
   const [d, setD] = useState<Draft>(draft);
   const [confirmDel, setConfirmDel] = useState(false);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  // กล่องยืนยันลบอยู่ท้ายหน้า — เลื่อนลงไปให้เห็นทันทีที่กด
+  useEffect(() => {
+    if (!confirmDel) return;
+    const id = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+    return () => clearTimeout(id);
+  }, [confirmDel]);
   // ช่องเสริม (อีเมล · Zoom · Meet · หมายเหตุ) — เปิดเองถ้ามีข้อมูลอยู่แล้ว
   const [more, setMore] = useState(() => !!(draft.email || draft.zoom || draft.googlemeet || draft.note));
   const set = (p: Draft) => setD((x) => ({ ...x, ...p }));
@@ -283,6 +290,7 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
   const save = async () => {
     const name = d.name?.trim();
     if (!name) return showToast('ใส่ชื่อก่อน');
+    if (d.email?.trim() && !isEmail(d.email)) return showToast('อีเมลไม่ถูกต้อง — ตัวอย่าง name@example.com');
     await upsert({
       id: d.id,
       name,
@@ -310,6 +318,7 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
       title={d.id ? 'แก้ไขรายชื่อ' : 'เพิ่มรายชื่อ'}
       subtitle={d.id ? `${draft.name ?? ''}${linked?.count ? ` · ผูกอยู่กับ ${linked.count} นัด` : ''}` : 'ใช้เลือกในนัดเคส'}
       variant="sub"
+      scrollRef={scrollRef}
       onBack={onClose}
       action={{ label: 'บันทึก', icon: 'check', onPress: save }}>
       <FieldGroup title="ข้อมูลหลัก">

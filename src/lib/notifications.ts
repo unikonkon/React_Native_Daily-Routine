@@ -28,19 +28,50 @@ Notifications.setNotificationHandler({
   }),
 });
 
-let ready = false;
+const CHANNEL_ID = 'default';
 
-async function ensureReady(): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
-  if (ready) return true;
-  const { status } = await Notifications.requestPermissionsAsync();
-  if (status !== 'granted') return false;
+let ready = false;
+/** ถามสิทธิ์อัตโนมัติไปแล้วในรอบนี้ — ไม่เด้งถามซ้ำทุกครั้งที่ข้อมูลเปลี่ยน (ถามใหม่ได้จากสวิตช์ในหน้าตั้งค่า) */
+let askedAuto = false;
+
+async function setupChannel() {
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
+    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
       name: 'การแจ้งเตือนกิจกรรม',
       importance: Notifications.AndroidImportance.HIGH,
     });
   }
+}
+
+async function ensureReady(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  if (ready) return true;
+  const perm = await Notifications.getPermissionsAsync();
+  let status = perm.status;
+  if (status !== 'granted' && perm.canAskAgain && !askedAuto) {
+    askedAuto = true;
+    status = (await Notifications.requestPermissionsAsync()).status;
+  }
+  if (status !== 'granted') return false;
+  await setupChannel();
+  ready = true;
+  return true;
+}
+
+/** สิทธิ์แจ้งเตือนของเครื่องตอนนี้ (ไม่ถาม) — หน้าตั้งค่าใช้บอกผู้ใช้เมื่อถูกปฏิเสธ */
+export async function notifPermissionGranted(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  return (await Notifications.getPermissionsAsync()).status === 'granted';
+}
+
+/** ผู้ใช้เปิดสวิตช์แจ้งเตือนเอง — ขอสิทธิ์ (ถ้าระบบยังให้ถาม) คืน true เมื่อได้รับอนุญาต */
+export async function requestNotifPermission(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  const perm = await Notifications.getPermissionsAsync();
+  let status = perm.status;
+  if (status !== 'granted' && perm.canAskAgain) status = (await Notifications.requestPermissionsAsync()).status;
+  if (status !== 'granted') return false;
+  await setupChannel();
   ready = true;
   return true;
 }
@@ -56,9 +87,14 @@ export function requestResync(acts: Activity[], occ: OccMap, master: boolean, mo
 }
 
 async function resync(acts: Activity[], occ: OccMap, master: boolean, morning: boolean) {
+  if (Platform.OS === 'web') return;
+  if (!master) {
+    // ปิดแจ้งเตือน — ยกเลิกของเดิมทั้งหมด โดยไม่ต้องขอสิทธิ์
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    return;
+  }
   if (!(await ensureReady())) return;
   await Notifications.cancelAllScheduledNotificationsAsync();
-  if (!master) return;
 
   const now = Date.now();
   const today = todayISO();
@@ -74,7 +110,7 @@ async function resync(acts: Activity[], occ: OccMap, master: boolean, morning: b
       const digest = morningDigest(acts, occ, d);
       await Notifications.scheduleNotificationAsync({
         content: { title: digest.title, body: digest.body },
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at, channelId: CHANNEL_ID },
       });
       morningUsed++;
     }
@@ -101,7 +137,7 @@ async function resync(acts: Activity[], occ: OccMap, master: boolean, morning: b
   for (const q of queue.slice(0, budget)) {
     await Notifications.scheduleNotificationAsync({
       content: { title: q.title, body: q.body },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: q.at },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: q.at, channelId: CHANNEL_ID },
     });
   }
 }

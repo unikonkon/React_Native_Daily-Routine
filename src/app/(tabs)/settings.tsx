@@ -1,8 +1,8 @@
 // แท็บ 3 — ตั้งค่า (ระบบ B1): การ์ดสรุปสัปดาห์ (→ สถิติ · ค้างบันทึก → ทบทวน) + เมนู 3 กลุ่ม
 // การจัดการ · การแจ้งเตือนและการแสดงผล (โหมด สว่าง/มืด/ตามระบบ) · ข้อมูลและขั้นสูง (ข้อมูลตัวอย่างมีขั้นยืนยัน)
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, Linking, Pressable, StyleSheet, View, type ScrollViewInstance } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { StatusDot } from '@/components/b1/status-circle';
@@ -17,7 +17,7 @@ import { computeStats } from '@/lib/engine';
 import { overdueBetween } from '@/lib/progress';
 import { buildMockMonth } from '@/lib/mock';
 import { TT_SOURCE_LABEL } from '@/lib/mock-timetable';
-import { requestResync } from '@/lib/notifications';
+import { notifPermissionGranted, requestNotifPermission, requestResync } from '@/lib/notifications';
 import { useActivities, useDayReader } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useSettings } from '@/stores/settings';
@@ -40,6 +40,27 @@ export default function SettingsScreen() {
   const monthLabel = `${MONTH_TH_FULL[fromISO(today).getMonth()]} ${beYear(Number(today.slice(0, 4)))}`;
   const [confirmSeed, setConfirmSeed] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  // กล่องยืนยันอยู่ท้ายหน้า — เลื่อนลงไปให้เห็นทันทีที่กด
+  useEffect(() => {
+    if (!confirmSeed) return;
+    const id = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+    return () => clearTimeout(id);
+  }, [confirmSeed]);
+
+  // สิทธิ์แจ้งเตือนของเครื่อง — ถูกปฏิเสธไว้ต้องบอกผู้ใช้ (สวิตช์ในแอปเปิดอยู่ก็ไม่มีแจ้งเตือนเด้ง)
+  const [notifDenied, setNotifDenied] = useState(false);
+  const notifMaster = settings.notifMaster;
+  useEffect(() => {
+    const check = () => {
+      if (!notifMaster) return setNotifDenied(false);
+      notifPermissionGranted().then((ok) => setNotifDenied(!ok)).catch(() => {});
+    };
+    check();
+    // กลับมาจากหน้าตั้งค่าของเครื่อง → ตรวจใหม่
+    const sub = AppState.addEventListener('change', (st) => st === 'active' && check());
+    return () => sub.remove();
+  }, [notifMaster]);
 
   const seedNow = async () => {
     setSeeding(true);
@@ -63,7 +84,7 @@ export default function SettingsScreen() {
   const totalH = split.reduce((a, c) => a + c.h, 0);
 
   return (
-    <Screen title="ตั้งค่า">
+    <Screen title="ตั้งค่า" scrollRef={scrollRef}>
       {/* สรุปสัปดาห์นี้ — แตะหัวการ์ดเปิดสถิติเต็ม · แถวค้างบันทึก → หน้าทบทวน */}
       <View style={{ backgroundColor: t.card, borderRadius: 16, paddingTop: 12, paddingHorizontal: 16, shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
         <Pressable
@@ -147,13 +168,20 @@ export default function SettingsScreen() {
       <Section title="การแจ้งเตือนและการแสดงผล">
         <Row
           label="เปิดการแจ้งเตือน"
-          sub="ตั้งเวลาเตือนรายกิจกรรมได้ในฟอร์มเพิ่ม"
+          sub={notifDenied ? 'เครื่องไม่อนุญาตให้แจ้งเตือน — แตะเพื่อเปิดในการตั้งค่าเครื่อง' : 'ตั้งเวลาเตือนรายกิจกรรมได้ในฟอร์มเพิ่ม'}
+          subColor={notifDenied ? t.warn : undefined}
+          onPress={notifDenied ? () => Linking.openSettings() : undefined}
           right={
             <Toggle
               label="เปิดการแจ้งเตือน"
               value={settings.notifMaster}
-              onChange={(v) => {
+              onChange={async (v) => {
                 settings.setNotifMaster(v);
+                if (v) {
+                  const ok = await requestNotifPermission();
+                  setNotifDenied(!ok);
+                  if (!ok) showToast('เครื่องยังไม่อนุญาตการแจ้งเตือน — เปิดได้ที่การตั้งค่าเครื่อง');
+                }
                 syncNotif(v, settings.morning);
               }}
             />

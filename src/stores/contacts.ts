@@ -3,6 +3,12 @@ import { create } from 'zustand';
 
 import * as db from '@/lib/db';
 import type { Contact, ContactInfo } from '@/lib/types';
+import { useActivities } from '@/stores/activities';
+
+/** รูปแบบอีเมลพื้นฐาน (ชื่อ@โดเมน.นามสกุล) — ใช้ตรวจก่อนบันทึก ไม่ให้เก็บค่าที่เปิด mailto: ไม่ได้ */
+export function isEmail(s: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+}
 
 // ---------- ประกอบลิงก์ประชุมออนไลน์จากค่าที่ผู้ใช้กรอก (รองรับ 2 กรณี: ลิงก์เต็ม / Meeting ID) ----------
 
@@ -156,6 +162,11 @@ export const useContacts = create<ContactsState>((set, get) => ({
 
   remove: (id) => {
     set({ list: get().list.filter((x) => x.id !== id) });
+    // ถอดรายชื่อนี้ออกจากนัดใน memory ด้วย (ตรงกับฐานข้อมูลที่ลบลิงก์ทิ้ง) — ไม่ต้องรอเปิดแอปใหม่
+    useActivities.setState((s) => ({
+      acts: s.acts.map((a) => (a.contactIds.includes(id) ? { ...a, contactIds: a.contactIds.filter((c) => c !== id) } : a)),
+      version: s.version + 1,
+    }));
     db.deleteContact(id);
   },
 }));

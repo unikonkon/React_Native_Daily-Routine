@@ -273,7 +273,8 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
     // ในกลุ่มซ้อน เวลาจบอยู่บรรทัดรายละเอียด (การ์ดกำลังทำมี "จบ" ในแถบความคืบหน้าแล้ว)
     const until = inGroup && !live ? `ถึง ${fmtMin(it.endMin)}` : '';
     // นัดเคส: ป้ายบอกประเภทผู้ติดต่อที่เลือก (คนที่นัด / ช่องทางติดต่อ) แทนชื่อหมวด "นัดเคส"
-    const kind = cat.isCase ? (it.inlineContact ? 'ช่องทางติดต่อ' : 'คนที่นัด') : cat.short;
+    // นัดที่ไม่ได้ระบุผู้ติดต่อเลย (เช่น นำเข้าจาก Time Table) แสดงชื่อหมวดตามเดิม ไม่ขึ้น "คนที่นัด" ลอย ๆ
+    const kind = cat.isCase ? (it.inlineContact ? 'ช่องทางติดต่อ' : people.length ? 'คนที่นัด' : cat.short) : cat.short;
     const meta = [until, st === 'skipped' ? 'ข้าม' : kind, where, note ? `โน้ต: ${note}` : ''].filter(Boolean).join(' · ');
     const tag =
       st === 'overdue'

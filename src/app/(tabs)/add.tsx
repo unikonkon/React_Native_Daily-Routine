@@ -20,7 +20,7 @@ import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, durText, fmtMin, fromI
 import { FREE_WINDOW_END, conflictsOn, freeSlots, maskFromDates, seriesDates } from '@/lib/engine';
 import { HORIZON_DAYS, type Activity, type Contact, type Horizon, type InlineContact, type RepeatRule } from '@/lib/types';
 import { getDay, useActivities, useDayReader } from '@/stores/activities';
-import { contactChannels, useContacts } from '@/stores/contacts';
+import { contactChannels, isEmail, useContacts } from '@/stores/contacts';
 import { cleanInline, useDraft, type ContactMode } from '@/stores/draft';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
@@ -612,6 +612,17 @@ function useSave(editing: Activity | undefined, askScope: boolean, openStep1: ()
       return showToast(!d.cat ? 'เลือกหมวดก่อน' : 'ใส่ชื่อกิจกรรม');
     }
     if (d.end <= d.start) return showToast('เวลาสิ้นสุดต้องมากกว่าเริ่ม');
+    // นัดเคสโหมดช่องทางติดต่อ: ต้องกรอกอย่างน้อย 1 ช่อง — ไม่งั้นบันทึกแล้วเปิดแก้ไขจะกลายเป็นโหมด "คนที่นัด"
+    if (d.cat === 'case' && d.contactMode === 'inline') {
+      if (!cleanInline(d.inline)) {
+        openStep1();
+        return showToast('กรอกช่องทางติดต่ออย่างน้อย 1 ช่อง หรือเปลี่ยนเป็น "คนที่นัด"');
+      }
+      if (d.inline.email?.trim() && !isEmail(d.inline.email)) {
+        openStep1();
+        return showToast('อีเมลไม่ถูกต้อง — ตัวอย่าง name@example.com');
+      }
+    }
     const isOnce = d.repeat === 'none';
     const isCustom = d.repeat === 'custom';
     const startDate = d.dates[0];

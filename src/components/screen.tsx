@@ -4,7 +4,7 @@
 // สลับธีมได้ที่เดียว: ตั้งค่า → โหมดแสดงผล
 import { usePathname, useRouter } from 'expo-router';
 import React from 'react';
-import { Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native';
+import { KeyboardAvoidingView, Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -196,17 +196,22 @@ export function Screen({ title, subtitle, children, scroll = true, scrollRef, va
     <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: insets.top }}>
       {header}
       {scroll ? (
-        <ScrollView
-          ref={scrollRef}
-          scrollEnabled={!scrollLocked}
-          contentContainerStyle={{
-            paddingHorizontal: 18,
-            paddingBottom: TABBAR_H + insets.bottom + 24 + (bar ? BOTTOM_BAR_SPACE : 0), // เผื่อที่ให้แถบลอยล่าง
-            gap: 14,
-          }}
-          showsVerticalScrollIndicator={false}>
-          {children}
-        </ScrollView>
+        // แอปเป็น edge-to-edge (Android ไม่ย่อหน้าต่างให้เองเมื่อคีย์บอร์ดขึ้น) — หดพื้นที่เลื่อนเท่าคีย์บอร์ด
+        // ช่องกรอกด้านล่าง (อีเมล/Zoom/หมายเหตุ ฯลฯ) จึงเลื่อนขึ้นมาเหนือคีย์บอร์ดได้ ไม่ถูกบัง
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+          <ScrollView
+            ref={scrollRef}
+            scrollEnabled={!scrollLocked}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{
+              paddingHorizontal: 18,
+              paddingBottom: TABBAR_H + insets.bottom + 24 + (bar ? BOTTOM_BAR_SPACE : 0), // เผื่อที่ให้แถบลอยล่าง
+              gap: 14,
+            }}
+            showsVerticalScrollIndicator={false}>
+            {children}
+          </ScrollView>
+        </KeyboardAvoidingView>
       ) : (
         <View style={{ flex: 1 }}>{children}</View>
       )}
