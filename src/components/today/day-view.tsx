@@ -12,10 +12,9 @@ import { useToggleStatus } from '@/components/b1/use-toggle';
 import { WeekStrip } from '@/components/b1/week-strip';
 import { SvgIcon } from '@/components/svg-icon';
 import { Txt, useTokens } from '@/components/ui';
-import { GREEN } from '@/constants/theme';
 import { addDays, beYear, fromISO, MONTH_TH, WD_TH_FULL, wdMon } from '@/lib/dates';
 import { computeStats, daytimeFreeSlots } from '@/lib/engine';
-import { dayProgress, overdueBetween, type DayProgress } from '@/lib/progress';
+import { dayProgress, overdueBetween } from '@/lib/progress';
 import type { DayItem } from '@/lib/types';
 import { useActivities, useDay, useDayReader } from '@/stores/activities';
 
@@ -78,9 +77,7 @@ export function TodayDayView({ focus, onChangeFocus, onPressTitle, onPressItem, 
       <WeekStrip focus={focus} onChangeFocus={onChangeFocus} />
 
       <ScrollView ref={scRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 8, paddingBottom: bottomPad }}>
-        {p.total || overdue7 ? (
-          <DaySummary p={p} isNowDay={isNowDay} overdue7={overdue7} onReview={() => router.push('/review')} />
-        ) : null}
+        {overdue7 ? <ReviewBanner overdue7={overdue7} onReview={() => router.push('/review')} /> : null}
 
         {items.length ? (
           <View onLayout={(e) => (railTop.current = e.nativeEvent.layout.y)} style={{ paddingLeft: 12, paddingRight: 18, paddingTop: 10 }}>
@@ -104,71 +101,36 @@ export function TodayDayView({ focus, onChangeFocus, onPressTitle, onPressItem, 
   );
 }
 
-/** การ์ดสรุปวัน: ทำแล้ว x จาก y + แถบสะสม + คำอธิบาย · แถวล่าง = ค้างบันทึก 7 วัน → ทบทวน */
-function DaySummary({ p, isNowDay, overdue7, onReview }: { p: DayProgress; isNowDay: boolean; overdue7: number; onReview: () => void }) {
-  const t = useTokens();
-  const seg = (n: number) => (p.total ? `${(n / p.total) * 100}%` : '0%') as `${number}%`;
-  return (
-    <View style={{ marginHorizontal: 18, backgroundColor: t.card, borderRadius: 16, overflow: 'hidden', shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
-      {p.total ? (
-        <View style={{ padding: 14, gap: 10 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Txt size={14} weight="bold" style={{ flex: 1 }}>
-              {isNowDay ? 'สรุปวันนี้' : 'สรุปวัน'}
-            </Txt>
-            <Txt size={13} weight="bold" color={t.greenInk}>
-              ทำแล้ว {p.done} จาก {p.total}
-            </Txt>
-          </View>
-          <View style={{ flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden', backgroundColor: t.track, gap: 2 }}>
-            {p.done ? <View style={{ width: seg(p.done), backgroundColor: GREEN }} /> : null}
-            {p.skipped ? <View style={{ width: seg(p.skipped), backgroundColor: t.skipFill }} /> : null}
-            {p.overdue ? <View style={{ width: seg(p.overdue), backgroundColor: '#D2603A' }} /> : null}
-          </View>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 14, rowGap: 4 }}>
-            <Legend color={GREEN} label={`เสร็จ ${p.done}`} />
-            <Legend color={t.skipFill} label={`ข้าม ${p.skipped}`} />
-            {p.overdue ? <Legend color="#D2603A" label={`ค้างบันทึก ${p.overdue}`} strong /> : null}
-            <Legend ring label={`รอ ${p.waiting}`} />
-          </View>
-        </View>
-      ) : null}
-      {overdue7 ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={onReview}
-          style={({ pressed }) => ({
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 10,
-            paddingHorizontal: 14,
-            minHeight: 48,
-            borderTopWidth: p.total ? 1 : 0,
-            borderTopColor: t.line,
-            backgroundColor: pressed ? t.track : 'transparent',
-          })}>
-          <SvgIcon name="alert" size={18} color="#D2603A" />
-          <Txt size={13} style={{ flex: 1 }}>
-            ยังไม่ได้บันทึก <Txt size={13} weight="bold">{overdue7} รายการ</Txt> ใน 7 วันล่าสุด
-          </Txt>
-          <Txt size={13} weight="bold" color={t.accentInk}>
-            ทบทวน ›
-          </Txt>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function Legend({ color, label, ring, strong }: { color?: string; label: string; ring?: boolean; strong?: boolean }) {
+/** แถบเตือนค้างบันทึก 7 วันล่าสุด → หน้าทบทวน (ไม่มีการ์ดสรุปวันแล้ว — หัวหน้าบอก "เสร็จ x/y" อยู่แล้ว) */
+function ReviewBanner({ overdue7, onReview }: { overdue7: number; onReview: () => void }) {
   const t = useTokens();
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: ring ? 'transparent' : color, borderWidth: ring ? 1.5 : 0, borderColor: t.railDash }} />
-      <Txt size={12} weight={strong ? 'bold' : 'reg'} color={strong ? t.warn : t.sub}>
-        {label}
+    <Pressable
+      accessibilityRole="button"
+      onPress={onReview}
+      style={({ pressed }) => ({
+        marginHorizontal: 18,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingHorizontal: 14,
+        minHeight: 48,
+        borderRadius: 16,
+        backgroundColor: pressed ? t.track : t.card,
+        shadowColor: '#221C13',
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 1 },
+        elevation: 1,
+      })}>
+      <SvgIcon name="alert" size={18} color="#D2603A" />
+      <Txt size={13} style={{ flex: 1 }}>
+        ยังไม่ได้บันทึก <Txt size={13} weight="bold">{overdue7} รายการ</Txt> ใน 7 วันล่าสุด
       </Txt>
-    </View>
+      <Txt size={13} weight="bold" color={t.accentInk}>
+        ทบทวน ›
+      </Txt>
+    </Pressable>
   );
 }
 

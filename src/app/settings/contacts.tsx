@@ -298,7 +298,7 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
     onClose();
   };
 
-  const paste = async (field: 'phone' | 'line') => {
+  const paste = async (field: 'phone' | 'line' | 'email' | 'zoom' | 'googlemeet') => {
     const s = (await Clipboard.getStringAsync()).trim();
     if (!s) return showToast('คลิปบอร์ดว่าง');
     set({ [field]: s });
@@ -329,9 +329,9 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
         <Field label="LINE ID" value={d.line ?? ''} onChange={(line) => set({ line })} onPaste={() => paste('line')} />
         {more ? (
           <>
-            <Field label="อีเมล" optional value={d.email ?? ''} onChange={(email) => set({ email })} keyboard="email-address" />
-            <Field label="Zoom" optional value={d.zoom ?? ''} onChange={(zoom) => set({ zoom })} placeholder="ลิงก์ หรือ Meeting ID เช่น 123 4567 8901" />
-            <Field label="Google Meet" optional value={d.googlemeet ?? ''} onChange={(googlemeet) => set({ googlemeet })} placeholder="ลิงก์ หรือรหัสห้อง เช่น abc-defg-hij" />
+            <Field label="อีเมล" optional value={d.email ?? ''} onChange={(email) => set({ email })} keyboard="email-address" onPaste={() => paste('email')} />
+            <Field label="Zoom" optional value={d.zoom ?? ''} onChange={(zoom) => set({ zoom })} placeholder="ลิงก์ หรือ Meeting ID" onPaste={() => paste('zoom')} />
+            <Field label="Google Meet" optional value={d.googlemeet ?? ''} onChange={(googlemeet) => set({ googlemeet })} placeholder="ลิงก์ หรือรหัสห้อง" onPaste={() => paste('googlemeet')} />
             <Field label="หมายเหตุ" optional value={d.note ?? ''} onChange={(note) => set({ note })} multiline />
           </>
         ) : (
@@ -440,7 +440,8 @@ function Field({
           autoCapitalize={keyboard === 'email-address' ? 'none' : undefined}
           style={{ flex: 1, minWidth: 0, color: t.ink, fontFamily: FONT.ui, fontSize: 15, paddingVertical: multiline ? 10 : 0, textAlignVertical: multiline ? 'top' : 'center' }}
         />
-        {onPaste && !value ? (
+        {/* วางจากคลิปบอร์ด — แสดงตลอด (มีค่าอยู่แล้วก็วางทับได้) */}
+        {onPaste ? (
           <Pressable accessibilityRole="button" accessibilityLabel={`วาง${label}`} onPress={onPaste} hitSlop={6} style={({ pressed }) => ({ height: 32, paddingHorizontal: 10, borderRadius: 16, backgroundColor: pressed ? t.rail : t.track, justifyContent: 'center' })}>
             <Txt size={12.5} weight="bold" color={t.sub}>
               วาง
