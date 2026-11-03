@@ -210,6 +210,7 @@ export default function TodayScreen() {
           month={ym.m}
           selected={focus}
           onPressDay={goDay}
+          onVisibleMonth={setYm}
           bottomPad={bottomPad}
           freeMode={freeMode}
           onPressSlot={openSlot}
