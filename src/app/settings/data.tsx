@@ -5,7 +5,7 @@ import { File, Paths } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useMemo, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
@@ -41,6 +41,8 @@ export default function DataScreen() {
   /** ตัวเลือกย่อยต่อหมวดที่ตั้งไว้ — ส่งเข้ารายงานเพื่อให้เห็นตัวที่ตั้งไว้แต่ยังไม่ได้ใช้ด้วย */
   const catOptions = useSettings((s) => s.catOptions);
   const [sending, setSending] = useState(false);
+  /** กำลังนำเข้า/กู้คืน — ข้อมูลเยอะใช้เวลาหลายวินาที: บอกผู้ใช้ และกันกดซ้ำ */
+  const [busy, setBusy] = useState<string | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [showSwitch, setShowSwitch] = useState(false);
   /** URL อื่นที่บันทึกไว้ (ไม่รวมตัวที่ใช้งานอยู่) */
@@ -263,7 +265,8 @@ export default function DataScreen() {
   };
 
   const doTTImport = async (mode: 'merge' | 'replace') => {
-    if (!pendingTT) return;
+    if (!pendingTT || busy) return;
+    setBusy(`กำลังนำเข้า ${pendingTT.list.length} รายการ…`);
     try {
       if (mode === 'replace') await purgeRange(pendingTT.from, pendingTT.to);
       await insertActivities(pendingTT.list);
@@ -272,6 +275,8 @@ export default function DataScreen() {
       showToast(`นำเข้า ${pendingTT.list.length} รายการแล้ว ✓`);
     } catch {
       showToast('นำเข้าไม่สำเร็จ');
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -290,7 +295,8 @@ export default function DataScreen() {
   };
 
   const doImport = async (mode: 'merge' | 'replace') => {
-    if (!pendingImport) return;
+    if (!pendingImport || busy) return;
+    setBusy(`กำลังกู้คืน ${pendingImport.activities.length} กิจกรรม…`);
     try {
       await restoreAll(pendingImport, mode);
       await Promise.all([useActivities.getState().boot(), useContacts.getState().boot()]);
@@ -298,6 +304,8 @@ export default function DataScreen() {
       showToast(mode === 'replace' ? 'กู้คืนข้อมูล (แทนที่) แล้ว ✓' : 'รวมข้อมูลแล้ว ✓');
     } catch {
       showToast('กู้คืนไม่สำเร็จ');
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -403,10 +411,11 @@ export default function DataScreen() {
             “แทนที่ช่วงนี้” จะลบข้อมูลเดิมเฉพาะช่วงวันดังกล่าวก่อนนำเข้า
           </Txt>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setPendingTT(null)} />
-            <Btn style={{ flex: 1 }} label="เพิ่มรวม" onPress={() => doTTImport('merge')} />
-            <Btn style={{ flex: 1 }} kind="danger" label="แทนที่ช่วงนี้" onPress={() => doTTImport('replace')} />
+            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" disabled={!!busy} onPress={() => setPendingTT(null)} />
+            <Btn style={{ flex: 1 }} label="เพิ่มรวม" disabled={!!busy} onPress={() => doTTImport('merge')} />
+            <Btn style={{ flex: 1 }} kind="danger" label="แทนที่ช่วงนี้" disabled={!!busy} onPress={() => doTTImport('replace')} />
           </View>
+          {busy ? <BusyLine text={busy} /> : null}
         </Card>
       ) : null}
 
@@ -423,10 +432,11 @@ export default function DataScreen() {
           </Txt>
           <Txt size={12} color={t.sub}>เลือกวิธีนำเข้า — “แทนที่” จะลบข้อมูลปัจจุบันทั้งหมดก่อน</Txt>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setPendingImport(null)} />
-            <Btn style={{ flex: 1 }} label="รวม (merge)" onPress={() => doImport('merge')} />
-            <Btn style={{ flex: 1 }} kind="danger" label="แทนที่" onPress={() => doImport('replace')} />
+            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" disabled={!!busy} onPress={() => setPendingImport(null)} />
+            <Btn style={{ flex: 1 }} label="รวม (merge)" disabled={!!busy} onPress={() => doImport('merge')} />
+            <Btn style={{ flex: 1 }} kind="danger" label="แทนที่" disabled={!!busy} onPress={() => doImport('replace')} />
           </View>
+          {busy ? <BusyLine text={busy} /> : null}
         </Card>
       ) : null}
 
@@ -823,6 +833,19 @@ function UrlItem({ url, actionLabel, onAction, onRemove }: { url: string; action
         style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: t.chip }}>
         <Icon name="trash" size={14} color={DANGER} />
       </Pressable>
+    </View>
+  );
+}
+
+/** แถบ "กำลังทำงาน" ใต้ปุ่มยืนยัน — งานเขียนข้อมูลชุดใหญ่ใช้เวลา ไม่ให้ดูเหมือนแอปค้าง */
+function BusyLine({ text }: { text: string }) {
+  const t = useTokens();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 2 }}>
+      <ActivityIndicator size="small" color={t.sub} />
+      <Txt size={12.5} color={t.sub}>
+        {text} อย่าเพิ่งปิดแอป
+      </Txt>
     </View>
   );
 }

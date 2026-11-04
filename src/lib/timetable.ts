@@ -4,7 +4,7 @@
 // CSV: เซลล์ merge ของต้นฉบับเหลือค่าเฉพาะช่องแรก → ตีความว่ากิจกรรมยาวถึงช่องเวลาถัดไป
 // .xlsx: ตัวอ่านคลี่ merge ให้เต็มกริดมาแล้ว → ช่องติดกันที่ชื่อเดียวกันถูกรวมกลับเป็นก้อนเดียวเหมือนกัน
 
-import { DAY_END, type CatId } from '@/constants/theme';
+import { DAY_END, DAY_START, type CatId } from '@/constants/theme';
 import { MONTH_TH, addDays, beYear, daysBetween, fmtMin, fromISO, toISO, todayISO, wdMon } from '@/lib/dates';
 import { OPEN_END_DAYS } from '@/lib/engine';
 import type { Activity, DayItem, OccMap } from '@/lib/types';
@@ -24,9 +24,19 @@ export interface TTCell {
   color: string | null;
 }
 
-/** CSV → แถวของเซลล์ (รองรับ quote, "" และขึ้นบรรทัดใหม่ในเซลล์) */
+/**
+ * ตัวคั่นช่องของไฟล์ — Excel ในบางภาษา/ภูมิภาคบันทึก CSV คั่นด้วย ";" แทน ","
+ * ดูจากบรรทัดแรก (ตัดข้อความในเครื่องหมายคำพูดออกก่อน): มี ";" แต่ไม่มี "," = ใช้ ";"
+ */
+function sniffDelimiter(src: string): ',' | ';' {
+  const first = (src.split(/\r?\n/, 1)[0] ?? '').replace(/"[^"]*"/g, '');
+  return first.includes(';') && !first.includes(',') ? ';' : ',';
+}
+
+/** CSV → แถวของเซลล์ (รองรับ quote, "" และขึ้นบรรทัดใหม่ในเซลล์ · คั่นด้วย , หรือ ;) */
 function parseCsv(text: string): string[][] {
   const src = text.replace(/^﻿/, '');
+  const sep = sniffDelimiter(src);
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = '';
@@ -41,7 +51,7 @@ function parseCsv(text: string): string[][] {
         } else q = false;
       } else cell += ch;
     } else if (ch === '"') q = true;
-    else if (ch === ',') {
+    else if (ch === sep) {
       row.push(cell);
       cell = '';
     } else if (ch === '\n' || ch === '\r') {
@@ -83,6 +93,33 @@ function parseTimeLabel(s: string): { start: number; end: number | null } | null
   const hm = txt.match(/^(\d{1,2})[:.](\d{2})/) ?? txt.match(/^(\d{1,2})\b/);
   if (!hm) return null;
   return { start: norm(+hm[1], hm[2] ? +hm[2] : 0), end: null };
+}
+
+/**
+ * ป้ายกิจกรรมในช่องตาราง Time Table (ช่องละ 30 นาที) — ปกติ = ชื่ออย่างเดียว (หน้าตาเหมือนไฟล์ต้นฉบับ)
+ * ต่อท้ายเวลาจริง "ชื่อ (09:15–10:15)" เฉพาะเมื่อตารางจะเก็บไม่ครบ ให้นำเข้ากลับได้ตรงเวลา:
+ *  - เริ่ม/จบไม่ตรงช่อง 30 นาที (เช่น :15 / :45 หรือยาว 15 นาที)
+ *  - มีรายการชื่อเดียวกันในวันเดียวกันที่ติด/ทับกัน (ไม่งั้นตอนนำเข้าถูกรวมเป็นก้อนเดียว)
+ */
+export function ttLabel(it: DayItem, sameDay: DayItem[]): string {
+  const offGrid = it.startMin % 30 !== 0 || it.endMin % 30 !== 0;
+  const twin = sameDay.some((o) => o.id !== it.id && o.title === it.title && o.startMin <= it.endMin && o.endMin >= it.startMin);
+  return offGrid || twin ? `${it.title} (${fmtMin(it.startMin)}–${fmtMin(it.endMin)})` : it.title;
+}
+
+/**
+ * อ่านเวลาจริงที่ต่อท้ายชื่อ "ชื่อ (HH:MM–HH:MM)" (คู่กับ ttLabel) — ไม่มี = null
+ * เวลาเริ่มอยู่ในกรอบวัน 06:00–30:00 เสมอ: ก่อน 06:00 คือเช้ามืดวันถัดไป (+1440) · เวลาจบต้องมากกว่าเริ่ม
+ */
+function exactTime(text: string): { title: string; start: number; end: number } | null {
+  const m = text.match(/^(.*\S)\s*\((\d{1,2})[:.](\d{2})\s*[–-]\s*(\d{1,2})[:.](\d{2})\)$/);
+  if (!m) return null;
+  let start = +m[2] * 60 + +m[3];
+  if (start < DAY_START) start += 1440;
+  let end = +m[4] * 60 + +m[5];
+  while (end <= start) end += 1440;
+  if (start >= DAY_END || end - start > 1440) return null;
+  return { title: m[1], start, end: Math.min(end, DAY_END) };
 }
 
 /** เดาหมวดจากชื่อกิจกรรม (ลำดับสำคัญ: กิจวัตร → ออกกำลัง → เคส → งาน → เรียนรู้) */
@@ -166,6 +203,8 @@ function parseMonthBlock(rows: TTCell[][]): TimeTableImport | null {
     start: number;
     end: number;
     color: string | null;
+    /** เวลาจริงจากป้าย "(HH:MM–HH:MM)" — ไม่ต้องเดาจากช่อง และไม่รวมกับชิ้นอื่น */
+    exact?: boolean;
   }
   const byDate = new Map<string, Piece[]>();
   for (const row of timed) {
@@ -183,7 +222,10 @@ function parseMonthBlock(rows: TTCell[][]): TimeTableImport | null {
       // ช่องเดียวหลายกิจกรรม (ที่ส่งออกไว้ด้วย " | ") → แยกกลับเป็นคนละรายการ · ตัดเครื่องหมาย ✓/✗ ที่มากับไฟล์ส่งออก
       for (const raw of text.split(' | ')) {
         const title = raw.replace(/^[✓✔✗✘×]\s*/, '').trim();
-        if (title) arr.push({ title, start: row.start, end, color: cell?.color ?? null });
+        if (!title) continue;
+        const ex = exactTime(title);
+        if (ex) arr.push({ title: ex.title, start: ex.start, end: ex.end, color: cell?.color ?? null, exact: true });
+        else arr.push({ title, start: row.start, end, color: cell?.color ?? null });
       }
     }
   }
@@ -194,7 +236,12 @@ function parseMonthBlock(rows: TTCell[][]): TimeTableImport | null {
     // รวมช่องติดกันชื่อเดียวกัน (ร่องรอยเซลล์ merge ของต้นฉบับ)
     const merged: Piece[] = [];
     for (const it of items) {
-      const tail = merged.find((x) => x.title === it.title && it.start <= x.end && it.end >= x.start);
+      if (it.exact) {
+        // ชิ้นเดียวกันซ้ำทุกช่องที่คลุม — เก็บครั้งเดียว
+        if (!merged.some((x) => x.exact && x.title === it.title && x.start === it.start && x.end === it.end)) merged.push({ ...it });
+        continue;
+      }
+      const tail = merged.find((x) => !x.exact && x.title === it.title && it.start <= x.end && it.end >= x.start);
       if (tail) {
         tail.end = Math.max(tail.end, it.end);
         tail.start = Math.min(tail.start, it.start);
@@ -349,7 +396,7 @@ export function buildTimeTableRows(read: (date: string) => DayItem[], anchor: st
     const row = [t === 1440 ? 'Midnight' : fmtMin(t)];
     for (const items of perDay) {
       const here = items.filter((it) => it.startMin < t + 30 && it.endMin > t);
-      row.push(here.map((it) => it.title).join(' | '));
+      row.push(here.map((it) => ttLabel(it, items)).join(' | '));
     }
     rows.push(row);
   }

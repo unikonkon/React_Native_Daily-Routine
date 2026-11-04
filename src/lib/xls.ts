@@ -5,6 +5,7 @@
 import { CAT_BY_ID, DAY_END } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, beYear, fmtMin, fromISO, toISO, wdMon } from '@/lib/dates';
 import { EXPORT_PALETTES, type ExportPalette } from '@/lib/export-theme';
+import { ttLabel } from '@/lib/timetable';
 import type { DayItem } from '@/lib/types';
 
 type Read = (date: string) => DayItem[];
@@ -61,10 +62,10 @@ function gridTable(title: string, dates: string[], heads: string[], read: Read, 
       if (bg) style += `background:${bg};`;
 
       const parts = startsHere.map((it) => {
-        if (it.ostatus === 'done') return `<span style="color:${pal.ok};font-weight:bold;">✓ ${esc(it.title)}</span>`;
-        if (it.ostatus === 'skipped') return `<span style="color:${pal.bad};text-decoration:line-through;">✗ ${esc(it.title)}</span>`;
+        if (it.ostatus === 'done') return `<span style="color:${pal.ok};font-weight:bold;">✓ ${esc(ttLabel(it, items))}</span>`;
+        if (it.ostatus === 'skipped') return `<span style="color:${pal.bad};text-decoration:line-through;">✗ ${esc(ttLabel(it, items))}</span>`;
         const ink = it.color ? pal.userInk : pal.catInk(CAT_BY_ID[it.cat].color);
-        return `<span style="color:${ink};font-weight:bold;">${esc(it.title)}</span>`;
+        return `<span style="color:${ink};font-weight:bold;">${esc(ttLabel(it, items))}</span>`;
       });
       html += `<td style="${style}">${parts.join('<br/>')}</td>`;
     });

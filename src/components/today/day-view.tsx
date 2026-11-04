@@ -15,7 +15,7 @@ import { SvgIcon } from '@/components/svg-icon';
 import { SwipeDays } from '@/components/today/swipe-days';
 import { Txt, useTokens } from '@/components/ui';
 import { addDays, beYear, fromISO, MONTH_TH, WD_TH_FULL, wdMon } from '@/lib/dates';
-import { computeStats, daytimeFreeSlots } from '@/lib/engine';
+import { daytimeFreeSlots, streakBefore, streakWithToday } from '@/lib/engine';
 import { dayProgress, overdueBetween } from '@/lib/progress';
 import type { DayItem } from '@/lib/types';
 import { useActivities, useDay, useDayReader } from '@/stores/activities';
@@ -50,7 +50,11 @@ export function TodayDayView({ focus, onChangeFocus, onPressTitle, onPressItem, 
 
   const p = dayProgress(items, now);
   const free = useMemo(() => (freeMode ? daytimeFreeSlots(items) : []), [items, freeMode]);
-  const streak = useMemo(() => computeStats(acts, occ, now.min >= 1440 ? now.min - 1440 : now.min).streak, [acts, occ, now]);
+  // streak: ส่วนย้อนหลัง (หนัก) คิดใหม่เมื่อข้อมูล/วันเปลี่ยนเท่านั้น · ส่วนวันนี้ (เบา) คิดทุกนาที
+  // ก่อน 06:00 now.date ยังเป็นเมื่อวาน (min เกิน 1440) — streak ใช้วันที่ตามปฏิทินเหมือน computeStats เดิม
+  const calToday = now.min >= 1440 ? addDays(now.date, 1) : now.date;
+  const streakPast = useMemo(() => streakBefore(acts, occ, calToday), [acts, occ, calToday]);
+  const streak = streakWithToday(streakPast, getDay(calToday), now.min >= 1440 ? now.min - 1440 : now.min);
   // ค้างบันทึก 7 วันล่าสุด (รวมวันนี้) — แบนเนอร์ทบทวน
   const overdue7 = useMemo(() => overdueBetween(getDay, addDays(now.date, -6), now.date, now).length, [getDay, now]);
 

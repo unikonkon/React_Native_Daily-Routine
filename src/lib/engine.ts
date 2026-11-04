@@ -42,17 +42,50 @@ export function seriesDates(a: Activity): string[] {
   return out;
 }
 
-/** กิจกรรมทั้งหมดของวันหนึ่ง + สถานะรายวัน (ตัด occurrence ที่ cancelled) เรียงตามเวลาเริ่ม */
+/**
+ * ดัชนีของรายการกิจกรรมชุดหนึ่ง (ต่อ array — store สร้าง array ใหม่ทุก mutation จึงไม่ค้างค่าเก่า)
+ * กิจกรรมครั้งเดียว (ส่วนใหญ่ของข้อมูล) จัดกลุ่มตามวันที่ · ชุดทำซ้ำเก็บรวมไว้ตรวจ occursOn ตามเดิม
+ * pos = ลำดับใน acts — ใช้เรียงรายการเวลาเริ่มเท่ากันให้เหมือนการไล่ acts ตรง ๆ
+ */
+interface ActsIndex {
+  once: Map<string, { a: Activity; pos: number }[]>;
+  series: { a: Activity; pos: number }[];
+}
+const actsIndex = new WeakMap<Activity[], ActsIndex>();
+function indexOf(acts: Activity[]): ActsIndex {
+  let idx = actsIndex.get(acts);
+  if (!idx) {
+    idx = { once: new Map(), series: [] };
+    acts.forEach((a, pos) => {
+      if (a.status !== 'active') return;
+      if (a.repeat === 'none') {
+        const list = idx!.once.get(a.startDate);
+        if (list) list.push({ a, pos });
+        else idx!.once.set(a.startDate, [{ a, pos }]);
+      } else idx!.series.push({ a, pos });
+    });
+    actsIndex.set(acts, idx);
+  }
+  return idx;
+}
+
+/**
+ * กิจกรรมทั้งหมดของวันหนึ่ง + สถานะรายวัน (ตัด occurrence ที่ cancelled) เรียงตามเวลาเริ่ม
+ * ไม่ไล่กิจกรรมทุกรายการต่อวัน — ครั้งเดียวดึงจากดัชนีวันที่ ตรวจเฉพาะชุดทำซ้ำ (ข้อมูลหลายหมื่นรายการก็ยังเร็ว)
+ */
 export function dayItems(acts: Activity[], occ: OccMap, date: string): DayItem[] {
+  const { once, series } = indexOf(acts);
+  const hits: { a: Activity; pos: number }[] = [...(once.get(date) ?? [])];
+  for (const h of series) if (occursOn(h.a, date)) hits.push(h);
+  hits.sort((x, y) => x.a.startMin - y.a.startMin || x.pos - y.pos);
   const out: DayItem[] = [];
   const dayOcc = occ[date];
-  for (const a of acts) {
-    if (!occursOn(a, date)) continue;
+  for (const { a } of hits) {
     const ostatus = dayOcc?.[a.id] ?? 'planned';
     if (ostatus === 'cancelled') continue;
     out.push({ ...a, date, ostatus });
   }
-  return out.sort((x, y) => x.startMin - y.startMin);
+  return out;
 }
 
 /** จัดเลนกิจกรรมเวลาทับกัน: คืน map id → { lane, n } (n = จำนวนเลนในกลุ่ม) */
@@ -252,22 +285,37 @@ export function computeStats(acts: Activity[], occ: OccMap, now: number): Stats 
     }
   }
 
-  // streak: วันติดต่อกันย้อนหลังที่ทำครบทุกรายการที่ถึงกำหนด (วันไม่มีรายการ = ผ่านเฉย ๆ)
-  let streak = 0;
-  for (let i = 0; i < 365; i++) {
+  const streak = streakWithToday(streakBefore(acts, occ, today), dayItems(acts, occ, today), now);
+  return { rate: scheduled ? done / scheduled : 0, doneWeek: done, dueWeek: scheduled, streak, hoursByCat };
+}
+
+/**
+ * streak: วันติดต่อกันย้อนหลังที่ทำครบทุกรายการที่ถึงกำหนด (วันไม่มีรายการ = ผ่านเฉย ๆ)
+ * แยกเป็น 2 ส่วน — ตั้งแต่เมื่อวานย้อนไป (ไม่ขึ้นกับเวลาตอนนี้ → memo ได้ทั้งวัน) + วันนี้ (เบา คิดใหม่ทุกนาทีได้)
+ * run = จำนวนวันที่ทำครบติดกันนับจากเมื่อวานย้อนไป
+ */
+export interface StreakBefore {
+  run: number;
+}
+export function streakBefore(acts: Activity[], occ: OccMap, today: string): StreakBefore {
+  let run = 0;
+  for (let i = 1; i < 365; i++) {
     const d = addDays(today, -i);
-    const due = dayItems(acts, occ, d).filter(
-      (it) => it.ostatus !== 'rescheduled' && !(d === today && it.startMin > now),
-    );
+    const due = dayItems(acts, occ, d).filter((it) => it.ostatus !== 'rescheduled');
     if (!due.length) {
       if (i > 30) break; // กันลูปยาวช่วงไม่มีข้อมูล
       continue;
     }
-    if (due.every((it) => it.ostatus === 'done')) streak++;
+    if (due.every((it) => it.ostatus === 'done')) run++;
     else break;
   }
-
-  return { rate: scheduled ? done / scheduled : 0, doneWeek: done, dueWeek: scheduled, streak, hoursByCat };
+  return { run };
+}
+/** รวม streak ย้อนหลังกับวันนี้ — วันนี้มีรายการถึงเวลาแล้วแต่ยังไม่ครบ = สายขาด (0) */
+export function streakWithToday(before: StreakBefore, todayItems: DayItem[], now: number): number {
+  const due = todayItems.filter((it) => it.ostatus !== 'rescheduled' && !(it.startMin > now));
+  if (!due.length) return before.run;
+  return due.every((it) => it.ostatus === 'done') ? before.run + 1 : 0;
 }
 
 // ---------- สถิติแบบเลือกช่วง (หน้าสถิติ §6.1) ----------

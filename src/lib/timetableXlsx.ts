@@ -11,7 +11,7 @@
 import { CAT_BY_ID, CATS, DAY_END, DAY_START } from '@/constants/theme';
 import { fromISO, toISO, wdMon } from '@/lib/dates';
 import { EXPORT_PALETTES, EXPORT_TONES, type ExportPalette } from '@/lib/export-theme';
-import { parseTimeTableCells, type TimeTableImport } from '@/lib/timetable';
+import { parseTimeTableCells, ttLabel, type TimeTableImport } from '@/lib/timetable';
 import type { DayItem } from '@/lib/types';
 import { buildXlsx, colName, parseXlsx, type XStyle, type XWriteCell, type XWriteSheet } from '@/lib/xlsx';
 
@@ -50,8 +50,9 @@ function itemColors(it: DayItem, pal: ExportPalette): { fill: string; color: str
 }
 
 /** ชื่อกิจกรรมพร้อมเครื่องหมายสถานะ (ตัวอ่านฝั่งนำเข้าตัดเครื่องหมายทิ้งเอง) */
-function itemText(it: DayItem): string {
-  return it.ostatus === 'done' ? `✓ ${it.title}` : it.ostatus === 'skipped' ? `✗ ${it.title}` : it.title;
+function itemText(it: DayItem, sameDay: DayItem[]): string {
+  const label = ttLabel(it, sameDay);
+  return it.ostatus === 'done' ? `✓ ${label}` : it.ostatus === 'skipped' ? `✗ ${label}` : label;
 }
 
 /** หนึ่งเดือน → หนึ่งชีต */
@@ -166,7 +167,7 @@ function monthSheet(read: Read, anchor: string, pal: ExportPalette): XWriteSheet
         valign: 'center',
         border: true,
       };
-      at(FIRST_SLOT_ROW - 1 + i)[c] = { v: here.map(itemText).join(' | '), s: style };
+      at(FIRST_SLOT_ROW - 1 + i)[c] = { v: here.map((it) => itemText(it, items)).join(' | '), s: style };
       for (let x = i + 1; x <= j; x++) at(FIRST_SLOT_ROW - 1 + x)[c] = { s: style };
       if (j > i) merges.push(`${colName(c + 1)}${FIRST_SLOT_ROW + i}:${colName(c + 1)}${FIRST_SLOT_ROW + j}`);
       i = j + 1;

@@ -287,17 +287,37 @@ export async function loadSettings(): Promise<Record<string, string>> {
 
 // ---------- เขียน (เรียกจาก stores แบบ optimistic) ----------
 
+const INSERT_ACTIVITY_SQL = `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
+       repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color, inline_contact)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+
+const activityParams = (a: Omit<Activity, 'id'>): SQLite.SQLiteBindValue[] => [
+  a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
+  a.repeat, a.daysMask, encodeDates(a.dates), a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore,
+  a.detachedFrom, a.status, a.color, encodeInline(a.inlineContact),
+];
+
 /** INSERT แถวกิจกรรม 1 แถว (ไม่รวมรายชื่อ) — ใช้ได้ทั้ง db หลักและ txn ใน transaction */
 async function insertActivityRow(conn: SQLite.SQLiteDatabase, a: Omit<Activity, 'id'>): Promise<number> {
-  const res = await conn.runAsync(
-    `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-       repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color, inline_contact)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.startMin, a.endMin,
-    a.repeat, a.daysMask, encodeDates(a.dates), a.startDate, a.endDate, a.notify ? 1 : 0, a.notifyBefore,
-    a.detachedFrom, a.status, a.color, encodeInline(a.inlineContact),
-  );
+  const res = await conn.runAsync(INSERT_ACTIVITY_SQL, ...activityParams(a));
   return res.lastInsertRowId;
+}
+
+/**
+ * เขียนหลายแถวด้วยคำสั่งเดียวกัน: prepare ครั้งเดียว แล้ว execute ทีละแถว
+ * runAsync ต่อแถว = prepare + execute + finalize (ไป-กลับ native 3 รอบ) — ข้อมูลหลายหมื่นแถวช้ามากบนมือถือ
+ */
+async function withStatement<T>(
+  conn: SQLite.SQLiteDatabase,
+  sql: string,
+  fn: (run: (...params: SQLite.SQLiteBindValue[]) => Promise<{ lastInsertRowId: number }>) => Promise<T>,
+): Promise<T> {
+  const st = await conn.prepareAsync(sql);
+  try {
+    return await fn((...params) => st.executeAsync(...params));
+  } finally {
+    await st.finalizeAsync();
+  }
 }
 
 export async function insertActivity(a: Omit<Activity, 'id'>): Promise<number> {
@@ -460,7 +480,9 @@ export async function saveSetting(key: string, value: string): Promise<void> {
 export async function insertActivities(list: Omit<Activity, 'id'>[]): Promise<void> {
   const d = getDb();
   await d.withExclusiveTransactionAsync(async (txn) => {
-    for (const a of list) await insertActivityRow(txn, a);
+    await withStatement(txn, INSERT_ACTIVITY_SQL, async (run) => {
+      for (const a of list) await run(...activityParams(a));
+    });
   });
 }
 
@@ -483,19 +505,14 @@ export async function purgeRange(from: string, to: string): Promise<void> {
     );
 
     // ลบทั้งแถว: ครั้งเดียวในช่วง + series ที่อยู่ในกรอบทั้งช่วงชีวิต
-    const gone = await txn.getAllAsync<{ id: number }>(
-      `SELECT id FROM activities
+    // ลบเป็นชุดด้วยเงื่อนไขเดียว (ไม่วนลบทีละ id — นำเข้า "แทนที่ช่วงนี้" หลายเดือนมีหลายพันแถว)
+    const gone = `SELECT id FROM activities
        WHERE (repeat='none' AND start_date BETWEEN ? AND ?)
-          OR (repeat!='none' AND start_date >= ? AND end_date IS NOT NULL AND end_date <= ?)`,
-      from, to, from, to,
-    );
-    for (const { id } of gone) {
-      await txn.runAsync('DELETE FROM activity_contacts WHERE activity_id=?', id);
-      await txn.runAsync('DELETE FROM occurrences WHERE activity_id=?', id);
-      await txn.runAsync('DELETE FROM occ_notes WHERE activity_id=?', id);
-      await txn.runAsync('DELETE FROM reschedule_logs WHERE activity_id=?', id);
-      await txn.runAsync('DELETE FROM activities WHERE id=?', id);
+          OR (repeat!='none' AND start_date >= ? AND end_date IS NOT NULL AND end_date <= ?)`;
+    for (const table of ['activity_contacts', 'occurrences', 'occ_notes', 'reschedule_logs']) {
+      await txn.runAsync(`DELETE FROM ${table} WHERE activity_id IN (${gone})`, from, to, from, to);
     }
+    await txn.runAsync(`DELETE FROM activities WHERE id IN (${gone})`, from, to, from, to);
 
     const before = addDays(from, -1);
     const after = addDays(to, 1);
@@ -592,56 +609,75 @@ export async function restoreAll(data: BackupData, mode: 'replace' | 'merge'): P
       const rows = await txn.getAllAsync<{ id: number; name: string; phone: string | null }>('SELECT id, name, phone FROM contacts');
       for (const r of rows) existing.set(contactKey(r.name, r.phone), r.id);
     }
-    for (const c of data.contacts) {
-      const same = existing.get(contactKey(c.name, c.phone));
-      if (same !== undefined) {
-        contactIdMap[c.id] = same;
-        continue;
-      }
-      const res = await txn.runAsync(
-        'INSERT INTO contacts (name, priority, phone, line, email, zoom, googlemeet, note, org) VALUES (?,?,?,?,?,?,?,?,?)',
-        c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null, c.org ?? null,
-      );
-      contactIdMap[c.id] = res.lastInsertRowId;
-    }
+    await withStatement(
+      txn,
+      'INSERT INTO contacts (name, priority, phone, line, email, zoom, googlemeet, note, org) VALUES (?,?,?,?,?,?,?,?,?)',
+      async (run) => {
+        for (const c of data.contacts) {
+          const same = existing.get(contactKey(c.name, c.phone));
+          if (same !== undefined) {
+            contactIdMap[c.id] = same;
+            continue;
+          }
+          const res = await run(c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null, c.org ?? null);
+          contactIdMap[c.id] = res.lastInsertRowId;
+        }
+      },
+    );
     const actIdMap: Record<number, number> = {};
-    for (const a of data.activities) {
-      const res = await txn.runAsync(
-        `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
-           repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color, inline_contact)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)`,
-        a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.start_min, a.end_min,
-        a.repeat, a.days_mask, a.dates ?? null, a.start_date, a.end_date, a.notify, a.notify_before, a.status,
-        a.color ?? null, a.inline_contact ?? null,
-      );
-      actIdMap[a.id] = res.lastInsertRowId;
-    }
+    await withStatement(
+      txn,
+      `INSERT INTO activities (title, cat, sub, loc, channel, priority, start_min, end_min,
+         repeat, days_mask, dates, start_date, end_date, notify, notify_before, detached_from, status, color, inline_contact)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)`,
+      async (run) => {
+        for (const a of data.activities) {
+          const res = await run(
+            a.title, a.cat, a.sub, a.loc, a.channel, a.priority, a.start_min, a.end_min,
+            a.repeat, a.days_mask, a.dates ?? null, a.start_date, a.end_date, a.notify, a.notify_before, a.status,
+            a.color ?? null, a.inline_contact ?? null,
+          );
+          actIdMap[a.id] = res.lastInsertRowId;
+        }
+      },
+    );
     // ลิงก์ "เลื่อนมา/แยกจาก" นัดเดิม — แปลงเป็น id ใหม่หลังใส่ครบทุกแถวแล้ว (แถวต้นทางอาจอยู่หลังในไฟล์)
-    for (const a of data.activities) {
-      const from = a.detached_from != null ? actIdMap[a.detached_from] : undefined;
-      if (from) await txn.runAsync('UPDATE activities SET detached_from=? WHERE id=?', from, actIdMap[a.id]);
-    }
+    await withStatement(txn, 'UPDATE activities SET detached_from=? WHERE id=?', async (run) => {
+      for (const a of data.activities) {
+        const from = a.detached_from != null ? actIdMap[a.detached_from] : undefined;
+        if (from) await run(from, actIdMap[a.id]);
+      }
+    });
     // ประวัติการเลื่อนนัด (ตัวนับ "เลื่อนมาแล้ว N ครั้ง")
-    for (const l of data.reschedule_logs ?? []) {
-      const id = actIdMap[l.activity_id];
-      if (!id) continue;
-      await txn.runAsync(
-        'INSERT INTO reschedule_logs (activity_id, from_date, from_start, to_date, to_start, reason, created_at) VALUES (?,?,?,?,?,?,?)',
-        id, l.from_date, l.from_start, l.to_date, l.to_start, l.reason ?? null, l.created_at ?? new Date().toISOString().slice(0, 19).replace('T', ' '),
-      );
-    }
-    for (const o of data.occurrences) {
-      const id = actIdMap[o.activity_id];
-      if (id) await txn.runAsync('INSERT OR REPLACE INTO occurrences (activity_id, date, status) VALUES (?,?,?)', id, o.date, o.status);
-    }
-    for (const n of data.occ_notes ?? []) {
-      const id = actIdMap[n.activity_id];
-      if (id && n.note) await txn.runAsync('INSERT OR REPLACE INTO occ_notes (activity_id, date, note) VALUES (?,?,?)', id, n.date, n.note);
-    }
-    for (const l of data.activity_contacts) {
-      const a = actIdMap[l.activity_id];
-      const c = contactIdMap[l.contact_id];
-      if (a && c) await txn.runAsync('INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id) VALUES (?,?)', a, c);
-    }
+    await withStatement(
+      txn,
+      'INSERT INTO reschedule_logs (activity_id, from_date, from_start, to_date, to_start, reason, created_at) VALUES (?,?,?,?,?,?,?)',
+      async (run) => {
+        for (const l of data.reschedule_logs ?? []) {
+          const id = actIdMap[l.activity_id];
+          if (!id) continue;
+          await run(id, l.from_date, l.from_start, l.to_date, l.to_start, l.reason ?? null, l.created_at ?? new Date().toISOString().slice(0, 19).replace('T', ' '));
+        }
+      },
+    );
+    await withStatement(txn, 'INSERT OR REPLACE INTO occurrences (activity_id, date, status) VALUES (?,?,?)', async (run) => {
+      for (const o of data.occurrences) {
+        const id = actIdMap[o.activity_id];
+        if (id) await run(id, o.date, o.status);
+      }
+    });
+    await withStatement(txn, 'INSERT OR REPLACE INTO occ_notes (activity_id, date, note) VALUES (?,?,?)', async (run) => {
+      for (const n of data.occ_notes ?? []) {
+        const id = actIdMap[n.activity_id];
+        if (id && n.note) await run(id, n.date, n.note);
+      }
+    });
+    await withStatement(txn, 'INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id) VALUES (?,?)', async (run) => {
+      for (const l of data.activity_contacts) {
+        const a = actIdMap[l.activity_id];
+        const c = contactIdMap[l.contact_id];
+        if (a && c) await run(a, c);
+      }
+    });
   });
 }

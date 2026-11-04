@@ -30,42 +30,65 @@ interface DayCell {
   rate: number | null; // null = ไม่มีรายการที่ถึงกำหนด
 }
 
-function yearData(getDay: (d: string) => DayItem[], year: number, now: NowRef) {
-  const days: Record<string, DayCell> = {};
-  const months = Array.from({ length: 12 }, () => ({ total: 0, done: 0 }));
-  let total = 0;
-  let done = 0;
-  let fullDays = 0;
-  let run = 0;
-  let best = 0;
-  for (let d = `${year}-01-01`; d <= `${year}-12-31` && d <= now.date; d = addDays(d, 1)) {
-    const p = dayProgress(getDay(d), now);
-    const due = d === now.date ? p.total - p.waiting : p.total;
-    if (!due) {
-      days[d] = { rate: null };
-      continue;
-    }
-    const rate = p.done / due;
-    days[d] = { rate };
-    const m = fromISO(d).getMonth();
-    months[m].total += due;
-    months[m].done += p.done;
-    total += due;
-    done += p.done;
-    if (rate >= 1) {
-      fullDays++;
-      run++;
-      best = Math.max(best, run);
-    } else run = 0;
+interface YearAcc {
+  days: Record<string, DayCell>;
+  months: { total: number; done: number }[];
+  total: number;
+  done: number;
+  fullDays: number;
+  run: number;
+  best: number;
+}
+
+/** สะสมผลของวันหนึ่งลงตัวรวม (แก้ acc ตรง ๆ) */
+function addDay(acc: YearAcc, d: string, due: number, doneN: number) {
+  if (!due) {
+    acc.days[d] = { rate: null };
+    return;
   }
-  return { days, months, rate: total ? done / total : 0, fullDays, best, total };
+  const rate = doneN / due;
+  acc.days[d] = { rate };
+  const m = fromISO(d).getMonth();
+  acc.months[m].total += due;
+  acc.months[m].done += doneN;
+  acc.total += due;
+  acc.done += doneN;
+  if (rate >= 1) {
+    acc.fullDays++;
+    acc.run++;
+    acc.best = Math.max(acc.best, acc.run);
+  } else acc.run = 0;
+}
+
+/** วันก่อนวันนี้ทั้งปี — ไม่ขึ้นกับเวลาตอนนี้ คิดครั้งเดียวต่อวัน (ส่วนหนักของมุมมองปี) */
+function yearPast(getDay: (d: string) => DayItem[], year: number, today: string): YearAcc {
+  const now: NowRef = { date: today, min: 0 }; // วันก่อนหน้าใช้แค่ total/done — ไม่ขึ้นกับเวลา
+  const acc: YearAcc = { days: {}, months: Array.from({ length: 12 }, () => ({ total: 0, done: 0 })), total: 0, done: 0, fullDays: 0, run: 0, best: 0 };
+  for (let d = `${year}-01-01`; d <= `${year}-12-31` && d < today; d = addDays(d, 1)) {
+    const p = dayProgress(getDay(d), now);
+    addDay(acc, d, p.total, p.done);
+  }
+  return acc;
+}
+
+/** เติมวันนี้ (นับเฉพาะรายการที่ถึงเวลาแล้ว — เปลี่ยนทุกนาที แต่คิดแค่วันเดียว) แล้วสรุปผล */
+function yearData(past: YearAcc, getDay: (d: string) => DayItem[], year: number, now: NowRef) {
+  const acc: YearAcc = { ...past, days: { ...past.days }, months: past.months.map((m) => ({ ...m })) };
+  if (now.date.slice(0, 4) === String(year)) {
+    const p = dayProgress(getDay(now.date), now);
+    addDay(acc, now.date, p.total - p.waiting, p.done);
+  }
+  return { days: acc.days, months: acc.months, rate: acc.total ? acc.done / acc.total : 0, fullDays: acc.fullDays, best: acc.best, total: acc.total };
 }
 
 export function TodayYearView({ year, onPressMonth, bottomPad }: YearViewProps) {
   const t = useTokens();
   const getDay = useDayReader();
   const now = useNow();
-  const data = useMemo(() => yearData(getDay, year, now), [getDay, year, now]);
+  // ส่วนหนัก (ทุกวันก่อนวันนี้) คิดใหม่เมื่อข้อมูล/ปี/วันเปลี่ยนเท่านั้น — ไม่ใช่ทุกนาทีตาม now
+  const today = now.date;
+  const past = useMemo(() => yearPast(getDay, year, today), [getDay, year, today]);
+  const data = useMemo(() => yearData(past, getDay, year, now), [past, getDay, year, now]);
   const nowD = fromISO(now.date);
 
   return (
