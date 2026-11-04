@@ -29,11 +29,11 @@
         {
           "backgroundColor": "#F7F3EC",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 220,
+          "imageWidth": 180,
           "dark": {
             "backgroundColor": "#141009",
-            "image": "./assets/images/splash-icon.png",
-            "imageWidth": 220
+            "image": "./assets/images/splash-icon-dark.png",
+            "imageWidth": 180
           }
         }
       ],

@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { ActivitySheet } from '@/components/activity-sheet';
+import { LaunchSplash } from '@/components/launch-splash';
 import { RescheduleModal } from '@/components/reschedule-modal';
 import { ToastHost } from '@/components/toast';
 import { useThemeName } from '@/components/ui';
@@ -18,6 +19,8 @@ import { useContacts } from '@/stores/contacts';
 import { useSettings } from '@/stores/settings';
 
 SplashScreen.preventAutoHideAsync();
+// สลับไปหน้าเปิดแอปที่ภาพเหมือนกัน — จางสั้น ๆ พอ
+SplashScreen.setOptions({ duration: 150, fade: true });
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -43,32 +46,37 @@ export default function RootLayout() {
 
   useEffect(boot, [boot]);
 
-  useEffect(() => {
-    if (fontsLoaded && (booted || bootError)) SplashScreen.hideAsync();
-  }, [fontsLoaded, booted, bootError]);
+  // หน้าเปิดแอป (LaunchSplash) รับช่วงต่อจาก splash ระบบ แล้วหายไปเองเมื่อพร้อม
+  const [splashDone, setSplashDone] = useState(false);
+  const splash = splashDone ? null : (
+    <LaunchSplash ready={fontsLoaded && (booted || !!bootError)} onDone={() => setSplashDone(true)} />
+  );
 
   if (bootError) {
     const pal = PALETTES[theme];
     return (
-      <View style={{ flex: 1, backgroundColor: pal.bg, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 }}>
-        <Text style={{ color: pal.ink, fontSize: 18, fontWeight: '600', textAlign: 'center' }}>เปิดข้อมูลในเครื่องไม่สำเร็จ</Text>
-        <Text style={{ color: pal.sub, fontSize: 14, textAlign: 'center' }}>
-          ข้อมูลของคุณยังอยู่ ยังไม่ถูกแก้ไข — ลองเปิดใหม่อีกครั้ง
-        </Text>
-        <Text style={{ color: pal.faint, fontSize: 12, textAlign: 'center' }}>{bootError}</Text>
-        <Pressable
-          onPress={() => {
-            setBootError(null);
-            boot();
-          }}
-          style={{ marginTop: 8, backgroundColor: pal.ink, borderRadius: 14, paddingHorizontal: 22, paddingVertical: 12 }}>
-          <Text style={{ color: pal.bg, fontSize: 15, fontWeight: '600' }}>ลองใหม่</Text>
-        </Pressable>
-      </View>
+      <>
+        <View style={{ flex: 1, backgroundColor: pal.bg, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 }}>
+          <Text style={{ color: pal.ink, fontSize: 18, fontWeight: '600', textAlign: 'center' }}>เปิดข้อมูลในเครื่องไม่สำเร็จ</Text>
+          <Text style={{ color: pal.sub, fontSize: 14, textAlign: 'center' }}>
+            ข้อมูลของคุณยังอยู่ ยังไม่ถูกแก้ไข — ลองเปิดใหม่อีกครั้ง
+          </Text>
+          <Text style={{ color: pal.faint, fontSize: 12, textAlign: 'center' }}>{bootError}</Text>
+          <Pressable
+            onPress={() => {
+              setBootError(null);
+              boot();
+            }}
+            style={{ marginTop: 8, backgroundColor: pal.ink, borderRadius: 14, paddingHorizontal: 22, paddingVertical: 12 }}>
+            <Text style={{ color: pal.bg, fontSize: 15, fontWeight: '600' }}>ลองใหม่</Text>
+          </Pressable>
+        </View>
+        {splash}
+      </>
     );
   }
 
-  if (!fontsLoaded || !booted) return null;
+  if (!fontsLoaded || !booted) return splash;
 
   return (
     <>
@@ -79,6 +87,7 @@ export default function RootLayout() {
       <ActivitySheet />
       <RescheduleModal />
       <ToastHost />
+      {splash}
     </>
   );
 }
