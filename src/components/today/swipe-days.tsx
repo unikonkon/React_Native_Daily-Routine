@@ -4,9 +4,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, PanResponder, View, useWindowDimensions } from 'react-native';
 
+import { useNow } from '@/components/b1/use-now';
 import { SvgIcon } from '@/components/svg-icon';
 import { Txt, useTokens } from '@/components/ui';
-import { MONTH_TH, WD_TH, addDays, fromISO, todayISO, wdMon } from '@/lib/dates';
+import { MONTH_TH, WD_TH, addDays, fromISO, wdMon } from '@/lib/dates';
 
 /** ลากแนวนอนเกินเท่านี้ (และมากกว่าแนวตั้ง 1.5 เท่า) ถึงนับเป็นการปัด */
 const START_DX = 18;
@@ -14,8 +15,7 @@ const START_DX = 18;
 const COMMIT_RATIO = 0.22;
 const COMMIT_VX = 0.45;
 
-function dayLabel(iso: string): string {
-  const today = todayISO();
+function dayLabel(iso: string, today: string): string {
   if (iso === today) return 'วันนี้';
   if (iso === addDays(today, 1)) return 'พรุ่งนี้';
   if (iso === addDays(today, -1)) return 'เมื่อวาน';
@@ -25,6 +25,8 @@ function dayLabel(iso: string): string {
 
 export function SwipeDays({ focus, onChangeFocus, children }: { focus: string; onChangeFocus: (iso: string) => void; children: React.ReactNode }) {
   const t = useTokens();
+  // วันนี้แบบ reactive — ป้าย วันนี้/พรุ่งนี้/เมื่อวาน ถูกต้องแม้เปิดแอปทิ้งข้ามเที่ยงคืน
+  const today = useNow().date;
   const { width } = useWindowDimensions();
   const [tx] = useState(() => new Animated.Value(0));
   // ค่าล่าสุดสำหรับ handler ของ PanResponder (สร้างครั้งเดียว)
@@ -68,10 +70,10 @@ export function SwipeDays({ focus, onChangeFocus, children }: { focus: string; o
   return (
     <View style={{ flex: 1, overflow: 'hidden' }} {...pan.panHandlers}>
       <Animated.View pointerEvents="none" style={{ position: 'absolute', left: 14, top: 40, opacity: prevOpacity }}>
-        <EdgeLabel icon="chevL" label={dayLabel(addDays(focus, -1))} color={t.sub} bg={t.track} />
+        <EdgeLabel icon="chevL" label={dayLabel(addDays(focus, -1), today)} color={t.sub} bg={t.track} />
       </Animated.View>
       <Animated.View pointerEvents="none" style={{ position: 'absolute', right: 14, top: 40, opacity: nextOpacity }}>
-        <EdgeLabel icon="chevR" label={dayLabel(addDays(focus, 1))} color={t.sub} bg={t.track} trailing />
+        <EdgeLabel icon="chevR" label={dayLabel(addDays(focus, 1), today)} color={t.sub} bg={t.track} trailing />
       </Animated.View>
       <Animated.View style={{ flex: 1, transform: [{ translateX: tx }] }}>{children}</Animated.View>
     </View>

@@ -89,12 +89,14 @@ export default function TodayScreen() {
     router.push('/add');
   };
 
-  const today = fromISO(todayISO());
+  // วันนี้จาก useNow (state ที่อัปเดตทุกนาที) — เรียก todayISO() ตรง ๆ ตอน render แล้ว React Compiler จะ cache ค่าไว้
+  // เปิดแอปทิ้งข้ามเที่ยงคืน ปุ่ม "วันนี้" จะพาไปวันเก่า
+  const today = fromISO(now.date);
   const atToday =
     view === 'day'
-      ? focus === todayISO()
+      ? focus === now.date
       : view === 'week'
-        ? monday === mondayOf(todayISO())
+        ? monday === mondayOf(now.date)
         : view === 'month'
           ? ym.y === today.getFullYear() && ym.m === today.getMonth()
           : ym.y === today.getFullYear();
@@ -102,9 +104,11 @@ export default function TodayScreen() {
   // "วันนี้" — ไปช่วงของวันนี้ในมุมมองเดิม · อยู่วันนี้แล้ว (มุมมองวัน) = เลื่อนไปที่ "ตอนนี้"
   const goToday = () => {
     if (view === 'day' && atToday) return setScrollNow((n) => n + 1);
-    setFocus(todayISO());
-    changeMonday(mondayOf(todayISO()));
-    setYm({ y: today.getFullYear(), m: today.getMonth() });
+    const td = todayISO(); // อ่านตอนกด — ตรงเวลาจริงเสมอ
+    const d = fromISO(td);
+    setFocus(td);
+    changeMonday(mondayOf(td));
+    setYm({ y: d.getFullYear(), m: d.getMonth() });
   };
 
   const step = (dir: 1 | -1) => {

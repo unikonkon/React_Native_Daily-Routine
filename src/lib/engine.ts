@@ -28,7 +28,7 @@ export function occursOn(a: Activity, date: string): boolean {
 }
 
 /** ชุดไม่มีวันสิ้นสุด (end_date = null) — ขยายดูล่วงหน้าแค่ 1 ปีสำหรับฟอร์ม/พรีวิว */
-const OPEN_END_DAYS = 365;
+export const OPEN_END_DAYS = 365;
 
 /** วันที่ทั้งหมดของชุด (ไม่สนสถานะรายวัน) — ใช้โหลดชุดเข้าฟอร์มแก้ไข และตัดแบ่งชุด */
 export function seriesDates(a: Activity): string[] {

@@ -5,8 +5,8 @@
 // .xlsx: ตัวอ่านคลี่ merge ให้เต็มกริดมาแล้ว → ช่องติดกันที่ชื่อเดียวกันถูกรวมกลับเป็นก้อนเดียวเหมือนกัน
 
 import { DAY_END, type CatId } from '@/constants/theme';
-import { MONTH_TH, beYear, fmtMin, fromISO, toISO, todayISO } from '@/lib/dates';
-import { seriesDates } from '@/lib/engine';
+import { MONTH_TH, addDays, beYear, daysBetween, fmtMin, fromISO, toISO, todayISO, wdMon } from '@/lib/dates';
+import { OPEN_END_DAYS } from '@/lib/engine';
 import type { Activity, DayItem, OccMap } from '@/lib/types';
 
 export interface TimeTableImport {
@@ -273,17 +273,59 @@ export function parseTimeTableCells(rows: TTCell[][]): TimeTableImport {
 /** รายชื่อเดือนที่มีข้อมูล (first-of-month ISO) ตั้งแต่เดือนแรกถึงเดือนสุดท้ายที่มีกิจกรรม/สถานะ (รวมเดือนปัจจุบันเสมอ) */
 export function listDataMonths(acts: Activity[], occ: OccMap): string[] {
   // เฉพาะเดือนที่มีกิจกรรมจริง (ไม่นับครั้งที่ลบไปแล้ว) — ไม่เติมเดือนว่างระหว่างข้อมูลเก่ากับวันนี้
+  // คิดทีละเดือนต่อกิจกรรม (นับวันที่ตรงกฎด้วยเลขคณิต) ไม่ไล่ทีละวัน — ชุดยาวเป็นปีหลายร้อยชุดก็ไม่หน่วงจอ
+  const cancelled = new Map<string, number>(); // `${id}|YYYY-MM` → จำนวนครั้งที่ลบในเดือนนั้น
+  for (const d of Object.keys(occ)) {
+    const day = occ[d];
+    for (const id in day) {
+      if (day[id] !== 'cancelled') continue;
+      const key = `${id}|${d.slice(0, 7)}`;
+      cancelled.set(key, (cancelled.get(key) ?? 0) + 1);
+    }
+  }
   const months = new Set<string>();
+  const add = (id: number, ym: string, n: number) => {
+    if (n > (cancelled.get(`${id}|${ym}`) ?? 0)) months.add(`${ym}-01`);
+  };
+
   for (const a of acts) {
     if (a.status !== 'active') continue;
-    for (const d of seriesDates(a)) {
-      if (occ[d]?.[a.id] === 'cancelled') continue;
-      months.add(`${d.slice(0, 7)}-01`);
+    if (a.repeat === 'none' || (a.repeat === 'custom' && a.dates)) {
+      const per = new Map<string, number>();
+      for (const d of a.repeat === 'none' ? [a.startDate] : (a.dates ?? [])) per.set(d.slice(0, 7), (per.get(d.slice(0, 7)) ?? 0) + 1);
+      per.forEach((n, ym) => add(a.id, ym, n));
+      continue;
+    }
+    // ชุดตามวันในสัปดาห์ — ช่วงเดียวกับ seriesDates (ไม่มีวันจบ = ดูล่วงหน้า 1 ปี)
+    const last = a.endDate ?? addDays(a.startDate, OPEN_END_DAYS - 1);
+    let y = Number(a.startDate.slice(0, 4));
+    let m = Number(a.startDate.slice(5, 7)) - 1;
+    for (;;) {
+      const first = toISO(new Date(y, m, 1));
+      if (first > last) break;
+      const monthEnd = toISO(new Date(y, m + 1, 0));
+      add(a.id, first.slice(0, 7), countMaskDays(a.daysMask, first < a.startDate ? a.startDate : first, monthEnd > last ? last : monthEnd));
+      if (++m > 11) {
+        m = 0;
+        y++;
+      }
     }
   }
   // ยังไม่มีข้อมูลเลย = เดือนนี้ (ส่งออกเป็นตารางเปล่าไว้กรอกได้)
   if (!months.size) months.add(`${todayISO().slice(0, 7)}-01`);
   return [...months].sort();
+}
+
+/** จำนวนวันในช่วง from–to (รวมปลาย) ที่ตรง daysMask (bit0 = จันทร์) — สัปดาห์เต็มคูณ + เศษไม่เกิน 6 วัน */
+function countMaskDays(mask: number, from: string, to: string): number {
+  const n = daysBetween(from, to) + 1;
+  if (n <= 0) return 0;
+  let bits = 0;
+  for (let i = 0; i < 7; i++) bits += (mask >> i) & 1;
+  const w0 = wdMon(from);
+  let c = Math.floor(n / 7) * bits;
+  for (let i = 0; i < n % 7; i++) if ((mask >> ((w0 + i) % 7)) & 1) c++;
+  return c;
 }
 
 /** ตาราง grid ทั้งเดือนของ anchor เป็นแถวเซลล์ (ใช้ทั้งส่งออก CSV และส่งขึ้น Google Sheets) */

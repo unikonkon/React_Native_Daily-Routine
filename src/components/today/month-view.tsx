@@ -4,7 +4,7 @@
 //   ถือไว้ทีละช่วง ±SPAN เดือน — เลื่อนใกล้ขอบช่วง → ขยับช่วงตาม (ชดเชยตำแหน่งให้ภาพไม่กระโดด)
 //   ข้อมูลรายวัน (จุดหมวด/แถบ %) คำนวณเฉพาะเดือนใกล้จอ — เดือนไกล ๆ โชว์แค่เลขวัน (cache รายวันจุได้ 500 วัน)
 // แตะวันครั้งแรก = เลือก → การ์ดรายการกางใต้สัปดาห์นั้น · แตะซ้ำ / "เปิดมุมมองวัน" = เข้ามุมมองวัน
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native';
 
 import { Rail } from '@/components/b1/rail';
@@ -57,8 +57,11 @@ export function TodayMonthView({ year, month, selected, onPressDay, onVisibleMon
   const [center, setCenter] = useState(propK);
   /** เดือนบนจอ (ล่าสุดที่รายงานขึ้นไป หรือที่ถูกสั่งให้ไป) */
   const [visK, setVisK] = useState(propK);
-  /** คำสั่งเลื่อนไปเดือน k — n เพิ่มทุกครั้งให้ effect ทำงานแม้เดือนเดิม */
-  const [jump, setJump] = useState({ k: propK, offset: 0, animated: false, n: 0 });
+  /**
+   * คำสั่งเลื่อนไปเดือน k — n เพิ่มทุกครั้งให้ effect ทำงานแม้เดือนเดิม
+   * wait = คำสั่งนี้ขยับช่วงเดือนด้วย (ตำแหน่งที่วัดไว้ใช้ไม่ได้แล้ว) → รอ onLayout ของเดือนเป้าหมายก่อนค่อยเลื่อน
+   */
+  const [jump, setJump] = useState({ k: propK, offset: 0, animated: false, n: 0, wait: false });
 
   // เดือนจากภายนอกเปลี่ยน (‹ › / วันนี้ / เลือกเดือนในมุมมองปี) และไม่ใช่เดือนที่เราเพิ่งรายงาน → เลื่อนไปหา
   const [lastProp, setLastProp] = useState(propK);
@@ -66,8 +69,11 @@ export function TodayMonthView({ year, month, selected, onPressDay, onVisibleMon
     setLastProp(propK);
     if (propK !== visK) {
       setVisK(propK);
-      if (Math.abs(propK - center) > SPAN - 1) setCenter(propK);
-      setJump((j) => ({ k: propK, offset: 0, animated: Math.abs(propK - visK) <= 3, n: j.n + 1 }));
+      // ขยับช่วงแล้วขอบบนเปลี่ยน = เดือนด้านบนเพิ่ม/หาย → ตำแหน่งเดิมของทุกเดือนผิดหมด ต้องรอวัดใหม่
+      const recenter = Math.abs(propK - center) > SPAN - 1;
+      const wait = recenter && clampK(propK - SPAN) !== clampK(center - SPAN);
+      if (recenter) setCenter(propK);
+      setJump((j) => ({ k: propK, offset: 0, animated: Math.abs(propK - visK) <= 3, n: j.n + 1, wait }));
     }
   }
 
@@ -86,8 +92,9 @@ export function TodayMonthView({ year, month, selected, onPressDay, onVisibleMon
     scRef.current?.scrollTo({ y: Math.max(y + offset, 0), animated });
     return true;
   };
-  useEffect(() => {
-    if (!go(jump.k, jump.offset, jump.animated)) pending.current = jump;
+  // layout effect: ตั้ง pending ให้ทันก่อน onLayout ของช่วงใหม่จะเข้ามา
+  useLayoutEffect(() => {
+    if (jump.wait || !go(jump.k, jump.offset, jump.animated)) pending.current = jump;
   }, [jump]);
 
   const onMonthLayout = (k: number, y: number) => {
@@ -114,9 +121,15 @@ export function TodayMonthView({ year, month, selected, onPressDay, onVisibleMon
     }
     // ใกล้ขอบช่วง → ขยับช่วงให้เดือนบนจออยู่กลาง แล้วชดเชยตำแหน่ง (เดือนด้านบนเพิ่ม/หายทำให้เนื้อหาเลื่อน)
     if ((k - from < 2 && from > MIN_K) || (to - k < 2 && to < MAX_K)) {
-      const top = tops.current.get(k) ?? 0;
-      pending.current = { k, offset: y - top, animated: false };
-      for (const mk of [...tops.current.keys()]) if (Math.abs(mk - k) > SPAN) tops.current.delete(mk);
+      const nextFrom = clampK(k - SPAN);
+      const nextTo = clampK(k + SPAN);
+      // ชดเชยตำแหน่งเฉพาะเมื่อขอบบนเปลี่ยน — ขอบบนติดปีแรก (VIEW_MIN_Y) ตำแหน่งเดือนไม่ขยับ onLayout จะไม่มา
+      // ถ้าตั้ง pending ไว้ จะค้างตลอด (หัวเดือนไม่อัปเดต · เลื่อนต่อไม่ได้)
+      if (nextFrom !== from) {
+        const top = tops.current.get(k) ?? 0;
+        pending.current = { k, offset: y - top, animated: false };
+      }
+      for (const mk of [...tops.current.keys()]) if (mk < nextFrom || mk > nextTo) tops.current.delete(mk);
       setCenter(k);
     }
   };
