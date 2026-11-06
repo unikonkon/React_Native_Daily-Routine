@@ -5,7 +5,7 @@
 import { CAT_BY_ID, DAY_END, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, WD_TH_FULL, beYear, fmtMin, fromISO, toISO, wdMon } from '@/lib/dates';
 import { EXPORT_PALETTES, type ExportPalette } from '@/lib/export-theme';
-import { reportTabs, type ReportData } from '@/lib/report';
+import { asText, reportTabs, type ReportData } from '@/lib/report';
 import type { DayItem, NoteMap, OccStatus } from '@/lib/types';
 import { buildTimeTableRows } from '@/lib/timetable';
 
@@ -28,7 +28,7 @@ export interface SheetsBuild {
   grid?: boolean;
   /** รายงานสรุป — ใส่เป็นแท็บแยกไว้หน้าสุด (null/undefined = ไม่ส่ง) */
   report?: ReportData | null;
-  /** โน้ตรายครั้ง — คอลัมน์ "โน้ต" ท้ายแท็บรายการกิจกรรม */
+  /** โน้ตรายครั้ง — คอลัมน์ "โน้ต" ท้ายแท็บรายการกิจกรรม (แท็บ "โน้ตรายครั้ง" มากับรายงาน) */
   notes?: NoteMap;
 }
 
@@ -276,7 +276,8 @@ export async function pushToSheets(url: string, tabs: SheetTab[]): Promise<void>
     res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ sheets: tabs }),
+      // setValues ตีข้อความขึ้นต้น = + - @ เป็นสูตร (โน้ตแบบ "- ทำ A" กลายเป็น #ERROR!) — ใส่ ' นำหน้าให้เป็นข้อความ
+      body: JSON.stringify({ sheets: tabs.map((tab) => ({ ...tab, rows: tab.rows.map((r) => r.map(asText)) })) }),
     });
   } catch {
     throw new Error('เชื่อมต่อไม่ได้ — เช็คอินเทอร์เน็ต');

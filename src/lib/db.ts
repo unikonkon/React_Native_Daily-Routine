@@ -577,7 +577,12 @@ export interface BackupData {
   reschedule_logs: RescheduleLogRow[];
   /** v6 — สำรองรุ่นเก่าไม่มีฟิลด์นี้ */
   occ_notes?: { activity_id: number; date: string; note: string }[];
+  /** การตั้งค่าที่ผูกกับข้อมูล (แม่แบบโน้ต/ตัวเลือกย่อยของหมวด/ทางลัด) — สำรองรุ่นเก่าไม่มีฟิลด์นี้ */
+  settings?: { key: string; value: string }[];
 }
+
+/** คีย์ settings ที่ไปกับไฟล์สำรอง — ไม่รวมธีม/การแจ้งเตือน/URL ชีต (เป็นของเครื่องนั้น ๆ) */
+const BACKUP_SETTING_KEYS = ['note_cfg', 'cat_options', 'quick_picks'];
 
 export async function dumpAll(): Promise<BackupData> {
   const d = getDb();
@@ -589,6 +594,10 @@ export async function dumpAll(): Promise<BackupData> {
     activity_contacts: await d.getAllAsync('SELECT * FROM activity_contacts'),
     reschedule_logs: await d.getAllAsync('SELECT * FROM reschedule_logs'),
     occ_notes: await d.getAllAsync('SELECT * FROM occ_notes'),
+    settings: await d.getAllAsync(
+      `SELECT key, value FROM settings WHERE key IN (${BACKUP_SETTING_KEYS.map(() => '?').join(',')})`,
+      ...BACKUP_SETTING_KEYS,
+    ),
   } as BackupData;
 }
 
@@ -679,5 +688,15 @@ export async function restoreAll(data: BackupData, mode: 'replace' | 'merge'): P
         if (a && c) await run(a, c);
       }
     });
+    // แทนที่ = ใช้ค่าจากไฟล์ · รวม = เก็บค่าที่ตั้งไว้ในเครื่องนี้ (เติมเฉพาะคีย์ที่ยังไม่เคยตั้ง)
+    await withStatement(
+      txn,
+      `INSERT OR ${mode === 'replace' ? 'REPLACE' : 'IGNORE'} INTO settings (key, value) VALUES (?,?)`,
+      async (run) => {
+        for (const st of data.settings ?? []) {
+          if (BACKUP_SETTING_KEYS.includes(st.key) && typeof st.value === 'string') await run(st.key, st.value);
+        }
+      },
+    );
   });
 }

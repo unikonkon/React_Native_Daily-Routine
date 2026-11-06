@@ -300,7 +300,8 @@ export default function DataScreen() {
     setBusy(`กำลังกู้คืน ${pendingImport.activities.length} กิจกรรม…`);
     try {
       await restoreAll(pendingImport, mode);
-      await Promise.all([useActivities.getState().boot(), useContacts.getState().boot()]);
+      // แม่แบบโน้ต/ตัวเลือกย่อยของหมวดมากับไฟล์สำรองด้วย — โหลด settings ใหม่ให้หน้าจอใช้ค่าที่กู้มา
+      await Promise.all([useActivities.getState().boot(), useContacts.getState().boot(), useSettings.getState().boot()]);
       setPendingImport(null);
       showToast(mode === 'replace' ? 'กู้คืนข้อมูล (แทนที่) แล้ว ✓' : 'รวมข้อมูลแล้ว ✓');
     } catch {
@@ -339,7 +340,7 @@ export default function DataScreen() {
             <Txt size={11} color={t.faint}>เนื้อหาในไฟล์</Txt>
             <CheckRow
               label="รายงานสรุปจากที่บันทึกไว้"
-              sub="ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · สรุปหมวดหมู่ (หมวดที่ใช้มากสุด + ทุกหมวดพร้อมสถานะ/สัดส่วน) · รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด (ครั้ง/เสร็จ/ชั่วโมง/ช่วงวัน) · นัดเคส · รายการนัด"
+              sub="ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · สรุปหมวดหมู่ (หมวดที่ใช้มากสุด + ทุกหมวดพร้อมสถานะ/สัดส่วน) · รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด (ครั้ง/เสร็จ/ชั่วโมง/ช่วงวัน) · นัดเคส · รายการนัด · โน้ตรายครั้งทุกหมวด"
               on={withReport}
               onPress={() => {
                 const next = !withReport;
@@ -366,7 +367,7 @@ export default function DataScreen() {
             />
             <Txt size={11} color={t.faint}>
               {ttFormat === 'xlsx'
-                ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้${withReport ? ' · รายงานอยู่ในชีตแยก 2 ชีตแรก (รายงานสรุป + สรุปเคส & รายชื่อ)' : ''}`
+                ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้ (เฉพาะตาราง — โน้ตไม่ถูกนำเข้า)${withReport ? ' · รายงานอยู่ในชีตแยกหน้าสุด (รายงานสรุป · สรุปเคส & รายชื่อ · โน้ตรายครั้ง)' : ''}`
                 : ttFormat === 'xls'
                   ? 'มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ — เปิดดูใน Excel/Sheets ได้ แต่นำกลับเข้าแอปไม่ได้'
                   : `CSV: ข้อความล้วน นำกลับเข้าแอปนี้ได้${withReport ? ' (บล็อกรายงานถูกข้ามตอนนำเข้า)' : ''}`}
@@ -422,7 +423,7 @@ export default function DataScreen() {
 
       <Card>
         <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>สำรอง & กู้คืน(แบบ Json)</Txt>
-        <Row icon="download" label="สำรองข้อมูล (JSON)" sub="ครบทุกตาราง (รวมรายชื่อ/สถานะ) — เก็บไว้กู้คืน/ย้ายเครื่อง" onPress={exportJson} />
+        <Row icon="download" label="สำรองข้อมูล (JSON)" sub="ครบทุกตาราง (รายชื่อ/สถานะ/โน้ต + แม่แบบโน้ตและตัวเลือกของหมวด) — เก็บไว้กู้คืน/ย้ายเครื่อง" onPress={exportJson} />
         <Row icon="restore" label="กู้คืน / นำเข้า (JSON)" sub="เลือกไฟล์ที่สำรองไว้" onPress={pickImport} last />
       </Card>
 
@@ -497,7 +498,7 @@ export default function DataScreen() {
                   <Txt size={11} color={t.faint}>เนื้อหาในชีต</Txt>
                   <CheckRow
                     label="รายงานสรุปจากที่บันทึกไว้"
-                    sub="2 แท็บหน้าสุด: “รายงานสรุป” (ภาพรวม/แนวโน้ม/สรุปหมวดหมู่ + รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด) · “สรุปเคส & รายชื่อ” (รวมรายการนัด)"
+                    sub="แท็บหน้าสุด: “รายงานสรุป” (ภาพรวม/แนวโน้ม/สรุปหมวดหมู่ + รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด) · “สรุปเคส & รายชื่อ” (รวมรายการนัด) · “โน้ตรายครั้ง” (โน้ตทุกหมวด)"
                     on={shReport}
                     onPress={() => {
                       const next = !shReport;
@@ -507,7 +508,7 @@ export default function DataScreen() {
                   />
                   <CheckRow
                     label="ตาราง Time Table + รายการกิจกรรม"
-                    sub="แท็บ grid ช่องเวลา 30 นาที ต่อเดือน + แท็บรายการกิจกรรมแบบแถว"
+                    sub="แท็บ grid ช่องเวลา 30 นาที ต่อเดือน + แท็บรายการกิจกรรมแบบแถว (มีคอลัมน์โน้ต)"
                     on={shGrid}
                     disabled={!shReport}
                     onPress={() => setShGrid(!shGrid)}
@@ -599,7 +600,7 @@ export default function DataScreen() {
       </Card>
 
       <Txt size={11} color={t.faint} style={{ textAlign: 'center' }}>
-        ส่งขึ้น Google Sheets ทางเดียว (แอป → Sheets): 2 แท็บรายงาน + grid Time Table รายเดือน + แท็บรายการกิจกรรม
+        ส่งขึ้น Google Sheets ทางเดียว (แอป → Sheets): แท็บรายงาน (+ โน้ตรายครั้ง) + grid Time Table รายเดือน + แท็บรายการกิจกรรม
         {'\n'}ชีตถูกเขียนทับทุกครั้งที่ส่ง (แท็บชื่อเดิม) — แท็บอื่นในไฟล์เดียวกันไม่ถูกแตะ
         {'\n'}เคยส่งด้วยเวอร์ชันก่อน: แท็บ “สรุปหมวดหมู่” และ “รายการนัดเคส” ย้ายไปรวมกับ 2 แท็บนี้แล้ว ลบแท็บเก่าทิ้งได้เลย
       </Txt>

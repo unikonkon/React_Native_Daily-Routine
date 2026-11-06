@@ -1,11 +1,12 @@
 // รายงานสรุปจากที่บันทึกไว้ — โมเดลกลาง + ตัวเรนเดอร์ 3 แบบ (.xlsx / CSV / .xls)
 // เนื้อหาตรงกับหน้าสถิติ (app/settings/stats.tsx): ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · นัดเคส (ระดับ/ตามเคส/รายชื่อคน) · รายการนัด
+// + โน้ตรายครั้งทุกหมวดในช่วง (ตาราง/ชีตแยก "โน้ตรายครั้ง")
 // ตัวเลขทุกตัวคำนวณจาก engine.rangeStats ตัวเดียวกับหน้าจอ — เลขในไฟล์กับในแอปจึงตรงกันเสมอ
 
-import { CATS, CAT_OPTIONS, PRI, PRI_BY_ID, type CatId, type PriorityId } from '@/constants/theme';
+import { CATS, CAT_BY_ID, CAT_OPTIONS, PRI, PRI_BY_ID, type CatId, type PriorityId } from '@/constants/theme';
 import { caseWho, inlineName } from '@/lib/case-contacts';
 import { MONTH_TH, WD_TH_FULL, addDays, beYear, fmtRange, fromISO, hoursText, thaiDate, toISO, wdMon } from '@/lib/dates';
-import { rangeStats, type RangeStats } from '@/lib/engine';
+import { dayItems, rangeStats, type RangeStats } from '@/lib/engine';
 import { EXPORT_PALETTES, type ExportPalette } from '@/lib/export-theme';
 import type { Activity, Contact, DayItem, NoteMap, OccMap, OccStatus } from '@/lib/types';
 import { xmlEsc, type XStyle, type XWriteCell, type XWriteSheet } from '@/lib/xlsx';
@@ -25,6 +26,11 @@ const priRank = (p: PriorityId | null) => (p ? PRI_RANK[p] : PRI.length);
 /** ชื่อ normalize สำหรับรวมรายการซ้ำ (เหมือนหน้าสถิติ) */
 const nameKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
+/**
+ * ข้อความที่ผู้ใช้พิมพ์เอง (โน้ต/ชื่อ) ขึ้นต้นด้วย = + - @ — Excel/Sheets จะตีเป็นสูตร (#NAME?/#ERROR!)
+ * เช่นโน้ตแบบรายการ "- ซื้อของ" · เติม ' นำหน้าให้เป็นข้อความ (Sheets ซ่อน ' ให้เอง)
+ */
+export const asText = (v: string): string => (/^[=+\-@]/.test(v) ? `'${v}` : v);
 
 export interface ReportBucket {
   label: string;
@@ -97,6 +103,12 @@ export interface ReportCat {
   opts: ReportCatOpt[];
 }
 
+/** โน้ตหนึ่งครั้ง (ทุกหมวด) — เรียงตามวัน+เวลา */
+export interface ReportNote {
+  item: DayItem;
+  note: string;
+}
+
 export interface ReportData {
   /** ป้ายช่วง เช่น "ก.ค. 2569" หรือ "ก.ค. 2569 – ก.ย. 2569" */
   label: string;
@@ -122,6 +134,8 @@ export interface ReportData {
   nameById: Record<number, string>;
   /** โน้ตรายครั้ง — คอลัมน์ "โน้ต" ในตารางรายการนัดเคส */
   notes: NoteMap;
+  /** โน้ตทุกหมวดในช่วง [from, to] — ตาราง "โน้ตรายครั้ง" */
+  noteItems: ReportNote[];
 }
 
 /** ช่องทางติดต่อของคนหนึ่ง รวมจากทุกรายชื่อที่ชื่อเหมือนกัน (ไม่ซ้ำ) */
@@ -328,6 +342,16 @@ export function buildReport(
     .sort((a, b) => b.total - a.total || priRank(a.pri) - priRank(b.pri) || a.title.localeCompare(b.title, 'th'))
     .map(({ ids, extra, ...g }) => ({ ...g, names: [...ids.map((id) => nameById[id]).filter(Boolean), ...extra].join(', ') }));
 
+  // ---------- โน้ตรายครั้งทุกหมวด (เฉพาะวันที่มีโน้ต — ไม่ต้องไล่ทุกวันในช่วง) ----------
+  const noteItems: ReportNote[] = [];
+  for (const date of Object.keys(notes).filter((x) => x >= from && x <= to).sort()) {
+    const day = notes[date];
+    for (const it of dayItems(acts, occ, date)) {
+      const note = day[it.id]?.trim();
+      if (note) noteItems.push({ item: it, note });
+    }
+  }
+
   return {
     label,
     from,
@@ -347,6 +371,7 @@ export function buildReport(
     items: stats.caseItems,
     nameById,
     notes,
+    noteItems,
   };
 }
 
@@ -380,6 +405,7 @@ function overviewRows(d: ReportData): [string, string, string][] {
       `${CATS.length - d.usedCats} / ${CATS.length} หมวด`,
       idleCatNames(d) || 'ใช้ครบทุกหมวดในช่วงนี้',
     ],
+    ['โน้ตที่บันทึก', `${d.noteItems.length} ครั้ง`, noteCatText(d) || 'ยังไม่มีโน้ตในช่วงนี้'],
     [
       'หมวดที่ใช้มากสุด',
       d.topCat ? d.topCat.short : '–',
@@ -521,6 +547,28 @@ const personRow = (p: ReportPerson): (string | number)[] => [
   p.contactText,
   p.note,
 ];
+
+/** จำนวนโน้ตแยกหมวด เช่น "งาน 3 · ออกกำลัง 2" */
+function noteCatText(d: ReportData): string {
+  const n: Partial<Record<CatId, number>> = {};
+  for (const { item } of d.noteItems) n[item.cat] = (n[item.cat] ?? 0) + 1;
+  return CATS.filter((c) => n[c.id]).map((c) => `${c.short} ${n[c.id]}`).join(' · ');
+}
+
+/** ตาราง "โน้ตรายครั้ง" — ทุกหมวด · คอลัมน์หมวดย้อมสี, สถานะย้อมสีตามผล */
+const NOTE_HEAD = ['วันที่', 'วัน', 'เวลา', 'หมวด', 'กิจกรรม', 'สถานะ', 'โน้ต'];
+const NOTE_CAT_COL = 3;
+const NOTE_STATUS_COL = 5;
+const noteRow = ({ item: it, note }: ReportNote): string[] => [
+  it.date,
+  WD_TH_FULL[wdMon(it.date)],
+  fmtRange(it.startMin, it.endMin),
+  CAT_BY_ID[it.cat].short,
+  it.title,
+  STATUS_TH[it.ostatus],
+  note,
+];
+const noteTitle = (d: ReportData) => `โน้ตรายครั้ง (${d.noteItems.length} ครั้ง)`;
 
 const ITEM_HEAD = ['วันที่', 'วัน', 'เวลา', 'เคส', 'ระดับ', 'ช่องทาง', 'ผู้ติดต่อ', 'สถานะ', 'โน้ต'];
 const itemRow = (it: DayItem, nameById: Record<number, string>, notes: NoteMap): (string | number)[] => [
@@ -721,6 +769,25 @@ function caseSheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
   return { name: 'สรุปเคส & รายชื่อ', rows: normalize(rows, W), colWidths: [30, 12, 16, 34, 11, 11, 28, 30, 20, 30], merges, freeze: { cols: 0, rows: 2 } };
 }
 
+/** ชีต "โน้ตรายครั้ง" — โน้ตทุกหมวดในช่วง (คอลัมน์โน้ตกว้าง + ตัดบรรทัด รองรับโน้ตหลายบรรทัดจากแม่แบบ) */
+function noteSheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
+  const rows: (XWriteCell | null)[][] = [];
+  const merges: string[] = [];
+  const W = NOTE_HEAD.length;
+  table(rows, merges, 0, W, noteTitle(d), NOTE_HEAD,
+    d.noteItems.map((n) => {
+      const st = n.item.ostatus;
+      const c = CAT_BY_ID[n.item.cat];
+      return noteRow(n).map((v, i) => {
+        if (i === NOTE_CAT_COL) return { v, s: { ...S.num, bold: true, fill: pal.catTint(c.color), color: pal.catInk(c.color) } };
+        if (i === NOTE_STATUS_COL) return { v, s: { ...S.num, bold: st === 'done', color: st === 'done' ? pal.ok : st === 'skipped' || st === 'cancelled' ? pal.bad : S.num.color } };
+        if (i === 4) return cell(v, { ...S.cell, bold: true });
+        return cell(v, i === 6 ? { ...S.cell, valign: 'top' } : S.num);
+      });
+    }), S);
+  return { name: 'โน้ตรายครั้ง', rows: normalize(rows, W), colWidths: [12, 11, 13, 12, 28, 11, 64], merges, freeze: { cols: 0, rows: 2 } };
+}
+
 /** แปลงค่าดิบเป็นเซลล์ — คอลัมน์ priIdx ใช้ป้ายระดับสีพื้น, ตัวเลข/ข้อความสั้นจัดกลาง */
 function rowCells(vals: (string | number)[], priIdx: number, pal: ExportPalette, S: Styles): (XWriteCell | null)[] {
   return vals.map((v, i) => {
@@ -745,11 +812,12 @@ function normalize(rows: (XWriteCell | null)[][], w: number): (XWriteCell | null
   return out;
 }
 
-/** ชีตรายงานทั้งชุดสำหรับไฟล์ .xlsx — 2 ชีต: รายงานสรุป (รวมสรุปหมวดหมู่) · สรุปเคส & รายชื่อ (รวมรายการนัด) */
+/** ชีตรายงานทั้งชุดสำหรับไฟล์ .xlsx — รายงานสรุป (รวมสรุปหมวดหมู่) · สรุปเคส & รายชื่อ (รวมรายการนัด) · โน้ตรายครั้ง (เมื่อมี) */
 export function reportSheets(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.current): XWriteSheet[] {
   const S = styles(pal);
   const out = [summarySheet(d, pal, S)];
   if (d.items.length) out.push(caseSheet(d, pal, S));
+  if (d.noteItems.length) out.push(noteSheet(d, pal, S));
   return out;
 }
 
@@ -757,7 +825,7 @@ export function reportSheets(d: ReportData, pal: ExportPalette = EXPORT_PALETTES
 
 /** รายงานเป็นข้อความ CSV — บล็อกละหัวข้อ คั่นด้วยบรรทัดว่าง */
 export function reportCsv(d: ReportData): string {
-  const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+  const esc = (v: string | number) => `"${(typeof v === 'string' ? asText(v) : String(v)).replace(/"/g, '""')}"`;
   const line = (vals: (string | number)[]) => vals.map(esc).join(',');
   const out: string[] = [
     line(['รายงานสรุปจากที่บันทึกไว้']),
@@ -808,6 +876,7 @@ export function reportCsv(d: ReportData): string {
       ...d.items.map((it) => line(itemRow(it, d.nameById, d.notes))),
     );
   }
+  if (d.noteItems.length) out.push('', line([noteTitle(d)]), line(NOTE_HEAD), ...d.noteItems.map((n) => line(noteRow(n))));
   if (d.unnamed) out.push('', line([`อีก ${d.unnamed} นัดไม่ได้ระบุผู้ติดต่อ`]));
   return out.join('\n');
 }
@@ -829,7 +898,8 @@ function htmlTable(
   s += '</tr>';
   for (const row of body) {
     s += '<tr>';
-    s += row.map((v, i) => `<td style="${td}${bg}${colorCol?.(v, i) ?? ''}">${xmlEsc(String(v))}</td>`).join('');
+    // โน้ตหลายบรรทัด (จากแม่แบบ) — <br> แบบ same-cell ให้ Excel ขึ้นบรรทัดใหม่ในเซลล์เดิม ไม่แตกเป็นหลายแถว
+    s += row.map((v, i) => `<td style="${td}${bg}${colorCol?.(v, i) ?? ''}">${xmlEsc(typeof v === 'string' ? asText(v) : String(v)).replace(/\n/g, '<br style="mso-data-placement:same-cell"/>')}</td>`).join('');
     s += '</tr>';
   }
   return s + '</table>';
@@ -882,6 +952,16 @@ export function reportHtml(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
     s += T(`สรุปตามเคส (${d.cases.length} เคส)`, CASE_HEAD, d.cases.map(caseRow), (v, i) => priTint(v, i, 1));
     s += T(`รายชื่อคน (${d.people.length} คน)`, PEOPLE_HEAD, d.people.map(personRow), (v, i) => priTint(v, i, 1));
     s += T(`รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD, d.items.map((it) => itemRow(it, d.nameById, d.notes)), (v, i) => priTint(v, i, 4));
+  }
+  if (d.noteItems.length) {
+    s += T(noteTitle(d), NOTE_HEAD, d.noteItems.map(noteRow), (v, i) => {
+      if (i === NOTE_CAT_COL) {
+        const c = CATS.find((x) => x.short === v);
+        return c ? `background:${pal.catTint(c.color)};color:${pal.catInk(c.color)};font-weight:bold;white-space:nowrap;` : '';
+      }
+      if (i === NOTE_STATUS_COL) return `color:${v === STATUS_TH.done ? pal.ok : v === STATUS_TH.skipped || v === STATUS_TH.cancelled ? pal.bad : pal.ink};white-space:nowrap;`;
+      return i === 6 ? 'min-width:260px;vertical-align:top;' : 'white-space:nowrap;';
+    });
   }
   return s + '</div>';
 }
@@ -947,8 +1027,8 @@ function priSCell(id: PriorityId | null | string, pal: ExportPalette): SCell {
 
 /**
  * ชีตรายงานทั้งชุดสำหรับส่งขึ้น Google Sheets — ชุดเนื้อหา/การแบ่งแท็บเดียวกับ reportSheets (.xlsx)
- * 2 แท็บ: "รายงานสรุป" (ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · ระดับความสำคัญ · สรุปหมวดหมู่)
- *        "สรุปเคส & รายชื่อ" (สรุปตามเคส · รายชื่อคน · รายการนัดเคส)
+ * "รายงานสรุป" (ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · ระดับความสำคัญ · สรุปหมวดหมู่)
+ * "สรุปเคส & รายชื่อ" (สรุปตามเคส · รายชื่อคน · รายการนัดเคส — เมื่อมีนัด) · "โน้ตรายครั้ง" (เมื่อมีโน้ต)
  */
 export function reportTabs(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.current): ReportTab[] {
   const plain = (v: string | number): SCell => ({ v, bg: pal.cellBg, fg: pal.ink });
@@ -1029,9 +1109,29 @@ export function reportTabs(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
   if (d.unnamed) pushRow(a, [{ v: `อีก ${d.unnamed} นัดในช่วงนี้ไม่ได้ระบุผู้ติดต่อ`, fg: pal.sub }]);
 
   const out: ReportTab[] = [{ name: 'รายงานสรุป', ...a }];
-  if (!d.items.length) return out;
+  if (d.items.length) out.push(caseTab(d, pal));
+  if (d.noteItems.length) out.push(noteTab(d, pal));
+  return out;
+}
 
-  // --- แท็บ 2: สรุปตามเคส + รายชื่อคน + รายการนัดเคสทุกครั้ง (สถานะย้อมสีเหมือนไฟล์ .xlsx) ---
+/** แท็บ "โน้ตรายครั้ง" — โน้ตทุกหมวดในช่วง (ชุดเดียวกับชีตในไฟล์ .xlsx) */
+function noteTab(d: ReportData, pal: ExportPalette): ReportTab {
+  const a = newAcc();
+  sheetBlock(a, pal, noteTitle(d), NOTE_HEAD,
+    d.noteItems.map((n) => {
+      const st = n.item.ostatus;
+      const c = CAT_BY_ID[n.item.cat];
+      return noteRow(n).map((v, i): SCell => {
+        if (i === NOTE_CAT_COL) return { v, bg: pal.catTint(c.color), fg: pal.catInk(c.color), b: true };
+        if (i === NOTE_STATUS_COL) return { v, bg: pal.cellBg, fg: st === 'done' ? pal.ok : st === 'skipped' || st === 'cancelled' ? pal.bad : pal.ink, b: st === 'done' };
+        return { v, bg: pal.cellBg, fg: pal.ink, b: i === 4 };
+      });
+    }));
+  return { name: 'โน้ตรายครั้ง', ...a };
+}
+
+/** แท็บ "สรุปเคส & รายชื่อ" — สรุปตามเคส + รายชื่อคน + รายการนัดเคสทุกครั้ง (สถานะย้อมสีเหมือนไฟล์ .xlsx) */
+function caseTab(d: ReportData, pal: ExportPalette): ReportTab {
   const b = newAcc();
   sheetBlock(b, pal, `สรุปตามเคส (${d.cases.length} เคส)`, CASE_HEAD, d.cases.map((c) => sheetCells(caseRow(c), 1, pal)));
   sheetBlock(b, pal, `รายชื่อคน (${d.people.length} คน)`, PEOPLE_HEAD,
@@ -1050,6 +1150,5 @@ export function reportTabs(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
       };
       return cells;
     }));
-  out.push({ name: 'สรุปเคส & รายชื่อ', ...b });
-  return out;
+  return { name: 'สรุปเคส & รายชื่อ', ...b };
 }
