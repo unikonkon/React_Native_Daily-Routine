@@ -77,9 +77,9 @@ export default function TodayScreen() {
   };
 
   // แตะช่วงเวลาว่าง → เปิดฟอร์มเพิ่ม พร้อม prefill วันและช่วงเวลา
+  // แตะช่วงว่าง (โหมดเวลาว่าง — วัน/สัปดาห์/เดือน) → ฟอร์มเพิ่มลงวันและช่วงเวลานั้น (ล็อกไว้ ไม่ให้เวลาตั้งต้นทับ)
   const openSlot = (date: string, start: number, end: number) => {
-    useDraft.getState().reset();
-    useDraft.getState().set({ dates: [date], start, end });
+    useDraft.getState().loadSlot(date, start, end);
     router.push('/add');
   };
 

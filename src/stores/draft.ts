@@ -60,6 +60,8 @@ interface DraftState {
   dates: string[];
   notify: boolean;
   before: number;
+  /** วัน/เวลาถูกเลือกมาแล้ว (แตะช่วงว่างในหน้าวันนี้) — เปิดแท็บเพิ่มแล้วไม่ตั้งเวลาตั้งต้นทับ */
+  pinned: boolean;
   /** นับครั้งที่ "โหลด draft ชุดใหม่" (reset / loadActivity / loadSlot) — ฟอร์มใช้ซิงก์ state ภายในของตัวเอง */
   loadRev: number;
 
@@ -98,6 +100,7 @@ const initial = {
   horizon: '1m' as Horizon,
   notify: false, // ค่าเริ่มต้น: ปิดแจ้งเตือน — เปิดเองเมื่อกิจกรรมนั้นต้องการจริง ๆ
   before: 30,
+  pinned: false,
 };
 
 export const useDraft = create<DraftState>((set, get) => ({
@@ -139,7 +142,7 @@ export const useDraft = create<DraftState>((set, get) => ({
 
   refreshDefaultTime: () => {
     const s = get();
-    if (s.editId || s.cat || s.title.trim()) return; // ผู้ใช้เริ่มกรอกแล้ว — ไม่ทับเวลาที่อาจตั้งไว้
+    if (s.editId || s.pinned || s.cat || s.title.trim()) return; // แก้ไข / มาจากช่วงว่าง / เริ่มกรอกแล้ว — ไม่ทับเวลาที่ตั้งไว้
     const t = defaultTime(s.dates[0] ?? todayISO());
     if (t.start !== s.start || t.end !== s.end) set(t);
   },
@@ -182,6 +185,6 @@ export const useDraft = create<DraftState>((set, get) => ({
   },
 
   loadSlot: (date, start, end) => {
-    set((s) => ({ ...initial, dates: [date], start, end, loadRev: s.loadRev + 1 }));
+    set((s) => ({ ...initial, dates: [date], start, end, pinned: true, loadRev: s.loadRev + 1 }));
   },
 }));
