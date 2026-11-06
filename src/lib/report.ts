@@ -7,7 +7,7 @@ import { caseWho, inlineName } from '@/lib/case-contacts';
 import { MONTH_TH, WD_TH_FULL, addDays, beYear, fmtRange, fromISO, hoursText, thaiDate, toISO, wdMon } from '@/lib/dates';
 import { rangeStats, type RangeStats } from '@/lib/engine';
 import { EXPORT_PALETTES, type ExportPalette } from '@/lib/export-theme';
-import type { Activity, Contact, DayItem, OccMap, OccStatus } from '@/lib/types';
+import type { Activity, Contact, DayItem, NoteMap, OccMap, OccStatus } from '@/lib/types';
 import { xmlEsc, type XStyle, type XWriteCell, type XWriteSheet } from '@/lib/xlsx';
 
 const STATUS_TH: Record<OccStatus, string> = {
@@ -120,6 +120,8 @@ export interface ReportData {
   unnamed: number;
   items: DayItem[];
   nameById: Record<number, string>;
+  /** โน้ตรายครั้ง — คอลัมน์ "โน้ต" ในตารางรายการนัดเคส */
+  notes: NoteMap;
 }
 
 /** ช่องทางติดต่อของคนหนึ่ง รวมจากทุกรายชื่อที่ชื่อเหมือนกัน (ไม่ซ้ำ) */
@@ -151,6 +153,8 @@ export function buildReport(
   now: number,
   /** ตัวเลือกย่อยต่อหมวดที่ผู้ใช้ตั้งไว้ (settings store) — ไม่ส่งมาก็ใช้ค่าเริ่มต้นของแอป */
   catOptions?: Partial<Record<CatId, string[]>>,
+  /** โน้ตรายครั้ง (store) — ไม่ส่งมา = ไม่มีคอลัมน์โน้ตให้กรอก */
+  notes: NoteMap = {},
 ): ReportData {
   const first = fromISO(anchors[0]);
   const lastA = fromISO(anchors[anchors.length - 1]);
@@ -342,6 +346,7 @@ export function buildReport(
     unnamed,
     items: stats.caseItems,
     nameById,
+    notes,
   };
 }
 
@@ -517,8 +522,8 @@ const personRow = (p: ReportPerson): (string | number)[] => [
   p.note,
 ];
 
-const ITEM_HEAD = ['วันที่', 'วัน', 'เวลา', 'เคส', 'ระดับ', 'ช่องทาง', 'ผู้ติดต่อ', 'สถานะ'];
-const itemRow = (it: DayItem, nameById: Record<number, string>): (string | number)[] => [
+const ITEM_HEAD = ['วันที่', 'วัน', 'เวลา', 'เคส', 'ระดับ', 'ช่องทาง', 'ผู้ติดต่อ', 'สถานะ', 'โน้ต'];
+const itemRow = (it: DayItem, nameById: Record<number, string>, notes: NoteMap): (string | number)[] => [
   it.date,
   WD_TH_FULL[wdMon(it.date)],
   fmtRange(it.startMin, it.endMin),
@@ -527,6 +532,7 @@ const itemRow = (it: DayItem, nameById: Record<number, string>): (string | numbe
   it.channel === 'online' ? 'ออนไลน์' : it.channel === 'inperson' ? 'พบตัว' : '',
   caseWho(it, nameById).join(', '),
   STATUS_TH[it.ostatus],
+  notes[it.date]?.[it.id] ?? '',
 ];
 
 // ---------- .xlsx ----------
@@ -705,7 +711,7 @@ function caseSheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
 
   table(rows, merges, r, W, `รายการนัดเคส (${d.items.length} นัด)`, pad(ITEM_HEAD, W),
     d.items.map((it) => {
-      const cs = rowCells(itemRow(it, d.nameById), 4, pal, S);
+      const cs = rowCells(itemRow(it, d.nameById, d.notes), 4, pal, S);
       const st = it.ostatus;
       cs[7] = { v: STATUS_TH[st], s: { ...S.num, bold: st === 'done' || st === 'skipped', color: st === 'done' ? pal.ok : st === 'skipped' || st === 'cancelled' ? pal.bad : S.num.color, strike: st === 'skipped' } };
       return cs;
@@ -799,7 +805,7 @@ export function reportCsv(d: ReportData): string {
       '',
       line([`รายการนัดเคส (${d.items.length} นัด)`]),
       line(ITEM_HEAD),
-      ...d.items.map((it) => line(itemRow(it, d.nameById))),
+      ...d.items.map((it) => line(itemRow(it, d.nameById, d.notes))),
     );
   }
   if (d.unnamed) out.push('', line([`อีก ${d.unnamed} นัดไม่ได้ระบุผู้ติดต่อ`]));
@@ -875,7 +881,7 @@ export function reportHtml(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
   if (d.items.length) {
     s += T(`สรุปตามเคส (${d.cases.length} เคส)`, CASE_HEAD, d.cases.map(caseRow), (v, i) => priTint(v, i, 1));
     s += T(`รายชื่อคน (${d.people.length} คน)`, PEOPLE_HEAD, d.people.map(personRow), (v, i) => priTint(v, i, 1));
-    s += T(`รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD, d.items.map((it) => itemRow(it, d.nameById)), (v, i) => priTint(v, i, 4));
+    s += T(`รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD, d.items.map((it) => itemRow(it, d.nameById, d.notes)), (v, i) => priTint(v, i, 4));
   }
   return s + '</div>';
 }
@@ -1034,7 +1040,7 @@ export function reportTabs(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
       : [[{ v: 'ไม่มีนัดเคสที่ระบุผู้ติดต่อในช่วงนี้', bg: pal.cellBg, fg: pal.faint }]]);
   sheetBlock(b, pal, `รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD,
     d.items.map((it) => {
-      const cells = sheetCells(itemRow(it, d.nameById), 4, pal);
+      const cells = sheetCells(itemRow(it, d.nameById, d.notes), 4, pal);
       const st = it.ostatus;
       cells[7] = {
         v: STATUS_TH[st],

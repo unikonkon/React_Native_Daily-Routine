@@ -6,7 +6,7 @@ import { CAT_BY_ID, DAY_END, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, WD_TH_FULL, beYear, fmtMin, fromISO, toISO, wdMon } from '@/lib/dates';
 import { EXPORT_PALETTES, type ExportPalette } from '@/lib/export-theme';
 import { reportTabs, type ReportData } from '@/lib/report';
-import type { DayItem, OccStatus } from '@/lib/types';
+import type { DayItem, NoteMap, OccStatus } from '@/lib/types';
 import { buildTimeTableRows } from '@/lib/timetable';
 
 /** ขอบเขตเดือนที่จะส่ง — 'pick' = ติ๊กเลือกเองจากเดือนที่มีข้อมูล (หน้าจอแปลงเป็น anchors ก่อนเรียก) */
@@ -28,6 +28,8 @@ export interface SheetsBuild {
   grid?: boolean;
   /** รายงานสรุป — ใส่เป็นแท็บแยกไว้หน้าสุด (null/undefined = ไม่ส่ง) */
   report?: ReportData | null;
+  /** โน้ตรายครั้ง — คอลัมน์ "โน้ต" ท้ายแท็บรายการกิจกรรม */
+  notes?: NoteMap;
 }
 
 /** โค้ด Apps Script ให้ผู้ใช้คัดลอกไปวางในชีต (หน้า settings/sheets-setup) — ตรงกับไฟล์ google-apps-script.gs */
@@ -185,7 +187,7 @@ export function buildSheetTabs(read: (date: string) => DayItem[], anchors: strin
   if (o.grid === false) return rectangle(tabs);
 
   const gridTabs: SheetTab[] = [];
-  const listRows: string[][] = [['วันที่', 'วัน', 'เริ่ม', 'สิ้นสุด', 'กิจกรรม', 'หมวด', 'สถานะ', 'สถานที่']];
+  const listRows: string[][] = [['วันที่', 'วัน', 'เริ่ม', 'สิ้นสุด', 'กิจกรรม', 'หมวด', 'สถานะ', 'สถานที่', 'โน้ต']];
   const listMeta: { cat: CatId; status: OccStatus }[] = []; // ขนานกับ listRows (ข้ามหัวตาราง) — ไว้ระบายสี
 
   for (const anchor of anchors) {
@@ -207,6 +209,7 @@ export function buildSheetTabs(read: (date: string) => DayItem[], anchors: strin
           CAT_BY_ID[it.cat].short,
           STATUS_TH[it.ostatus],
           it.loc ?? '',
+          o.notes?.[date]?.[it.id] ?? '',
         ]);
         listMeta.push({ cat: it.cat, status: it.ostatus });
       }

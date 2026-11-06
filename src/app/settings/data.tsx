@@ -140,7 +140,7 @@ export default function DataScreen() {
     setTtOpen(false);
     try {
       const report = withReport
-        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions)
+        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions, useActivities.getState().notes)
         : null;
       const pal = EXPORT_PALETTES[ttTone];
       const ttAnchors = reportOnly ? [] : anchors;
@@ -207,13 +207,14 @@ export default function DataScreen() {
     setSending(true);
     try {
       const report = shReport
-        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions)
+        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions, useActivities.getState().notes)
         : null;
       const tabs = buildSheetTabs(getDay, anchors, {
         style: shStyle,
         pal: EXPORT_PALETTES[shTone],
         grid: shGrid,
         report,
+        notes: useActivities.getState().notes,
       });
       if (!tabs.length) {
         showToast('ไม่มีข้อมูลให้ส่ง');

@@ -2,7 +2,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Keyboard, Modal, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Keyboard, Modal, Platform, Pressable, ScrollView, TextInput, View, type TextInputInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StatusDot } from '@/components/b1/status-circle';
@@ -11,18 +11,20 @@ import { Icon } from '@/components/icon';
 import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Chip, ChipRow, PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, DANGER, FONT, GREEN, PRI, type PriorityId } from '@/constants/theme';
-import { addDays, durText, fmtMin, fmtRange, thaiDate } from '@/lib/dates';
+import { MONTH_TH, WD_TH, addDays, durText, fmtMin, fmtRange, fromISO, thaiDate, wdMon } from '@/lib/dates';
 import { daytimeFreeSlots, seriesDates } from '@/lib/engine';
+import { previousNote, stripTemplate } from '@/lib/notes';
 import { isPast, railState } from '@/lib/progress';
 import type { Contact, ContactInfo, OccStatus } from '@/lib/types';
 import { useActivities, useDay } from '@/stores/activities';
 import { contactMethods, openLink, useContacts, type ContactMethod } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
+import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
 export function ActivitySheet() {
   const sheet = useUI((s) => s.sheet);
-  return sheet ? <SheetBody key={`${sheet.id}:${sheet.date}`} id={sheet.id} date={sheet.date} /> : null;
+  return sheet ? <SheetBody key={`${sheet.id}:${sheet.date}`} id={sheet.id} date={sheet.date} focusNote={!!sheet.focusNote} /> : null;
 }
 
 /** ความสูงคีย์บอร์ดปัจจุบัน (0 = ปิด) — รองรับทั้ง iOS (will) และ Android (did) */
@@ -41,7 +43,7 @@ function useKeyboardHeight() {
   return height;
 }
 
-function SheetBody({ id, date }: { id: number; date: string }) {
+function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNote: boolean }) {
   const t = useTokens();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -54,8 +56,12 @@ function SheetBody({ id, date }: { id: number; date: string }) {
   const dayList = useDay(date);
   const item = dayList.find((i) => i.id === id);
   const tomorrowList = useDay(addDays(date, 1));
+  const noteCfgs = useSettings((s) => s.noteCfg);
   const savedNote = notes[date]?.[id] ?? '';
   const [noteText, setNoteText] = useState(savedNote);
+  /** แม่แบบเติมให้ได้ครั้งเดียวต่อการเปิดแผ่น — ล้างข้อความแล้วไม่เด้งแม่แบบกลับมา */
+  const [tplArmed, setTplArmed] = useState(!savedNote);
+  const noteRef = useRef<TextInputInstance>(null);
   const [confirm, setConfirm] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [adding, setAdding] = useState(false); // เปิดรายการรายชื่อเพื่อเพิ่มเข้าเคสนี้
@@ -84,10 +90,56 @@ function SheetBody({ id, date }: { id: number; date: string }) {
     showToast(next === 'done' ? 'บันทึกว่าทำแล้ว' : next === 'skipped' ? 'บันทึกว่าข้าม' : 'เปลี่ยนเป็นยังไม่ทำ', { label: 'เลิกทำ', run: () => setStatus(item, cur) });
   };
 
+  // โน้ตตามหมวด: ข้อความตัวอย่าง + แม่แบบ (เติมให้เมื่อแตะช่องที่ยังว่าง · บรรทัดแม่แบบที่ไม่ได้กรอกถูกตัดตอนบันทึก)
+  const noteCfg = noteCfgs[item.cat];
+  const prevNote = previousNote(item, notes, acts);
+  const fillTemplate = () => {
+    if (!tplArmed) return;
+    setTplArmed(false);
+    if (!noteText.trim() && noteCfg.template.trim()) setNoteText(noteCfg.template);
+  };
+  const cleanNote = stripTemplate(noteText, noteCfg.template);
+  const noteDirty = cleanNote !== savedNote;
+  /**
+   * บันทึกโน้ต — เรียกจากปุ่ม "บันทึก" และตอนออกจากช่อง (กันลืม)
+   * ช่องว่างไม่ลบโน้ตเดิมให้เอง (กันลบพลาดตอนล้างเพื่อพิมพ์ใหม่) — ลบต้องกด "ลบโน้ต" เท่านั้น
+   */
   const saveNote = () => {
-    if (noteText.trim() === savedNote) return;
-    setNote(item, noteText);
-    showToast(noteText.trim() ? 'บันทึกโน้ตแล้ว' : 'ลบโน้ตแล้ว');
+    if (cleanNote !== noteText && (cleanNote || !savedNote)) setNoteText(cleanNote);
+    if (!noteDirty || !cleanNote) return;
+    setNote(item, cleanNote);
+    showToast('บันทึกโน้ตแล้ว ✓');
+  };
+  const saveNow = () => {
+    saveNote();
+    noteRef.current?.blur();
+  };
+  /** ล้างข้อความในช่อง (ยังไม่แตะโน้ตที่บันทึกไว้) แล้วโฟกัสให้พิมพ์ใหม่ */
+  const clearNoteText = () => {
+    setTplArmed(false);
+    setNoteText('');
+    noteRef.current?.focus();
+  };
+  /** ลบโน้ตที่บันทึกไว้ — เลิกทำได้จาก toast */
+  const deleteNote = () => {
+    const prev = savedNote;
+    setTplArmed(false);
+    setNoteText('');
+    setNote(item, '');
+    noteRef.current?.blur();
+    showToast('ลบโน้ตแล้ว', {
+      label: 'เลิกทำ',
+      run: () => {
+        setNote(item, prev);
+        setNoteText(prev);
+      },
+    });
+  };
+  /** ใช้โน้ตครั้งก่อนเป็นตั้งต้น — ช่องว่าง (หรือมีแค่แม่แบบ) = แทนที่ · มีข้อความแล้ว = ต่อท้าย */
+  const applyPrevNote = () => {
+    if (!prevNote) return;
+    const cur = stripTemplate(noteText, noteCfg.template);
+    setNoteText(cur ? `${cur}\n${prevNote.note}` : prevNote.note);
   };
 
   // เลื่อนด่วน: ช่วงว่างถัดไปที่ยาวพอ (วันเดียวกัน หลังตอนนี้/หลังรายการนี้) · พรุ่งนี้เวลาเดิม · เลือกเอง (Reschedule Modal)
@@ -348,17 +400,69 @@ function SheetBody({ id, date }: { id: number; date: string }) {
               <Txt size={12.5} weight="bold" color={t.sub}>
                 โน้ตของครั้งนี้ <Txt size={12.5} color={t.faint}>(ไม่บังคับ)</Txt>
               </Txt>
-              <TextInput
-                value={noteText}
-                onChangeText={setNoteText}
-                onBlur={saveNote}
-                onSubmitEditing={saveNote}
-                placeholder="เช่น สรุปที่คุยกัน / น้ำหนักที่ยก"
-                placeholderTextColor={t.faint}
-                multiline
-                accessibilityLabel="โน้ตของครั้งนี้"
-                style={{ minHeight: 64, maxHeight: 120, borderRadius: 12, borderWidth: 1, borderColor: t.rail, backgroundColor: t.card, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
-              />
+              {/* โน้ตครั้งก่อนของกิจกรรมเดียวกัน — ดูความต่อเนื่อง (เช่น น้ำหนักที่ยก) · "ใช้ต่อ" = เอามาเป็นตั้งต้น */}
+              {prevNote ? (
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: t.track, borderRadius: 10, paddingLeft: 10, paddingRight: 6, paddingVertical: 7 }}>
+                  <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+                    <Txt size={11.5} weight="bold" color={t.sub}>
+                      ครั้งก่อน · {shortThai(prevNote.date)}
+                    </Txt>
+                    <Txt size={12.5} color={t.ink} numberOfLines={3} style={{ lineHeight: 18 }}>
+                      {prevNote.note}
+                    </Txt>
+                  </View>
+                  <Pressable accessibilityRole="button" accessibilityLabel="ใช้โน้ตครั้งก่อน" onPress={applyPrevNote} hitSlop={6} style={({ pressed }) => ({ height: 30, paddingHorizontal: 10, borderRadius: 15, backgroundColor: pressed ? t.rail : t.card, justifyContent: 'center' })}>
+                    <Txt size={12} weight="bold" color={t.sub}>
+                      ใช้ต่อ
+                    </Txt>
+                  </Pressable>
+                </View>
+              ) : null}
+              <View>
+                <TextInput
+                  ref={noteRef}
+                  value={noteText}
+                  onChangeText={setNoteText}
+                  onFocus={fillTemplate}
+                  onBlur={saveNote}
+                  autoFocus={focusNote}
+                  placeholder={noteCfg.hint || 'เช่น สรุปสั้น ๆ ของครั้งนี้'}
+                  placeholderTextColor={t.faint}
+                  multiline
+                  accessibilityLabel="โน้ตของครั้งนี้"
+                  style={{ minHeight: 64, maxHeight: 120, borderRadius: 12, borderWidth: 1, borderColor: noteDirty && cleanNote ? '#D2603A' : t.rail, backgroundColor: t.card, paddingLeft: 12, paddingRight: 40, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
+                />
+                {/* ✕ ล้างข้อความทั้งหมดในช่อง — โน้ตที่บันทึกไว้ยังอยู่จนกว่าจะกด "ลบโน้ต" */}
+                {noteText ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel="ล้างข้อความในช่องโน้ต" onPress={clearNoteText} hitSlop={8} style={({ pressed }) => ({ position: 'absolute', top: 8, right: 8, width: 26, height: 26, borderRadius: 13, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
+                    <SvgIcon name="x" size={12} color={t.sub} strokeWidth={2.6} />
+                  </Pressable>
+                ) : null}
+              </View>
+              {/* สถานะ + ปุ่ม: ลบโน้ต (มีโน้ตที่บันทึกไว้) · บันทึก (แก้แล้วยังไม่บันทึก) */}
+              {noteDirty || savedNote ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 32 }}>
+                  <Txt size={11.5} weight={noteDirty && cleanNote ? 'bold' : 'reg'} color={noteDirty ? (cleanNote ? t.accentInk : t.faint) : t.greenInk} style={{ flex: 1 }} numberOfLines={1}>
+                    {noteDirty ? (cleanNote ? 'ยังไม่บันทึก' : savedNote ? 'ช่องว่าง — โน้ตเดิมยังอยู่' : '') : '✓ บันทึกแล้ว'}
+                  </Txt>
+                  {savedNote ? (
+                    <Pressable accessibilityRole="button" onPress={deleteNote} hitSlop={6} style={({ pressed }) => ({ height: 32, paddingHorizontal: 10, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: pressed ? DANGER + '22' : 'transparent' })}>
+                      <SvgIcon name="trash" size={13} color={DANGER} />
+                      <Txt size={12.5} weight="med" color={DANGER}>
+                        ลบโน้ต
+                      </Txt>
+                    </Pressable>
+                  ) : null}
+                  {noteDirty && cleanNote ? (
+                    <Pressable accessibilityRole="button" onPress={saveNow} hitSlop={6} style={({ pressed }) => ({ height: 32, paddingHorizontal: 14, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: pressed ? '#9A3F22' : '#B44E2C' })}>
+                      <SvgIcon name="check" size={13} color="#FFFFFF" strokeWidth={2.6} />
+                      <Txt size={12.5} weight="bold" color="#FFFFFF">
+                        บันทึก
+                      </Txt>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
 
             {canResc ? (
@@ -456,6 +560,12 @@ function SheetBody({ id, date }: { id: number; date: string }) {
       </Animated.View>
     </Modal>
   );
+}
+
+/** "อ 3 พ.ย." — วันที่ย่อสำหรับป้ายโน้ตครั้งก่อน */
+function shortThai(iso: string): string {
+  const d = fromISO(iso);
+  return `${WD_TH[wdMon(iso)]} ${d.getDate()} ${MONTH_TH[d.getMonth()]}`;
 }
 
 /**

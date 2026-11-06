@@ -1,13 +1,14 @@
 // 6.2 จัดการหมวดหมู่ — หมวดคงที่ 6 หมวดตาม prototype แต่แก้ "ลิสต์ตัวเลือก" ของแต่ละหมวดได้
 // แตะหมวดเพื่อกาง editor: (1) ตัวเลือกด่วน = ชื่อกิจกรรม · (2) ตัวเลือกย่อยของหมวด = สถานที่ / ประเภท / สื่อ
 // ทั้งสองลิสต์ เพิ่ม/แก้/ลบ/คืนค่าเริ่มต้นได้ เก็บลงตาราง settings (stores/settings) และมีผลกับฟอร์มเพิ่มกิจกรรมทันที
+// (3) โน้ตรายครั้ง: ข้อความตัวอย่าง · แม่แบบ (เติมให้เมื่อแตะช่องโน้ตที่ว่าง) · ถามโน้ตเมื่อติ๊กว่าทำแล้ว
 import React, { useState } from 'react';
 import { TextInput, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
-import { Btn, Card, Chip, ChipRow, Row, Txt, useTokens } from '@/components/ui';
-import { CATS, CAT_OPTIONS, FONT, PRI, QUICK_PICKS, type CatId } from '@/constants/theme';
+import { Btn, Card, Chip, ChipRow, Row, Toggle, Txt, useTokens } from '@/components/ui';
+import { CATS, CAT_OPTIONS, FONT, NOTE_DEFAULTS, PRI, QUICK_PICKS, type CatId, type NoteCfg } from '@/constants/theme';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
@@ -17,11 +18,13 @@ export default function CategoriesScreen() {
   const setQuickPicks = useSettings((s) => s.setQuickPicks);
   const catOptions = useSettings((s) => s.catOptions);
   const setCatOptions = useSettings((s) => s.setCatOptions);
+  const noteCfg = useSettings((s) => s.noteCfg);
+  const setNoteCfg = useSettings((s) => s.setNoteCfg);
 
   const [open, setOpen] = useState<CatId | null>(null);
 
   return (
-    <Screen title="หมวดหมู่และตัวเลือก" subtitle="ชื่อที่ใช้บ่อย ประเภท และสถานที่ของแต่ละหมวด" variant="sub">
+    <Screen title="หมวดหมู่และตัวเลือก" subtitle="ชื่อที่ใช้บ่อย ประเภท สถานที่ และโน้ตของแต่ละหมวด" variant="sub">
       <Card>
         {CATS.map((c, i) => {
           const opened = open === c.id;
@@ -31,6 +34,7 @@ export default function CategoriesScreen() {
           const subText = [
             `ตัวเลือกด่วน ${picks.length} รายการ`,
             optionSet ? `${optionSet.title} ${options.length} รายการ` : '',
+            noteCfg[c.id].template.trim() ? 'มีแม่แบบโน้ต' : '',
             c.isCase ? 'มีรายชื่อคน + เลื่อนนัดได้' : '',
           ]
             .filter(Boolean)
@@ -71,6 +75,7 @@ export default function CategoriesScreen() {
                       onChange={(list) => setCatOptions(c.id, list)}
                     />
                   ) : null}
+                  <NoteEditor key={`note-${c.id}`} cfg={noteCfg[c.id]} defaults={NOTE_DEFAULTS[c.id]} onChange={(patch) => setNoteCfg(c.id, patch)} />
                 </View>
               ) : null}
             </View>
@@ -94,6 +99,78 @@ export default function CategoriesScreen() {
         ชื่อหมวด/สีเป็นชุดมาตรฐานตามดีไซน์ — ลิสต์ตัวเลือกแก้ได้และมีผลกับฟอร์มเพิ่มกิจกรรมทันที
       </Txt>
     </Screen>
+  );
+}
+
+/**
+ * โน้ตรายครั้งของหมวด — ข้อความตัวอย่างในช่องโน้ต · แม่แบบ · ถามโน้ตเมื่อติ๊กว่าทำแล้ว
+ * ช่องข้อความเก็บค่าที่กำลังพิมพ์ไว้ในตัวเอง แล้วบันทึกเมื่อออกจากช่อง (ไม่เขียนลง DB ทุกตัวอักษร)
+ */
+function NoteEditor({ cfg, defaults, onChange }: { cfg: NoteCfg; defaults: NoteCfg; onChange: (patch: Partial<NoteCfg>) => void }) {
+  const t = useTokens();
+  const showToast = useUI((s) => s.showToast);
+  const [hint, setHint] = useState(cfg.hint);
+  const [template, setTemplate] = useState(cfg.template);
+  const isDefault = cfg.hint === defaults.hint && cfg.template === defaults.template && cfg.askOnDone === defaults.askOnDone;
+  const input = { backgroundColor: t.card, borderRadius: 12, borderWidth: 1, borderColor: t.line, paddingHorizontal: 12, color: t.ink, fontFamily: FONT.ui, fontSize: 14 } as const;
+
+  return (
+    <View style={{ gap: 10, padding: 12, borderRadius: 12, backgroundColor: t.card2, borderWidth: 1, borderColor: t.line }}>
+      <Txt size={13} weight="bold">โน้ตของแต่ละครั้ง</Txt>
+
+      <View style={{ gap: 5 }}>
+        <Txt size={12} color={t.sub}>ข้อความตัวอย่างในช่องโน้ต</Txt>
+        <TextInput
+          value={hint}
+          onChangeText={setHint}
+          onBlur={() => hint !== cfg.hint && onChange({ hint: hint.trim() })}
+          placeholder="เช่น สรุปสั้น ๆ ของครั้งนี้"
+          placeholderTextColor={t.faint}
+          accessibilityLabel="ข้อความตัวอย่างในช่องโน้ต"
+          style={{ ...input, height: 44 }}
+        />
+      </View>
+
+      <View style={{ gap: 5 }}>
+        <Txt size={12} color={t.sub}>
+          แม่แบบโน้ต <Txt size={12} color={t.faint}>(ไม่บังคับ · บรรทัดละหัวข้อ)</Txt>
+        </Txt>
+        <TextInput
+          value={template}
+          onChangeText={setTemplate}
+          onBlur={() => template !== cfg.template && onChange({ template: template.replace(/\s+$/, '') ? template : '' })}
+          placeholder={'เช่น\nท่า:\nน้ำหนัก:'}
+          placeholderTextColor={t.faint}
+          multiline
+          accessibilityLabel="แม่แบบโน้ต"
+          style={{ ...input, minHeight: 84, paddingTop: 10, paddingBottom: 10, textAlignVertical: 'top' }}
+        />
+        <Txt size={11.5} color={t.faint}>
+          แตะช่องโน้ตที่ยังว่าง → เติมหัวข้อให้ · หัวข้อที่ไม่ได้กรอกถูกตัดออกตอนบันทึก
+        </Txt>
+      </View>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <Txt size={13} weight="med">ถามโน้ตเมื่อติ๊กว่าทำแล้ว</Txt>
+          <Txt size={11.5} color={t.faint}>ติ๊กวงกลมบนรายการแล้วมีปุ่ม &quot;จดโน้ต&quot; ให้กดต่อ</Txt>
+        </View>
+        <Toggle value={cfg.askOnDone} onChange={(askOnDone) => onChange({ askOnDone })} label="ถามโน้ตเมื่อติ๊กว่าทำแล้ว" />
+      </View>
+
+      {!isDefault ? (
+        <Btn
+          kind="ghost"
+          label="คืนค่าเริ่มต้นของโน้ต"
+          onPress={() => {
+            onChange(defaults);
+            setHint(defaults.hint);
+            setTemplate(defaults.template);
+            showToast('คืนค่าเริ่มต้นแล้ว ✓');
+          }}
+        />
+      ) : null}
+    </View>
   );
 }
 

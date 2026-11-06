@@ -120,6 +120,26 @@ export const QUICK_PICKS: Record<CatId, string[]> = {
 };
 
 /**
+ * โน้ตรายครั้งต่อหมวด — แก้ได้ที่ ตั้งค่า › หมวดหมู่และตัวเลือก
+ *  hint = ข้อความตัวอย่างจาง ๆ ในช่องโน้ต · template = โครงที่เติมให้เมื่อแตะช่องโน้ตที่ยังว่าง ('' = ไม่มีแม่แบบ)
+ *  askOnDone = ติ๊กว่าทำแล้วบนราง → toast มีปุ่ม "จดโน้ต"
+ */
+export interface NoteCfg {
+  hint: string;
+  template: string;
+  askOnDone: boolean;
+}
+
+export const NOTE_DEFAULTS: Record<CatId, NoteCfg> = {
+  routine: { hint: 'เช่น ตื่นสาย / นอนได้ 6 ชม.', template: '', askOnDone: false },
+  work: { hint: 'เช่น งานที่เสร็จ / เรื่องที่ค้าง', template: 'เสร็จ: \nค้าง: ', askOnDone: false },
+  ex: { hint: 'เช่น สควอท 40 กก. 3×10', template: 'ท่า: \nน้ำหนัก/ระยะ: \nเซ็ต×ครั้ง: ', askOnDone: true },
+  case: { hint: 'เช่น สรุปที่คุยกัน / ขั้นต่อไป', template: 'คุยเรื่อง: \nผล: \nนัดต่อ: ', askOnDone: true },
+  learn: { hint: 'เช่น อ่านถึงหน้า 120 / ไอเดียที่ได้', template: 'อ่าน/ดู: \nได้อะไร: ', askOnDone: false },
+  me: { hint: 'เช่น ทำอะไร / รู้สึกอย่างไร', template: '', askOnDone: false },
+};
+
+/**
  * ตัวเลือกย่อยประจำหมวดในฟอร์มเพิ่มกิจกรรม (สถานที่ / ประเภท / สื่อ) — แก้ไข/เพิ่ม/ลบได้ที่ ตั้งค่า › จัดการหมวดหมู่
  * field = ฟิลด์ของ Activity ที่ค่าถูกเก็บลงไป (เก็บเป็น "ข้อความที่เห็น" ตรง ๆ ไม่ใช่รหัส เพื่อให้ผู้ใช้ตั้งชื่อเองได้
  */

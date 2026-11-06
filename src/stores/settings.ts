@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { CAT_OPTIONS, CATS, QUICK_PICKS, type CatId, type ThemePref } from '@/constants/theme';
+import { CAT_OPTIONS, CATS, NOTE_DEFAULTS, QUICK_PICKS, type CatId, type NoteCfg, type ThemePref } from '@/constants/theme';
 import * as db from '@/lib/db';
 
 /** ตัวเลือกย่อยเริ่มต้นของทุกหมวด (หมวดที่ไม่มีชุดตัวเลือก = ลิสต์ว่าง) */
@@ -15,6 +15,8 @@ interface SettingsState {
   quickPicks: Record<CatId, string[]>;
   /** ตัวเลือกย่อยต่อหมวด (สถานที่/ประเภท/สื่อ) — เริ่มจาก CAT_OPTIONS แก้ไขได้ใน settings/categories */
   catOptions: Record<CatId, string[]>;
+  /** โน้ตรายครั้งต่อหมวด (ข้อความตัวอย่าง / แม่แบบ / ถามโน้ตเมื่อติ๊กว่าทำแล้ว) — แก้ไขได้ใน settings/categories */
+  noteCfg: Record<CatId, NoteCfg>;
   /** URL ของ Google Apps Script Web App ที่ใช้งานอยู่ ('' = ยังไม่เชื่อมต่อ) */
   sheetsUrl: string;
   /** รายการ URL ที่เคยบันทึก ใหม่ → เก่า (สูงสุด 5, ไม่ซ้ำ) — คงอยู่แม้ยกเลิกการเชื่อมต่อ ไว้สลับ/เชื่อมต่อใหม่ */
@@ -25,6 +27,7 @@ interface SettingsState {
   setMorning: (v: boolean) => void;
   setQuickPicks: (cat: CatId, list: string[]) => void;
   setCatOptions: (cat: CatId, list: string[]) => void;
+  setNoteCfg: (cat: CatId, patch: Partial<NoteCfg>) => void;
   setSheetsUrl: (url: string) => void;
   removeSheetsUrl: (url: string) => void;
 }
@@ -57,12 +60,38 @@ function parseCatLists(raw: string | undefined, fallback: Record<CatId, string[]
   }
 }
 
+/** ค่าโน้ตต่อหมวดที่บันทึกเป็น JSON — ช่องไหนไม่มี/ผิดชนิดใช้ค่าเริ่มต้นของหมวดนั้น */
+function parseNoteCfg(raw: string | undefined): Record<CatId, NoteCfg> {
+  let saved: Record<string, Partial<NoteCfg>> = {};
+  try {
+    const v = raw ? (JSON.parse(raw) as unknown) : null;
+    if (v && typeof v === 'object') saved = v as Record<string, Partial<NoteCfg>>;
+  } catch {
+    // ใช้ค่าเริ่มต้นทั้งหมด
+  }
+  return Object.fromEntries(
+    CATS.map((c) => {
+      const d = NOTE_DEFAULTS[c.id];
+      const x = saved[c.id] ?? {};
+      return [
+        c.id,
+        {
+          hint: typeof x.hint === 'string' ? x.hint : d.hint,
+          template: typeof x.template === 'string' ? x.template : d.template,
+          askOnDone: typeof x.askOnDone === 'boolean' ? x.askOnDone : d.askOnDone,
+        },
+      ];
+    }),
+  ) as Record<CatId, NoteCfg>;
+}
+
 export const useSettings = create<SettingsState>((set, get) => ({
   theme: 'system',
   notifMaster: true,
   morning: true,
   quickPicks: QUICK_PICKS,
   catOptions: DEFAULT_CAT_OPTIONS,
+  noteCfg: NOTE_DEFAULTS,
   sheetsUrl: '',
   sheetsUrls: [],
 
@@ -75,6 +104,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
       morning: s.morning_summary !== '0',
       quickPicks: parseCatLists(s.quick_picks, QUICK_PICKS),
       catOptions: parseCatLists(s.cat_options, DEFAULT_CAT_OPTIONS),
+      noteCfg: parseNoteCfg(s.note_cfg),
       sheetsUrl: s.sheets_url ?? '',
       sheetsUrls: parseSheetsUrls(s),
     });
@@ -101,6 +131,11 @@ export const useSettings = create<SettingsState>((set, get) => ({
     const catOptions = { ...get().catOptions, [cat]: list };
     set({ catOptions });
     db.saveSetting('cat_options', JSON.stringify(catOptions));
+  },
+  setNoteCfg: (cat, patch) => {
+    const noteCfg = { ...get().noteCfg, [cat]: { ...get().noteCfg[cat], ...patch } };
+    set({ noteCfg });
+    db.saveSetting('note_cfg', JSON.stringify(noteCfg));
   },
   setSheetsUrl: (sheetsUrl) => {
     set({ sheetsUrl });
