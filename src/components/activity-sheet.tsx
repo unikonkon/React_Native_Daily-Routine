@@ -63,6 +63,8 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
   const [tplArmed, setTplArmed] = useState(!savedNote);
   const noteRef = useRef<TextInputInstance>(null);
   const [confirm, setConfirm] = useState(false);
+  /** โน้ตยังไม่บันทึกแต่ผู้ใช้จะปิดแผ่น/ไปหน้าอื่น — เก็บสิ่งที่จะทำต่อไว้ แล้วถามก่อน (ทิ้ง / บันทึกแล้วไปต่อ) */
+  const [leaveAsk, setLeaveAsk] = useState<{ go: () => void } | null>(null);
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [adding, setAdding] = useState(false); // เปิดรายการรายชื่อเพื่อเพิ่มเข้าเคสนี้
   const kb = useKeyboardHeight();
@@ -99,42 +101,57 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
     if (!noteText.trim() && noteCfg.template.trim()) setNoteText(noteCfg.template);
   };
   const cleanNote = stripTemplate(noteText, noteCfg.template);
-  const noteDirty = cleanNote !== savedNote;
   /**
-   * บันทึกโน้ต — เรียกจากปุ่ม "บันทึก" และตอนออกจากช่อง (กันลืม)
-   * ช่องว่างไม่ลบโน้ตเดิมให้เอง (กันลบพลาดตอนล้างเพื่อพิมพ์ใหม่) — ลบต้องกด "ลบโน้ต" เท่านั้น
+   * การแก้ไขโน้ตที่ยังไม่บันทึก — ทุกแบบต้องกด "บันทึก" (หรือ "ยืนยันลบ") ก่อนถึงจะมีผล · "ยกเลิก" = กลับเป็นโน้ตเดิม
+   * add = ยังไม่มีโน้ตแล้วพิมพ์ใหม่ · edit = แก้โน้ตเดิม · delete = กด "ลบโน้ต" หรือล้างช่องจนว่างทั้งที่มีโน้ตเดิม
+   * (ช่องที่มีแค่แม่แบบยังไม่ได้กรอก = ไม่มีการแก้ไข)
    */
-  const saveNote = () => {
-    if (cleanNote !== noteText && (cleanNote || !savedNote)) setNoteText(cleanNote);
-    if (!noteDirty || !cleanNote) return;
-    setNote(item, cleanNote);
-    showToast('บันทึกโน้ตแล้ว ✓');
-  };
-  const saveNow = () => {
-    saveNote();
+  const notePending: 'add' | 'edit' | 'delete' | null =
+    cleanNote === savedNote ? null : !cleanNote ? 'delete' : savedNote ? 'edit' : 'add';
+  // แก้จนกลับเป็นโน้ตเดิมแล้ว — แถบถามก่อนออกที่ค้างไว้ไม่ต้องใช้แล้ว
+  if (leaveAsk && !notePending) setLeaveAsk(null);
+  /** บันทึกการแก้ไขที่ค้างอยู่ (รวมยืนยันลบ) */
+  const commitNote = () => {
+    if (!notePending) return;
+    setLeaveAsk(null);
     noteRef.current?.blur();
+    setTplArmed(false);
+    if (notePending === 'delete') {
+      setNoteText('');
+      setNote(item, '');
+      showToast('ลบโน้ตแล้ว');
+      return;
+    }
+    setNoteText(cleanNote); // ตัดบรรทัดแม่แบบที่ไม่ได้กรอกออกจากช่องด้วย
+    setNote(item, cleanNote);
+    showToast(notePending === 'add' ? 'บันทึกโน้ตแล้ว ✓' : 'บันทึกการแก้ไขโน้ตแล้ว ✓');
   };
-  /** ล้างข้อความในช่อง (ยังไม่แตะโน้ตที่บันทึกไว้) แล้วโฟกัสให้พิมพ์ใหม่ */
+  /** ยกเลิกการแก้ไข — กลับเป็นโน้ตที่บันทึกไว้ (ยังไม่มีโน้ต: แตะช่องครั้งหน้าแม่แบบเติมให้ใหม่) */
+  const discardNote = () => {
+    setLeaveAsk(null);
+    noteRef.current?.blur();
+    setNoteText(savedNote);
+    setTplArmed(!savedNote);
+  };
+  /** ล้างข้อความในช่องแล้วโฟกัสให้พิมพ์ใหม่ — มีโน้ตเดิมแล้วปล่อยว่าง = ร่างการลบ (ต้องยืนยัน) */
   const clearNoteText = () => {
     setTplArmed(false);
     setNoteText('');
     noteRef.current?.focus();
   };
-  /** ลบโน้ตที่บันทึกไว้ — เลิกทำได้จาก toast */
+  /** "ลบโน้ต" — ยังไม่ลบจริง: ล้างช่องเป็นร่างการลบ รอกด "ยืนยันลบ" หรือ "ยกเลิก" */
   const deleteNote = () => {
-    const prev = savedNote;
     setTplArmed(false);
     setNoteText('');
-    setNote(item, '');
     noteRef.current?.blur();
-    showToast('ลบโน้ตแล้ว', {
-      label: 'เลิกทำ',
-      run: () => {
-        setNote(item, prev);
-        setNoteText(prev);
-      },
-    });
   };
+  /** ปิดแผ่น/ไปหน้าอื่น — โน้ตยังไม่บันทึกให้ถามก่อน (แผ่นถูกถอดออกแล้วร่างจะหาย) */
+  const leave = (go: () => void) => {
+    if (!notePending) return go();
+    Keyboard.dismiss();
+    setLeaveAsk({ go });
+  };
+  const requestClose = () => leave(closeSheet);
   /** ใช้โน้ตครั้งก่อนเป็นตั้งต้น — ช่องว่าง (หรือมีแค่แม่แบบ) = แทนที่ · มีข้อความแล้ว = ต่อท้าย */
   const applyPrevNote = () => {
     if (!prevNote) return;
@@ -149,11 +166,12 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
   const slotStart = slot ? Math.ceil(Math.max(slot.start, after) / 15) * 15 : null;
   const quickSlot = slotStart != null && slotStart + dur <= slot!.end ? slotStart : null;
   const tomorrowBusy = tomorrowList.some((x) => x.id !== item.id && x.startMin < item.endMin && item.startMin < x.endMin);
-  const moveTo = (toDate: string, start: number, label: string) => {
-    reschedule(item, { date: toDate, start, end: start + dur }, '');
-    closeSheet();
-    showToast(`เลื่อนไป ${label} แล้ว`);
-  };
+  const moveTo = (toDate: string, start: number, label: string) =>
+    leave(() => {
+      reschedule(item, { date: toDate, start, end: start + dur }, '');
+      closeSheet();
+      showToast(`เลื่อนไป ${label} แล้ว`);
+    });
 
   // สรุปของชุดทำซ้ำ (ถึงวันนี้)
   const series = acts.find((a) => a.id === item.id);
@@ -215,25 +233,28 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
   };
 
   /** ไปหน้าสมุดรายชื่อ — พักแผ่นนี้ไว้ก่อน กด "กลับ" ที่หน้านั้นแล้วแผ่นจะเปิดคืนให้เอง */
-  const openContactBook = () => {
-    useUI.getState().parkSheet();
-    router.push('/settings/contacts');
-  };
+  const openContactBook = () =>
+    leave(() => {
+      useUI.getState().parkSheet();
+      router.push('/settings/contacts');
+    });
 
   // แก้ไข → พาไปฟอร์ม พร้อมพักแผ่นไว้: กด "กลับ" ที่ฟอร์มแล้วแผ่นของกิจกรรมนี้เปิดคืน (ฟอร์มยังคาแก้ไขไว้เหมือนเดิม)
   const onEdit = () => {
     const a = acts.find((x) => x.id === item.id);
     if (a) {
-      useDraft.getState().loadActivity(a, item.date); // จำวันที่เปิด — ใช้กับขอบเขต "เฉพาะครั้งนี้/ตั้งแต่ครั้งนี้"
-      useUI.getState().parkSheet();
-      router.push('/add');
+      leave(() => {
+        useDraft.getState().loadActivity(a, item.date); // จำวันที่เปิด — ใช้กับขอบเขต "เฉพาะครั้งนี้/ตั้งแต่ครั้งนี้"
+        useUI.getState().parkSheet();
+        router.push('/add');
+      });
     }
   };
 
   return (
-    <Modal transparent animationType="none" onRequestClose={closeSheet}>
+    <Modal transparent animationType="none" onRequestClose={requestClose}>
       {/* ไม่มีฉากหลังมืด — โปร่งใส แตะพื้นที่ว่างเพื่อปิดได้เหมือนเดิม */}
-      <Pressable style={{ flex: 1 }} onPress={closeSheet} />
+      <Pressable style={{ flex: 1 }} onPress={requestClose} />
       <Animated.View
         style={{
           opacity: anim,
@@ -254,6 +275,26 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
           elevation: 16,
         }}>
         <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: t.line2, alignSelf: 'center' }} />
+
+        {/* ถามก่อนปิด/ออกเมื่อโน้ตยังไม่บันทึก — อยู่บนสุดของแผ่นให้เห็นทันที */}
+        {leaveAsk && notePending ? (
+          <LeaveNoteAsk
+            pending={notePending}
+            onBack={() => setLeaveAsk(null)}
+            onDiscard={() => {
+              const { go } = leaveAsk;
+              setLeaveAsk(null);
+              discardNote();
+              go();
+            }}
+            onSave={() => {
+              const { go } = leaveAsk;
+              setLeaveAsk(null);
+              commitNote();
+              go();
+            }}
+          />
+        ) : null}
 
         {adding ? (
           <ContactPicker
@@ -286,7 +327,7 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
             </View>
           ) : null}
           <View style={{ flex: 1 }} />
-          <Pressable accessibilityRole="button" accessibilityLabel="ปิด" onPress={closeSheet} hitSlop={6} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="ปิด" onPress={requestClose} hitSlop={6} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' }}>
             <SvgIcon name="x" size={16} color={t.sub} strokeWidth={2.4} />
           </Pressable>
         </View>
@@ -424,43 +465,45 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
                   value={noteText}
                   onChangeText={setNoteText}
                   onFocus={fillTemplate}
-                  onBlur={saveNote}
                   autoFocus={focusNote}
                   placeholder={noteCfg.hint || 'เช่น สรุปสั้น ๆ ของครั้งนี้'}
                   placeholderTextColor={t.faint}
                   multiline
                   accessibilityLabel="โน้ตของครั้งนี้"
-                  style={{ minHeight: 64, maxHeight: 120, borderRadius: 12, borderWidth: 1, borderColor: noteDirty && cleanNote ? '#D2603A' : t.rail, backgroundColor: t.card, paddingLeft: 12, paddingRight: 40, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
+                  style={{ minHeight: 64, maxHeight: 120, borderRadius: 12, borderWidth: 1, borderColor: notePending === 'delete' ? DANGER : notePending ? '#D2603A' : t.rail, backgroundColor: t.card, paddingLeft: 12, paddingRight: 40, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
                 />
-                {/* ✕ ล้างข้อความทั้งหมดในช่อง — โน้ตที่บันทึกไว้ยังอยู่จนกว่าจะกด "ลบโน้ต" */}
+                {/* ✕ ล้างข้อความทั้งหมดในช่อง — มีโน้ตเดิมแล้วปล่อยว่าง = ร่างการลบ (ยังไม่ลบจนกด "ยืนยันลบ") */}
                 {noteText ? (
                   <Pressable accessibilityRole="button" accessibilityLabel="ล้างข้อความในช่องโน้ต" onPress={clearNoteText} hitSlop={8} style={({ pressed }) => ({ position: 'absolute', top: 8, right: 8, width: 26, height: 26, borderRadius: 13, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
                     <SvgIcon name="x" size={12} color={t.sub} strokeWidth={2.6} />
                   </Pressable>
                 ) : null}
               </View>
-              {/* สถานะ + ปุ่ม: ลบโน้ต (มีโน้ตที่บันทึกไว้) · บันทึก (แก้แล้วยังไม่บันทึก) */}
-              {noteDirty || savedNote ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 32 }}>
-                  <Txt size={11.5} weight={noteDirty && cleanNote ? 'bold' : 'reg'} color={noteDirty ? (cleanNote ? t.accentInk : t.faint) : t.greenInk} style={{ flex: 1 }} numberOfLines={1}>
-                    {noteDirty ? (cleanNote ? 'ยังไม่บันทึก' : savedNote ? 'ช่องว่าง — โน้ตเดิมยังอยู่' : '') : '✓ บันทึกแล้ว'}
+              {/* มีการแก้ไขค้าง → สถานะ + ยกเลิก / บันทึก (ยืนยันลบ) · ไม่มี → ✓ บันทึกแล้ว + ลบโน้ต */}
+              {notePending ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 34 }}>
+                  <Txt size={11.5} weight="bold" color={notePending === 'delete' ? DANGER : t.accentInk} style={{ flex: 1 }} numberOfLines={2}>
+                    {notePending === 'delete' ? 'จะลบโน้ตนี้ — ยืนยันเพื่อลบ' : notePending === 'add' ? 'โน้ตใหม่ · ยังไม่บันทึก' : 'แก้ไขแล้ว · ยังไม่บันทึก'}
                   </Txt>
-                  {savedNote ? (
-                    <Pressable accessibilityRole="button" onPress={deleteNote} hitSlop={6} style={({ pressed }) => ({ height: 32, paddingHorizontal: 10, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: pressed ? DANGER + '22' : 'transparent' })}>
-                      <SvgIcon name="trash" size={13} color={DANGER} />
-                      <Txt size={12.5} weight="med" color={DANGER}>
-                        ลบโน้ต
-                      </Txt>
-                    </Pressable>
-                  ) : null}
-                  {noteDirty && cleanNote ? (
-                    <Pressable accessibilityRole="button" onPress={saveNow} hitSlop={6} style={({ pressed }) => ({ height: 32, paddingHorizontal: 14, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: pressed ? '#9A3F22' : '#B44E2C' })}>
-                      <SvgIcon name="check" size={13} color="#FFFFFF" strokeWidth={2.6} />
-                      <Txt size={12.5} weight="bold" color="#FFFFFF">
-                        บันทึก
-                      </Txt>
-                    </Pressable>
-                  ) : null}
+                  <NoteBtn label="ยกเลิก" onPress={discardNote} />
+                  <NoteBtn
+                    label={notePending === 'delete' ? 'ยืนยันลบ' : 'บันทึก'}
+                    icon={notePending === 'delete' ? 'trash' : 'check'}
+                    tone={notePending === 'delete' ? 'danger' : 'primary'}
+                    onPress={commitNote}
+                  />
+                </View>
+              ) : savedNote ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 34 }}>
+                  <Txt size={11.5} color={t.greenInk} style={{ flex: 1 }} numberOfLines={1}>
+                    ✓ บันทึกแล้ว
+                  </Txt>
+                  <Pressable accessibilityRole="button" onPress={deleteNote} hitSlop={6} style={({ pressed }) => ({ height: 32, paddingHorizontal: 10, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: pressed ? DANGER + '22' : 'transparent' })}>
+                    <SvgIcon name="trash" size={13} color={DANGER} />
+                    <Txt size={12.5} weight="med" color={DANGER}>
+                      ลบโน้ต
+                    </Txt>
+                  </Pressable>
                 </View>
               ) : null}
             </View>
@@ -502,10 +545,12 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
                 <Pressable
                   accessibilityRole="button"
                   hitSlop={8}
-                  onPress={() => {
-                    useUI.getState().parkSheet();
-                    router.push('/settings/stats');
-                  }}>
+                  onPress={() =>
+                    leave(() => {
+                      useUI.getState().parkSheet();
+                      router.push('/settings/stats');
+                    })
+                  }>
                   <Txt size={12.5} weight="bold" color={t.accentInk}>ดูสถิติ ›</Txt>
                 </Pressable>
               </View>
@@ -559,6 +604,63 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
         )}
       </Animated.View>
     </Modal>
+  );
+}
+
+/** ปุ่มเล็กของแถวโน้ต — ghost (ยกเลิก) · primary (บันทึก) · danger (ยืนยันลบ) */
+function NoteBtn({ label, icon, tone, onPress }: { label: string; icon?: string; tone?: 'primary' | 'danger'; onPress: () => void }) {
+  const t = useTokens();
+  const bg = tone === 'danger' ? [DANGER, '#A33A2E'] : tone === 'primary' ? ['#B44E2C', '#9A3F22'] : null;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}โน้ต`}
+      onPress={onPress}
+      hitSlop={6}
+      style={({ pressed }) => ({
+        height: 32,
+        paddingHorizontal: bg ? 14 : 12,
+        borderRadius: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: bg ? (pressed ? bg[1] : bg[0]) : pressed ? t.rail : t.track,
+      })}>
+      {icon ? <SvgIcon name={icon} size={13} color={bg ? '#FFFFFF' : t.sub} strokeWidth={2.6} /> : null}
+      <Txt size={12.5} weight="bold" color={bg ? '#FFFFFF' : t.sub}>
+        {label}
+      </Txt>
+    </Pressable>
+  );
+}
+
+/** แถบถามก่อนปิดแผ่น/ไปหน้าอื่น ขณะโน้ตยังไม่บันทึก — กลับไปแก้ต่อ · ทิ้งการแก้ไข · บันทึกแล้วไปต่อ */
+function LeaveNoteAsk({ pending, onBack, onDiscard, onSave }: { pending: 'add' | 'edit' | 'delete'; onBack: () => void; onDiscard: () => void; onSave: () => void }) {
+  const t = useTokens();
+  const del = pending === 'delete';
+  return (
+    <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: del ? DANGER : '#D2603A', padding: 12, gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+        <View style={{ paddingTop: 2 }}>
+          <SvgIcon name="note" size={15} color={del ? DANGER : t.accentInk} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Txt size={13.5} weight="bold">
+            {del ? 'ยังไม่ได้ยืนยันลบโน้ต' : 'โน้ตยังไม่บันทึก'}
+          </Txt>
+          <Txt size={12} color={t.sub}>
+            {del ? 'ออกตอนนี้โน้ตเดิมจะยังอยู่ — หรือลบให้เลยก่อนออก' : 'ออกตอนนี้ข้อความที่แก้จะหายไป'}
+          </Txt>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="กลับไปแก้โน้ตต่อ" onPress={onBack} hitSlop={8} style={({ pressed }) => ({ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? t.rail : t.track })}>
+          <SvgIcon name="x" size={12} color={t.sub} strokeWidth={2.6} />
+        </Pressable>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Btn style={{ flex: 1 }} kind="ghost" label={del ? 'ไม่ลบ ออกเลย' : 'ทิ้งการแก้ไข'} onPress={onDiscard} />
+        <Btn style={{ flex: 1 }} kind={del ? 'danger' : 'primary'} label={del ? 'ลบแล้วออก' : 'บันทึกแล้วออก'} onPress={onSave} />
+      </View>
+    </View>
   );
 }
 
