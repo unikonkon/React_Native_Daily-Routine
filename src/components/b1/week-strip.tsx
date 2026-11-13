@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindowDimensions, View } from 'react-native';
 
 import { useNow } from '@/components/b1/use-now';
-import { Txt, useTokens } from '@/components/ui';
+import { ProgressFill } from '@/components/motion';
+import { Txt, pressFade, useTokens } from '@/components/ui';
 import { ATTN, GREEN } from '@/constants/theme';
 import { addDays, fromISO, mondayOf, MONTH_TH, todayISO, WD_TH } from '@/lib/dates';
 import { dayProgress } from '@/lib/progress';
@@ -80,7 +81,7 @@ export function WeekStrip({ focus, onChangeFocus }: { focus: string; onChangeFoc
                   accessibilityState={{ selected: sel }}
                   accessibilityLabel={`${WD_TH[i]} ${date.getDate()} ${MONTH_TH[date.getMonth()]}${isToday ? ' (วันนี้)' : ''}${started && p.total ? ` · ทำแล้ว ${Math.round(p.rate * 100)}%` : ''}`}
                   onPress={() => onChangeFocus(d)}
-                  style={{ flex: 1, height: 64, alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                  style={pressFade({ flex: 1, height: 64, alignItems: 'center', justifyContent: 'center', gap: 3 })}>
                   <Txt size={11.5} weight={sel ? 'bold' : 'reg'} color={sel ? t.ink : t.sub}>
                     {WD_TH[i]}
                   </Txt>
@@ -100,7 +101,7 @@ export function WeekStrip({ focus, onChangeFocus }: { focus: string; onChangeFoc
                     </Txt>
                   </View>
                   <View style={{ width: 18, height: 3, borderRadius: 2, backgroundColor: t.rail, overflow: 'hidden' }}>
-                    <View style={{ width: `${Math.round(pct * 100)}%`, height: 3, backgroundColor: pct >= 0.8 ? GREEN : ATTN }} />
+                    <ProgressFill pct={pct} color={pct >= 0.8 ? GREEN : ATTN} height={3} />
                   </View>
                 </Pressable>
               );

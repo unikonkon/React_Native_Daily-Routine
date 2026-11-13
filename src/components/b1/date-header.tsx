@@ -3,7 +3,7 @@
 import { Pressable, View } from 'react-native';
 
 import { SvgIcon } from '@/components/svg-icon';
-import { Txt, useTokens } from '@/components/ui';
+import { Txt, pressFade, useTokens } from '@/components/ui';
 
 export type CalView = 'day' | 'week' | 'month' | 'year';
 
@@ -29,7 +29,7 @@ export function ViewFilter({ value, onChange }: { value: CalView; onChange: (v: 
             onPress={() => {
               if (!on) onChange(v.key);
             }}
-            style={{
+            style={pressFade({
               width: 44,
               height: 38,
               borderRadius: 11,
@@ -41,7 +41,7 @@ export function ViewFilter({ value, onChange }: { value: CalView; onChange: (v: 
               shadowRadius: 3,
               shadowOffset: { width: 0, height: 1 },
               elevation: on ? 1 : 0,
-            }}>
+            })}>
             <SvgIcon name={v.icon} size={20} color={on ? t.accentInk : t.sub} strokeWidth={on ? 1.9 : 1.8} />
           </Pressable>
         );
@@ -63,7 +63,7 @@ export function DateHeader({ title, summary, onPressTitle, view, onChangeView }:
   const t = useTokens();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 18, paddingBottom: 6 }}>
-      <Pressable accessibilityRole="button" onPress={onPressTitle} disabled={!onPressTitle} style={{ flex: 1, minWidth: 0 }}>
+      <Pressable accessibilityRole="button" onPress={onPressTitle} disabled={!onPressTitle} style={pressFade({ flex: 1, minWidth: 0 })}>
         <Txt size={22} weight="bold" numberOfLines={1}>
           {title}
         </Txt>

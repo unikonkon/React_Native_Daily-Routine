@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import { Pressable } from 'react-native';
 
 import { Icon } from '@/components/icon';
-import { useTokens } from '@/components/ui';
+import { pressFade, useTokens } from '@/components/ui';
 import type { Contact, DayItem } from '@/lib/types';
 import { useContacts } from '@/stores/contacts';
 
@@ -53,7 +53,7 @@ export function StepBtn({ icon, onPress, disabled }: { icon: 'chevL' | 'chevR'; 
       onPress={onPress}
       disabled={disabled}
       hitSlop={8}
-      style={{
+      style={pressFade({
         width: 34,
         height: 34,
         borderRadius: 17,
@@ -61,7 +61,7 @@ export function StepBtn({ icon, onPress, disabled }: { icon: 'chevL' | 'chevR'; 
         alignItems: 'center',
         justifyContent: 'center',
         opacity: disabled ? 0.3 : 1,
-      }}>
+      })}>
       <Icon name={icon} size={18} color={t.sub} />
     </Pressable>
   );

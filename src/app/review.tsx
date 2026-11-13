@@ -7,7 +7,7 @@ import { Rail } from '@/components/b1/rail';
 import { useNow } from '@/components/b1/use-now';
 import { useToggleStatus } from '@/components/b1/use-toggle';
 import { Screen } from '@/components/screen';
-import { Segmented, Txt, useTokens } from '@/components/ui';
+import { Segmented, Txt, pressFade, useTokens } from '@/components/ui';
 import { addDays, thaiDate } from '@/lib/dates';
 import { overdueBetween } from '@/lib/progress';
 import type { DayItem, OccStatus } from '@/lib/types';
@@ -104,7 +104,7 @@ export default function ReviewScreen() {
             accessibilityRole="button"
             onPress={() => (confirmSkip ? bulk('skipped') : setConfirmSkip(true))}
             hitSlop={6}
-            style={{ height: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: confirmSkip ? t.warn : 'transparent', justifyContent: 'center' }}>
+            style={pressFade({ height: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: confirmSkip ? t.warn : 'transparent', justifyContent: 'center' })}>
             <Txt size={13} weight="bold" color={confirmSkip ? '#FFFFFF' : t.sub}>
               {confirmSkip ? `ยืนยันข้าม ${pending.length}` : 'ข้ามทั้งหมด…'}
             </Txt>

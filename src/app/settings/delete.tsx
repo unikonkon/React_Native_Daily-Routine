@@ -7,7 +7,7 @@ import { Pressable, View, type ScrollViewInstance } from 'react-native';
 
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
-import { Btn, Segmented, Txt, useTokens } from '@/components/ui';
+import { Btn, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
 import { CAT_BY_ID } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fmtMin, fromISO, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
 import type { DayItem } from '@/lib/types';
@@ -361,7 +361,7 @@ function DayGrid({
                 accessibilityLabel={`${thaiDate(d)} · ${n} รายการ${picked ? ` · ติ๊กไว้ ${picked}` : ''}`}
                 disabled={!n && !focus}
                 onPress={() => onPress(d)}
-                style={{ flex: 1, height: 54, alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                style={pressFade({ flex: 1, height: 54, alignItems: 'center', justifyContent: 'center', gap: 2 })}>
                 <View
                   style={{
                     width: 34,
@@ -402,7 +402,7 @@ function DayItems({ date, items, picked, onToggle, onSetAll }: { date: string; i
           {date === todayISO() ? ' · วันนี้' : ''}
         </Txt>
         {items.length ? (
-          <Pressable accessibilityRole="button" onPress={() => onSetAll(keys, !allOn)} hitSlop={6} style={{ minHeight: 36, justifyContent: 'center' }}>
+          <Pressable accessibilityRole="button" onPress={() => onSetAll(keys, !allOn)} hitSlop={6} style={pressFade({ minHeight: 36, justifyContent: 'center' })}>
             <Txt size={13} weight="bold" color={t.accentInk}>
               {allOn ? 'เอาออกทั้งหมด' : 'เลือกทั้งวัน'}
             </Txt>

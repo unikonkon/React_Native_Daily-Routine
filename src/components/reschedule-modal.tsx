@@ -1,5 +1,5 @@
 // Smart Reschedule Modal (APP_STRUCTURE.md §3.4) — เฉพาะนัดหมวด case
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { Animated, Easing, Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -8,6 +8,7 @@ import { Btn, Chip, ChipRow, Txt, useTokens } from '@/components/ui';
 import { FONT, GREEN } from '@/constants/theme';
 import { addDays, fmtMin, mondayOf, nowMin, thaiDate, thaiWeekRange, todayISO } from '@/lib/dates';
 import { rescRangeDates, rescheduleSlots, type RescCandidate, type RescRange } from '@/lib/engine';
+import type { DayItem } from '@/lib/types';
 import { useActivities } from '@/stores/activities';
 import { useUI } from '@/stores/ui';
 
@@ -24,17 +25,25 @@ type RangeSel = RescRange | { week: string };
 const NIGHT_CUTOFF = 1500;
 
 export function RescheduleModal() {
-  const item = useUI((s) => s.resc);
-  return item ? <Body /> : null;
+  const resc = useUI((s) => s.resc);
+  // นัดที่วาดอยู่ — ค้างไว้หลัง store ปิดแล้ว จนแอนิเมชันปิดเล่นจบ (Body เรียก onClosed)
+  const [shown, setShown] = useState(resc);
+  if (resc && resc !== shown) setShown(resc);
+  if (!shown) return null;
+  return <Body key={`${shown.id}:${shown.date}`} item={shown} closing={!resc} onClosed={() => setShown((cur) => (useUI.getState().resc ? cur : null))} />;
 }
 
-function Body() {
+function Body({ item, closing, onClosed }: { item: DayItem; closing: boolean; onClosed: () => void }) {
   const t = useTokens();
   const insets = useSafeAreaInsets();
-  const item = useUI((s) => s.resc)!;
   const closeResc = useUI((s) => s.closeResc);
   const showToast = useUI((s) => s.showToast);
-  const { acts, occ, reschedule } = useActivities();
+  const store = useActivities();
+  const reschedule = store.reschedule;
+  // ระหว่างเล่นปิด ใช้ข้อมูลชุดก่อนปิด — ยืนยันเลื่อนแล้วรายการช่วงว่างบนแผ่นไม่จัดเรียงใหม่ให้เห็น
+  const [data, setData] = useState({ acts: store.acts, occ: store.occ });
+  if (!closing && (data.acts !== store.acts || data.occ !== store.occ)) setData({ acts: store.acts, occ: store.occ });
+  const { acts, occ } = data;
 
   const [reason, setReason] = useState('');
   const [range, setRange] = useState<RangeSel>('3d');
@@ -73,16 +82,27 @@ function Body() {
   }, [cands]);
 
   // เข้าเร็วและลื่นแบบเดียวกับ ActivitySheet: ไม่ใช้แอนิเมชันของระบบ — สไลด์ขึ้น+จางเข้าเองด้วย native driver สั้น ๆ
-  const anim = useRef(new Animated.Value(0)).current;
+  // ปิด: เล่นย้อน (เลื่อนลง+จางออก) จบแล้วค่อยถอด Modal ผ่าน onClosed
+  const [anim] = useState(() => new Animated.Value(0));
+  const closed = useEffectEvent(onClosed);
   useEffect(() => {
-    Animated.timing(anim, { toValue: 1, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-  }, [anim]);
+    Animated.timing(anim, {
+      toValue: closing ? 0 : 1,
+      duration: closing ? 140 : 160,
+      easing: closing ? Easing.in(Easing.quad) : Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished && closing) closed();
+    });
+  }, [anim, closing]);
 
   return (
     <Modal transparent animationType="none" onRequestClose={closeResc}>
       {/* ไม่มีฉากหลังมืด — โปร่งใส แตะพื้นที่ว่างเพื่อปิดได้เหมือนเดิม */}
-      <Pressable style={{ flex: 1 }} onPress={closeResc} />
+      <Pressable style={{ flex: 1 }} onPress={closing ? undefined : closeResc} />
       <Animated.View
+        // กำลังเล่นปิด — ไม่รับการแตะแล้ว
+        pointerEvents={closing ? 'none' : 'auto'}
         style={{
           opacity: anim,
           transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }],

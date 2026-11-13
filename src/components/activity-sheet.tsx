@@ -1,7 +1,7 @@
 // Bottom Sheet รายละเอียดกิจกรรม (APP_STRUCTURE.md §3.3) — ใช้ร่วมแท็บวันนี้ + สรุปเคส
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Keyboard, Modal, Pressable, ScrollView, TextInput, View, useWindowDimensions, type TextInputInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,13 +11,13 @@ import { Icon } from '@/components/icon';
 import { NoteBtn, NoteKeyboardBar, useKeyboardHeight } from '@/components/note-bar';
 import { SnippetChips } from '@/components/snippet-chips';
 import { SvgIcon } from '@/components/svg-icon';
-import { Btn, Chip, ChipRow, PriBadge, Txt, useTokens } from '@/components/ui';
+import { Btn, Chip, ChipRow, PriBadge, Txt, pressFade, useTokens } from '@/components/ui';
 import { ATTN, CAT_BY_ID, DANGER, FONT, GREEN, PRI, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, WD_TH, addDays, durText, fmtMin, fmtRange, fromISO, thaiDate, wdMon } from '@/lib/dates';
 import { daytimeFreeSlots, seriesDates } from '@/lib/engine';
 import { appendNote, previousNotes, stripTemplate } from '@/lib/notes';
 import { isPast, railState } from '@/lib/progress';
-import type { Contact, ContactInfo, OccStatus } from '@/lib/types';
+import type { Contact, ContactInfo, DayItem, OccStatus } from '@/lib/types';
 import { useActivities, useDay } from '@/stores/activities';
 import { contactMethods, openLink, useContacts, type ContactMethod } from '@/stores/contacts';
 import { useDraft } from '@/stores/draft';
@@ -26,10 +26,26 @@ import { useUI } from '@/stores/ui';
 
 export function ActivitySheet() {
   const sheet = useUI((s) => s.sheet);
-  return sheet ? <SheetBody key={`${sheet.id}:${sheet.date}`} id={sheet.id} date={sheet.date} focusNote={!!sheet.focusNote} /> : null;
+  const resc = useUI((s) => s.resc);
+  // แผ่นที่วาดอยู่ — ค้างไว้หลัง store ปิดแล้ว จนแอนิเมชันปิดเล่นจบ (SheetBody เรียก onClosed)
+  const [shown, setShown] = useState(sheet);
+  if (sheet && sheet !== shown) setShown(sheet);
+  // ปิดเพื่อเปิดแผ่นเลื่อนนัดต่อทันที → ถอดแผ่นนี้เลย ไม่เล่นปิด (Modal สองอันซ้อนช่วงสั้น ๆ เปิดไม่ขึ้นบน iOS)
+  else if (!sheet && shown && resc) setShown(null);
+  if (!shown) return null;
+  return (
+    <SheetBody
+      key={`${shown.id}:${shown.date}`}
+      id={shown.id}
+      date={shown.date}
+      focusNote={!!shown.focusNote}
+      closing={!sheet}
+      onClosed={() => setShown((cur) => (useUI.getState().sheet ? cur : null))}
+    />
+  );
 }
 
-function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNote: boolean }) {
+function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; date: string; focusNote: boolean; closing: boolean; onClosed: () => void }) {
   const t = useTokens();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -40,7 +56,11 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
   const now = useNow();
   const contacts = useContacts((s) => s.list);
   const dayList = useDay(date);
-  const item = dayList.find((i) => i.id === id);
+  const live = dayList.find((i) => i.id === id);
+  // ภาพล่าสุดของรายการ — ระหว่างเล่นปิดใช้ภาพนี้ (รายการถูกลบ/เลื่อนไปแล้ว เนื้อหาบนแผ่นไม่กระตุกเปลี่ยน)
+  const [snap, setSnap] = useState<DayItem | undefined>(live);
+  if (!closing && live && live !== snap) setSnap(live);
+  const item = closing ? (snap ?? live) : (live ?? snap);
   const tomorrowList = useDay(addDays(date, 1));
   const noteCfgs = useSettings((s) => s.noteCfg);
   const noteDisplay = useSettings((s) => s.noteDisplay);
@@ -60,15 +80,26 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
   const [noteFocused, setNoteFocused] = useState(false);
 
   // เข้าเร็วและลื่น: Modal ไม่ใส่แอนิเมชันของระบบ (ช้า ~300ms) — สไลด์ขึ้น+จางเข้าเองด้วย native driver สั้น ๆ
-  const anim = useRef(new Animated.Value(0)).current;
+  // ปิด: เล่นย้อน (เลื่อนลง+จางออก) จบแล้วค่อยถอด Modal ผ่าน onClosed
+  const [anim] = useState(() => new Animated.Value(0));
+  const closed = useEffectEvent(onClosed);
   useEffect(() => {
-    Animated.timing(anim, { toValue: 1, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-  }, [anim]);
+    Animated.timing(anim, {
+      toValue: closing ? 0 : 1,
+      duration: closing ? 140 : 160,
+      easing: closing ? Easing.in(Easing.quad) : Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished && closing) closed();
+    });
+  }, [anim, closing]);
 
-  if (!item) {
-    closeSheet();
-    return null;
-  }
+  // รายการหายไปขณะแผ่นเปิดอยู่ (ถูกลบจากที่อื่น) → ปิดแผ่น
+  useEffect(() => {
+    if (!live && !closing) closeSheet();
+  }, [live, closing, closeSheet]);
+
+  if (!item) return null;
   const cat = CAT_BY_ID[item.cat];
   const state = railState(item, now, null);
   const canResc = item.ostatus !== 'rescheduled';
@@ -261,10 +292,18 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
   };
 
   return (
-    <Modal transparent animationType="none" onRequestClose={requestClose}>
+    <Modal
+      transparent
+      animationType="none"
+      onRequestClose={() => {
+        // กำลังเล่นปิด (เช่น พักแผ่นไว้เพื่อไปหน้าแก้ไข) — ปุ่มย้อนกลับของเครื่องไม่ต้องสั่งปิดซ้ำ จะไปล้างแผ่นที่พักไว้
+        if (!closing) requestClose();
+      }}>
       {/* ไม่มีฉากหลังมืด — โปร่งใส แตะพื้นที่ว่างเพื่อปิดได้เหมือนเดิม */}
-      <Pressable style={{ flex: 1 }} onPress={requestClose} />
+      <Pressable style={{ flex: 1 }} onPress={closing ? undefined : requestClose} />
       <Animated.View
+        // กำลังเล่นปิด — ไม่รับการแตะแล้ว
+        pointerEvents={closing ? 'none' : 'auto'}
         style={{
           opacity: anim,
           transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }],
@@ -337,7 +376,7 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
             </View>
           ) : null}
           <View style={{ flex: 1 }} />
-          <Pressable accessibilityRole="button" accessibilityLabel="ปิด" onPress={requestClose} hitSlop={6} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="ปิด" onPress={requestClose} hitSlop={6} style={pressFade({ width: 40, height: 40, borderRadius: 20, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' })}>
             <SvgIcon name="x" size={16} color={t.sub} strokeWidth={2.4} />
           </Pressable>
         </View>
@@ -385,11 +424,11 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
                   ))}
                 </ScrollView>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                  <Pressable onPress={() => setAdding(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} hitSlop={6}>
+                  <Pressable onPress={() => setAdding(true)} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 5 })} hitSlop={6}>
                     <Icon name="plus" size={14} color={t.accent} />
                     <Txt size={12.5} weight="med" color={t.accent}>เพิ่มรายชื่ออีกคน</Txt>
                   </Pressable>
-                  <Pressable onPress={openContactBook} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} hitSlop={6}>
+                  <Pressable onPress={openContactBook} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 5 })} hitSlop={6}>
                     <Icon name="user" size={14} color={t.accent} />
                     <Txt size={12.5} weight="med" color={t.accent}>สมุดรายชื่อ</Txt>
                     <Icon name="chevR" size={13} color={t.accent} />
@@ -439,7 +478,7 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
                         accessibilityRole="radio"
                         accessibilityState={{ checked: on }}
                         onPress={() => pickStatus(st)}
-                        style={{ flex: 1, height: 46, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: on ? t.card : 'transparent' }}>
+                        style={pressFade({ flex: 1, height: 46, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: on ? t.card : 'transparent' })}>
                         <StatusDot state={dot} size={20} />
                         <Txt size={13.5} weight={on ? 'bold' : 'med'} color={on ? t.ink : t.sub}>{label}</Txt>
                       </Pressable>
@@ -537,16 +576,16 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
                 <Txt size={12.5} weight="bold" color={t.sub}>เลื่อนครั้งนี้ไป</Txt>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                   {quickSlot != null ? (
-                    <Pressable accessibilityRole="button" onPress={() => moveTo(date, quickSlot, `${fmtMin(quickSlot)}`)} style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.freeLine, justifyContent: 'center' }}>
+                    <Pressable accessibilityRole="button" onPress={() => moveTo(date, quickSlot, `${fmtMin(quickSlot)}`)} style={pressFade({ height: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.freeLine, justifyContent: 'center' })}>
                       <Txt size={13} weight="bold" color={t.greenInk}>ช่วงว่าง {fmtMin(quickSlot)}</Txt>
                     </Pressable>
                   ) : null}
                   {!tomorrowBusy ? (
-                    <Pressable accessibilityRole="button" onPress={() => moveTo(addDays(date, 1), item.startMin, `พรุ่งนี้ ${fmtMin(item.startMin)}`)} style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: t.track, justifyContent: 'center' }}>
+                    <Pressable accessibilityRole="button" onPress={() => moveTo(addDays(date, 1), item.startMin, `พรุ่งนี้ ${fmtMin(item.startMin)}`)} style={pressFade({ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: t.track, justifyContent: 'center' })}>
                       <Txt size={13} weight="med">พรุ่งนี้ {fmtMin(item.startMin)}</Txt>
                     </Pressable>
                   ) : null}
-                  <Pressable accessibilityRole="button" onPress={() => openResc(item)} style={{ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: t.track, justifyContent: 'center' }}>
+                  <Pressable accessibilityRole="button" onPress={() => openResc(item)} style={pressFade({ height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: t.track, justifyContent: 'center' })}>
                     <Txt size={13} weight="med">เลือกวันเวลา…</Txt>
                   </Pressable>
                 </View>
@@ -556,7 +595,7 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
             {typing ? null : (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Btn style={{ flex: 1 }} kind="ghost" renderIcon={(c, sz) => <SvgIcon name="edit" size={sz} color={c} />} label="แก้ไขกิจกรรม" onPress={onEdit} />
-                <Pressable accessibilityRole="button" onPress={() => setConfirm(true)} style={{ height: 46, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Pressable accessibilityRole="button" onPress={() => setConfirm(true)} style={pressFade({ height: 46, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 6 })}>
                   <SvgIcon name="trash" size={16} color={t.warn} />
                   <Txt size={14} weight="bold" color={t.warn}>ลบ…</Txt>
                 </Pressable>
@@ -568,7 +607,7 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
                 <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>
                   ชุดนี้: ทำแล้ว {seriesStat.done} จาก {seriesStat.total} ครั้ง{seriesStat.skip ? ` · ข้าม ${seriesStat.skip}` : ''}
                 </Txt>
-                <Pressable
+                <Pressable style={pressFade()}
                   accessibilityRole="button"
                   hitSlop={8}
                   onPress={() =>
@@ -760,14 +799,14 @@ function ContactCard({
           accessibilityLabel={inline ? 'แก้ไขช่องทางติดต่อในนัด' : `แก้ไข ${c.name}`}
           onPress={onEdit}
           hitSlop={6}
-          style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
+          style={pressFade({ width: 28, height: 28, borderRadius: 8, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' })}>
           <SvgIcon name="edit" size={14} color={t.sub} />
         </Pressable>
         {onRemove ? (
           <Pressable
             onPress={() => setConfirmDel(true)}
             hitSlop={6}
-            style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: confirmDel ? DANGER + '22' : t.chip, alignItems: 'center', justifyContent: 'center' }}>
+            style={pressFade({ width: 28, height: 28, borderRadius: 8, backgroundColor: confirmDel ? DANGER + '22' : t.chip, alignItems: 'center', justifyContent: 'center' })}>
             <SvgIcon name="trash" size={14} color={confirmDel ? DANGER : t.sub} />
           </Pressable>
         ) : null}
@@ -911,7 +950,7 @@ function ContactEditForm({
         {/* ชื่อ — เลือกจากรายการรายชื่อทั้งหมด (แตะเพื่อเปลี่ยนเป็นคนอื่น / เปลี่ยนชื่อคนนี้) */}
         <Pressable
           onPress={() => setPicking(true)}
-          style={{
+          style={pressFade({
             flexDirection: 'row',
             alignItems: 'center',
             gap: 8,
@@ -922,7 +961,7 @@ function ContactEditForm({
             paddingHorizontal: 11,
             paddingVertical: 9,
             minHeight: 44,
-          }}>
+          })}>
           <SvgIcon name="user" size={14} color={t.sub} />
           <View style={{ flex: 1 }}>
             <Txt size={14} weight="med" numberOfLines={1} color={d.name.trim() ? t.ink : t.faint}>
@@ -1013,7 +1052,7 @@ function ContactPicker({
         <Pressable
           onPress={onCancel}
           hitSlop={6}
-          style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
+          style={pressFade({ width: 28, height: 28, borderRadius: 8, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' })}>
           <Icon name="chevL" size={15} color={t.sub} />
         </Pressable>
         <Txt size={16} weight="bold" style={{ flex: 1 }} numberOfLines={1}>{title}</Txt>
@@ -1031,7 +1070,7 @@ function ContactPicker({
           style={{ flex: 1, paddingVertical: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
         />
         {q ? (
-          <Pressable onPress={() => setQ('')} hitSlop={6}>
+          <Pressable style={pressFade()} onPress={() => setQ('')} hitSlop={6}>
             <SvgIcon name="x" size={14} color={t.faint} />
           </Pressable>
         ) : null}
@@ -1049,7 +1088,7 @@ function ContactPicker({
         {canRename && rename ? (
           <Pressable
             onPress={() => rename.onRename(query)}
-            style={{
+            style={pressFade({
               flexDirection: 'row',
               alignItems: 'center',
               gap: 8,
@@ -1059,7 +1098,7 @@ function ContactPicker({
               backgroundColor: t.accent + '12',
               paddingHorizontal: 11,
               paddingVertical: 10,
-            }}>
+            })}>
             <SvgIcon name="edit" size={14} color={t.accent} />
             <Txt size={13} color={t.accent} weight="med" style={{ flex: 1 }} numberOfLines={2}>
               ใช้ “{query}” เป็นชื่อใหม่ของ {rename.current.name}
@@ -1091,7 +1130,7 @@ function PickRow({ c, active, onPress }: { c: Contact; active: boolean; onPress:
   return (
     <Pressable
       onPress={onPress}
-      style={{
+      style={pressFade({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
@@ -1101,7 +1140,7 @@ function PickRow({ c, active, onPress }: { c: Contact; active: boolean; onPress:
         backgroundColor: active ? t.accent + '10' : t.card2,
         paddingHorizontal: 11,
         paddingVertical: 9,
-      }}>
+      })}>
       <View style={{ flex: 1, gap: 2 }}>
         <Txt size={13.5} weight={active ? 'bold' : 'med'} numberOfLines={1}>{c.name}</Txt>
         {sub ? <Txt size={11} color={t.faint} numberOfLines={1}>{sub}</Txt> : null}
@@ -1178,7 +1217,7 @@ function FieldBtn({ icon, label, disabled, onPress }: { icon: string; label: str
       onPress={onPress}
       disabled={disabled}
       hitSlop={4}
-      style={{
+      style={pressFade({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
@@ -1189,7 +1228,7 @@ function FieldBtn({ icon, label, disabled, onPress }: { icon: string; label: str
         borderRadius: 9,
         backgroundColor: t.chip,
         opacity: disabled ? 0.4 : 1,
-      }}>
+      })}>
       <SvgIcon name={icon} size={12} color={t.sub} />
       <Txt size={11} weight="med" color={t.sub}>{label}</Txt>
     </Pressable>
@@ -1247,7 +1286,7 @@ function MiniBtn({
     <Pressable
       onPress={handle}
       hitSlop={4}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9, backgroundColor: bg, opacity: state === 'busy' ? 0.85 : 1 }}>
+      style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9, backgroundColor: bg, opacity: state === 'busy' ? 0.85 : 1 })}>
       {state === 'busy' ? (
         <ActivityIndicator size="small" color={fg} style={{ width: 12, height: 12, transform: [{ scale: 0.7 }] }} />
       ) : (

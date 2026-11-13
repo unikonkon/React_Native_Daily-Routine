@@ -3,9 +3,11 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Linking, Pressable, StyleSheet, View, type ScrollViewInstance } from 'react-native';
+import Animated, { useAnimatedProps } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 
 import { StatusDot } from '@/components/b1/status-circle';
+import { useEased } from '@/components/motion';
 import { useNow } from '@/components/b1/use-now';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
@@ -280,15 +282,22 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+const RING_R = 23;
+const RING_C = 2 * Math.PI * RING_R;
+
+/** วงแหวน % สำเร็จ — เปิดหน้าครั้งแรกค่อย ๆ เติมจาก 0 (0.5 วิ) และเลื่อนตามเมื่อค่าเปลี่ยน */
 function ProgressRing({ pct }: { pct: number }) {
   const t = useTokens();
-  const R = 23;
-  const C = 2 * Math.PI * R;
+  const R = RING_R;
+  const C = RING_C;
+  const p = useEased(pct, 500, 0);
+  const ring = useAnimatedProps(() => ({ strokeDashoffset: RING_C * (1 - p.value) }));
   return (
     <View style={{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={56} height={56} style={{ position: 'absolute', transform: [{ rotate: '-90deg' }] }}>
         <Circle cx={28} cy={28} r={R} stroke={t.track} strokeWidth={7} fill="none" />
-        <Circle
+        <AnimatedCircle
           cx={28}
           cy={28}
           r={R}
@@ -297,7 +306,7 @@ function ProgressRing({ pct }: { pct: number }) {
           fill="none"
           strokeLinecap="round"
           strokeDasharray={`${C}`}
-          strokeDashoffset={C * (1 - pct)}
+          animatedProps={ring}
         />
       </Svg>
       <Txt size={14} num weight="bold">{Math.round(pct * 100)}%</Txt>

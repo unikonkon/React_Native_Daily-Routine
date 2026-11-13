@@ -12,7 +12,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { StepBtn } from '@/components/today/parts';
-import { Card, Chip, ChipRow, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
+import { Card, Chip, ChipRow, PriBadge, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
 import { CAT_BY_ID, DANGER, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
 import { conflictsOn } from '@/lib/engine';
@@ -416,7 +416,7 @@ export default function CopyScreen() {
                       key={keyOf(it)}
                       disabled={!selectable}
                       onPress={() => (copyMode === 'item' ? toggleItem(it) : toggleExclude(it))}
-                      style={{
+                      style={pressFade({
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 9,
@@ -424,7 +424,7 @@ export default function CopyScreen() {
                         borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
                         borderTopColor: t.line,
                         opacity: selectable && !on ? 0.55 : 1,
-                      }}>
+                      })}>
                       {selectable ? (
                         <View
                           style={{
@@ -633,7 +633,7 @@ function DayCell({ date, cats, inRange, fill, ring, label, labelColor, dim, onPr
     <Pressable
       disabled={!inRange}
       onPress={onPress}
-      style={{
+      style={pressFade({
         flex: 1,
         minHeight: 58,
         paddingTop: 6,
@@ -642,7 +642,7 @@ function DayCell({ date, cats, inRange, fill, ring, label, labelColor, dim, onPr
         borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: t.line,
         opacity: dim ? 0.4 : 1,
-      }}>
+      })}>
       <View
         style={{
           width: 30,

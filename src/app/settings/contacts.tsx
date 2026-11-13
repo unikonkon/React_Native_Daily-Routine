@@ -11,7 +11,7 @@ import { Field } from '@/components/field';
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
-import { Btn, Chip, Txt, useTokens } from '@/components/ui';
+import { Btn, Chip, Txt, pressFade, useTokens } from '@/components/ui';
 import { FONT, PRI, PRI_BY_ID, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, WD_TH, fmtMin, fromISO, nowMin, todayISO, wdMon } from '@/lib/dates';
 import { seriesDates } from '@/lib/engine';
@@ -136,7 +136,7 @@ function ContactList({ list, links, onEdit }: { list: Contact[]; links: ReturnTy
                 style={{ flex: 1, minWidth: 0, color: t.ink, fontFamily: FONT.ui, fontSize: 15, paddingVertical: 0 }}
               />
               {query ? (
-                <Pressable accessibilityRole="button" accessibilityLabel="ล้างคำค้น" onPress={() => setQuery('')} hitSlop={8}>
+                <Pressable style={pressFade()} accessibilityRole="button" accessibilityLabel="ล้างคำค้น" onPress={() => setQuery('')} hitSlop={8}>
                   <SvgIcon name="x" size={16} color={t.sub} strokeWidth={2.2} />
                 </Pressable>
               ) : null}
@@ -188,7 +188,7 @@ function PriChip({ label, count, on, color, onPress, a11y }: { label: string; co
       accessibilityState={{ selected: on }}
       accessibilityLabel={`${a11y ?? label} ${count} คน`}
       onPress={onPress}
-      style={{ height: 36, paddingHorizontal: 14, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: on ? t.ink : t.track, opacity: !on && count === 0 ? 0.5 : 1 }}>
+      style={pressFade({ height: 36, paddingHorizontal: 14, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: on ? t.ink : t.track, opacity: !on && count === 0 ? 0.5 : 1 })}>
       {color ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} /> : null}
       <Txt size={13.5} weight={on ? 'bold' : 'med'} color={on ? t.bg : t.sub}>
         {label}

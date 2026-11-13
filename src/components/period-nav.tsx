@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
-import { Txt, useTokens } from '@/components/ui';
+import { Txt, pressFade, useTokens } from '@/components/ui';
 import {
   MONTH_TH,
   SCHED_MAX_Y,
@@ -69,11 +69,11 @@ export function WeekPicker({
 
           {/* ปี */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
-            <Pressable disabled={ym.y <= minYear} onPress={() => setYm({ ...ym, y: ym.y - 1 })} style={{ opacity: ym.y <= minYear ? 0.3 : 1 }}>
+            <Pressable disabled={ym.y <= minYear} onPress={() => setYm({ ...ym, y: ym.y - 1 })} style={pressFade({ opacity: ym.y <= minYear ? 0.3 : 1 })}>
               <Icon name="chevL" size={22} color={t.sub} />
             </Pressable>
             <Txt size={18} num weight="bold">{beYear(ym.y)}</Txt>
-            <Pressable disabled={ym.y >= maxYear} onPress={() => setYm({ ...ym, y: ym.y + 1 })} style={{ opacity: ym.y >= maxYear ? 0.3 : 1 }}>
+            <Pressable disabled={ym.y >= maxYear} onPress={() => setYm({ ...ym, y: ym.y + 1 })} style={pressFade({ opacity: ym.y >= maxYear ? 0.3 : 1 })}>
               <Icon name="chevR" size={22} color={t.sub} />
             </Pressable>
           </View>
@@ -84,13 +84,13 @@ export function WeekPicker({
               <Pressable
                 key={m}
                 onPress={() => setYm({ ...ym, m: i })}
-                style={{
+                style={pressFade({
                   width: '25%',
                   paddingVertical: 9,
                   alignItems: 'center',
                   borderRadius: 12,
                   backgroundColor: i === ym.m ? t.accent : 'transparent',
-                }}>
+                })}>
                 <Txt size={13} weight={i === ym.m ? 'bold' : 'reg'} color={i === ym.m ? '#FFFFFF' : t.ink}>
                   {m}
                 </Txt>
@@ -107,14 +107,14 @@ export function WeekPicker({
                   <Pressable
                     key={w}
                     onPress={() => onPick(w)}
-                    style={{
+                    style={pressFade({
                       paddingVertical: 10,
                       borderRadius: 12,
                       alignItems: 'center',
                       backgroundColor: active ? t.accent : t.card2,
                       borderWidth: 1,
                       borderColor: active ? t.accent : t.line,
-                    }}>
+                    })}>
                     <Txt size={13} num weight={active ? 'bold' : 'med'} color={active ? '#FFFFFF' : t.ink}>
                       {thaiWeekRange(w)}
                     </Txt>

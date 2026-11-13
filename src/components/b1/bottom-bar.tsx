@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { SvgIcon } from '@/components/svg-icon';
-import { Txt, useTokens } from '@/components/ui';
+import { Txt, pressFade, useTokens } from '@/components/ui';
 
 /** ระยะที่เนื้อหาควรเว้นล่างให้พ้นแถบ (ไม่รวม safe area) — ใช้กับ paddingBottom ของ ScrollView และตำแหน่ง toast */
 export const BOTTOM_BAR_SPACE = 92;
@@ -64,7 +64,7 @@ export function CalendarBar({ onPrev, onNext, onToday, onCalendar, onAdd, prevLa
       <BarFade />
       <View style={{ position: 'absolute', left: 18, right: 18, bottom: insets.bottom + BAR_BOTTOM, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <View style={[{ flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, borderRadius: 26, padding: 4 }, SHADOW]}>
-          <Pressable accessibilityRole="button" accessibilityLabel={prevLabel} onPress={onPrev} hitSlop={4} style={{ width: 40, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={prevLabel} onPress={onPrev} hitSlop={4} style={pressFade({ width: 40, height: 44, alignItems: 'center', justifyContent: 'center' })}>
             <SvgIcon name="chevL" size={17} color={t.sub} strokeWidth={2.2} />
           </Pressable>
           <Pressable
@@ -86,7 +86,7 @@ export function CalendarBar({ onPrev, onNext, onToday, onCalendar, onAdd, prevLa
               วันนี้
             </Txt>
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={nextLabel} onPress={onNext} hitSlop={4} style={{ width: 40, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={nextLabel} onPress={onNext} hitSlop={4} style={pressFade({ width: 40, height: 44, alignItems: 'center', justifyContent: 'center' })}>
             <SvgIcon name="chevR" size={17} color={t.sub} strokeWidth={2.2} />
           </Pressable>
         </View>

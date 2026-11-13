@@ -7,7 +7,7 @@ import Svg, { Circle, Polygon, Polyline } from 'react-native-svg';
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
-import { Card, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
+import { Card, PriBadge, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
 import { ATTN, CATS, CAT_OPTIONS, FONT, GREEN, PRI, PRI_BY_ID, type CatId, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, nowMin, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
 import { rangeStats, type RangeStats } from '@/lib/engine';
@@ -266,7 +266,7 @@ export default function StatsScreen() {
                   setOffset(0);
                   resetCaseView();
                 }}
-                style={{ paddingVertical: 8, borderBottomWidth: 2, borderBottomColor: on ? t.accent : 'transparent', marginBottom: -StyleSheet.hairlineWidth }}>
+                style={pressFade({ paddingVertical: 8, borderBottomWidth: 2, borderBottomColor: on ? t.accent : 'transparent', marginBottom: -StyleSheet.hairlineWidth })}>
                 <Txt size={14.5} weight={on ? 'bold' : 'med'} color={on ? t.ink : t.sub}>
                   {k === 'week' ? 'สัปดาห์' : k === 'month' ? 'เดือน' : 'ทั้งหมด'}
                 </Txt>
@@ -280,7 +280,7 @@ export default function StatsScreen() {
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Txt size={14} weight="bold">{range.label}</Txt>
             {mode !== 'all' && offset !== 0 ? (
-              <Pressable onPress={() => { setOffset(0); resetCaseView(); }} hitSlop={6}>
+              <Pressable style={pressFade()} onPress={() => { setOffset(0); resetCaseView(); }} hitSlop={6}>
                 <Txt size={10} color={t.accent}>ย้อนหลัง · กลับปัจจุบัน</Txt>
               </Pressable>
             ) : null}
@@ -399,7 +399,7 @@ export default function StatsScreen() {
                             setPriFilter(on ? null : p.id);
                             setOpenCases(true);
                           }}
-                          style={{
+                          style={pressFade({
                             flexDirection: 'row',
                             alignItems: 'center',
                             gap: 10,
@@ -407,7 +407,7 @@ export default function StatsScreen() {
                             paddingHorizontal: 8,
                             borderRadius: 10,
                             backgroundColor: on ? p.color + '1F' : 'transparent',
-                          }}>
+                          })}>
                           <View style={{ backgroundColor: p.color, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, minWidth: 28, alignItems: 'center' }}>
                             <Txt size={11} weight="bold" color="#FFFFFF">{p.id}</Txt>
                           </View>
@@ -425,7 +425,7 @@ export default function StatsScreen() {
                       setOpenCases(next);
                       if (!next) resetCaseView();
                     }}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, paddingTop: 10 }}>
+                    style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, paddingTop: 10 })}>
                     <Txt size={12.5} weight="med" color={t.accent} style={{ flex: 1 }}>
                       {openCases
                         ? priFilter
@@ -586,7 +586,7 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
               key={k}
               onPress={() => setMetric(k)}
               hitSlop={4}
-              style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 99, backgroundColor: on ? t.chip : 'transparent' }}>
+              style={pressFade({ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 99, backgroundColor: on ? t.chip : 'transparent' })}>
               <Txt size={11} weight={on ? 'bold' : 'med'} color={on ? t.accent : t.faint}>{k === 'count' ? 'จำนวน' : 'ชั่วโมง'}</Txt>
             </Pressable>
           );
@@ -606,8 +606,9 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
           return (
             <View key={r.c.id} style={{ borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: t.line }}>
               <Pressable
-                onPress={expandable ? () => setOpen(on ? null : r.c.id) : undefined}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, opacity: r.count ? 1 : 0.45 }}>
+                disabled={!expandable}
+                onPress={() => setOpen(on ? null : r.c.id)}
+                style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, opacity: r.count ? 1 : 0.45 })}>
                 <View style={{ width: 20, alignItems: 'center' }}>
                   <Icon name={r.c.icon} size={14} color={r.count ? r.c.color : t.faint} />
                 </View>
@@ -808,7 +809,7 @@ function SearchBox({ value, onChange, placeholder }: { value: string; onChange: 
         style={{ flex: 1, paddingVertical: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
       />
       {value ? (
-        <Pressable onPress={() => onChange('')} hitSlop={6}>
+        <Pressable style={pressFade()} onPress={() => onChange('')} hitSlop={6}>
           <Icon name="x" size={16} color={t.faint} />
         </Pressable>
       ) : null}
@@ -832,14 +833,14 @@ function PersonRow({ p, first, onPress }: { p: Person; first: boolean; onPress: 
   return (
     <Pressable
       onPress={onPress}
-      style={{
+      style={pressFade({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
         paddingVertical: 10,
         borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
         borderTopColor: t.line,
-      }}>
+      })}>
       <PriTag id={p.pri} />
       <View style={{ flex: 1, gap: 2 }}>
         <Txt size={13.5} weight="med" numberOfLines={1}>{p.name}</Txt>
@@ -867,7 +868,7 @@ function PersonDetail({
   const rate = p.items.length ? p.done / p.items.length : 0;
   return (
     <View style={{ gap: 12 }}>
-      <Pressable onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <Pressable onPress={onBack} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 8 })}>
         <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="chevL" size={16} color={t.sub} />
         </View>
@@ -923,14 +924,14 @@ function CaseGroupRow({ g, first, nameById, onPress }: { g: CaseGroup; first: bo
   return (
     <Pressable
       onPress={onPress}
-      style={{
+      style={pressFade({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
         paddingVertical: 10,
         borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
         borderTopColor: t.line,
-      }}>
+      })}>
       <PriTag id={g.pri} />
       <View style={{ flex: 1, gap: 2 }}>
         <Txt size={13.5} weight="med" numberOfLines={1}>{g.title}</Txt>
@@ -958,7 +959,7 @@ function CaseGroupDetail({ g, nameById, onBack }: { g: CaseGroup; nameById: Reco
   const channel = [g.online ? `ออนไลน์ ${g.online}` : null, g.inperson ? `พบตัว ${g.inperson}` : null].filter(Boolean).join(' · ');
   return (
     <View style={{ gap: 12 }}>
-      <Pressable onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <Pressable onPress={onBack} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 8 })}>
         <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="chevL" size={16} color={t.sub} />
         </View>
@@ -1053,7 +1054,7 @@ function ContactMethods({ contacts, showToast }: { contacts: Contact[]; showToas
             key={key}
             disabled={busy}
             onPress={() => open(key, m.label, m.url, m.fallback)}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: busy ? 0.6 : 1 }}>
+            style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: busy ? 0.6 : 1 })}>
             <SvgIcon name={m.icon} size={14} color={t.sub} />
             <Txt size={13} style={{ flex: 1 }} numberOfLines={1}>{busy ? `กำลังเปิด ${m.label}…` : m.display}</Txt>
             {busy ? <ActivityIndicator size="small" color={t.accent} /> : <SvgIcon name="extLink" size={14} color={t.accent} />}
@@ -1094,14 +1095,14 @@ function CaseRow({ it, first, nameById }: { it: DayItem; first: boolean; nameByI
   return (
     <Pressable
       onPress={() => useUI.getState().openSheet(it.id, it.date)}
-      style={{
+      style={pressFade({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
         paddingVertical: 10,
         borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
         borderTopColor: t.line,
-      }}>
+      })}>
       <View style={{ width: 34, alignItems: 'center' }}>
         <Txt size={14} num weight="bold" color={done ? t.faint : t.ink}>{d.getDate()}</Txt>
         <Txt size={9} color={t.faint}>{MONTH_TH[d.getMonth()]}</Txt>
@@ -1143,7 +1144,7 @@ function NavBtn({ icon, disabled, onPress }: { icon: string; disabled?: boolean;
       onPress={onPress}
       disabled={disabled}
       hitSlop={6}
-      style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 }}>
+      style={pressFade({ width: 34, height: 34, borderRadius: 10, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 })}>
       <Icon name={icon} size={16} color={t.sub} />
     </Pressable>
   );

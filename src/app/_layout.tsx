@@ -12,7 +12,7 @@ import { ActivitySheet } from '@/components/activity-sheet';
 import { LaunchSplash } from '@/components/launch-splash';
 import { RescheduleModal } from '@/components/reschedule-modal';
 import { ToastHost } from '@/components/toast';
-import { useThemeName, useTokens } from '@/components/ui';
+import { pressFade, useThemeName, useTokens } from '@/components/ui';
 import { useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useSettings } from '@/stores/settings';
@@ -66,7 +66,7 @@ export default function RootLayout() {
               setBootError(null);
               boot();
             }}
-            style={{ marginTop: 8, backgroundColor: pal.ink, borderRadius: 14, paddingHorizontal: 22, paddingVertical: 12 }}>
+            style={pressFade({ marginTop: 8, backgroundColor: pal.ink, borderRadius: 14, paddingHorizontal: 22, paddingVertical: 12 })}>
             <Text style={{ color: pal.bg, fontSize: 15, fontWeight: '600' }}>ลองใหม่</Text>
           </Pressable>
         </View>

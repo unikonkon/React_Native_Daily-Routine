@@ -11,7 +11,7 @@ import { Rail } from '@/components/b1/rail';
 import { useNow } from '@/components/b1/use-now';
 import { useToggleStatus } from '@/components/b1/use-toggle';
 import { SvgIcon } from '@/components/svg-icon';
-import { Txt, useTokens } from '@/components/ui';
+import { Txt, pressFade, useTokens } from '@/components/ui';
 import { ATTN, CATS, CAT_BY_ID, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, VIEW_MAX_Y, VIEW_MIN_Y, WD_TH, addDays, beYear, fromISO, hoursText, mondayOf, thaiDate, toISO } from '@/lib/dates';
 import { daytimeFreeSlots, freeMinutes } from '@/lib/engine';
@@ -246,7 +246,7 @@ function MonthBlock({ k, live, current, picked, catFilter, freeMode, now, getDay
                   accessibilityState={{ selected: isSel }}
                   accessibilityLabel={`${thaiDate(d)}${live ? ` · ${items.length} รายการ` : ''}${started ? ` · ทำแล้ว ${Math.round(p.rate * 100)}%` : ''}`}
                   onPress={() => onCellPress(d)}
-                  style={{ flex: 1, height: 62, paddingTop: 4, alignItems: 'center', gap: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, opacity: catFilter && live && !items.length ? 0.4 : 1 }}>
+                  style={pressFade({ flex: 1, height: 62, paddingTop: 4, alignItems: 'center', gap: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, opacity: catFilter && live && !items.length ? 0.4 : 1 })}>
                   <View
                     style={{
                       width: 32,
@@ -355,7 +355,7 @@ function DayCard({
           </Txt>
           <SvgIcon name="chevR" size={14} color={t.sub} strokeWidth={2.2} />
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="พับรายการ" onPress={onClose} hitSlop={6} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="พับรายการ" onPress={onClose} hitSlop={6} style={pressFade({ width: 36, height: 36, borderRadius: 18, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' })}>
           <SvgIcon name="x" size={14} color={t.sub} strokeWidth={2.4} />
         </Pressable>
       </View>
@@ -387,7 +387,7 @@ function FilterChip({ label, color, on, onPress }: { label: string; color?: stri
       accessibilityRole="button"
       accessibilityState={{ selected: on }}
       onPress={onPress}
-      style={{ height: 34, paddingHorizontal: 13, borderRadius: 17, backgroundColor: on ? t.ink : t.track, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      style={pressFade({ height: 34, paddingHorizontal: 13, borderRadius: 17, backgroundColor: on ? t.ink : t.track, flexDirection: 'row', alignItems: 'center', gap: 6 })}>
       {color ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} /> : null}
       <Txt size={13} weight={on ? 'bold' : 'med'} color={on ? t.bg : t.sub}>
         {label}

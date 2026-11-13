@@ -3,7 +3,7 @@ import React from 'react';
 import { Modal, Pressable, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
-import { Txt, useTokens } from '@/components/ui';
+import { Txt, pressFade, useTokens } from '@/components/ui';
 import { MONTH_TH, SCHED_MAX_Y, SCHED_MIN_Y, beYear } from '@/lib/dates';
 
 interface Props {
@@ -26,11 +26,11 @@ export function MonthYearPicker({ visible, year, month, onClose, onPick, minYear
         <Pressable style={{ backgroundColor: t.sheet, borderRadius: 22, padding: 18, width: 300, gap: 12 }} onPress={() => {}}>
           <Txt size={16} weight="bold" style={{ textAlign: 'center' }}>เลือกเดือน & ปี</Txt>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
-            <Pressable disabled={year <= minYear} onPress={() => onPick(year - 1, month)} style={{ opacity: year <= minYear ? 0.3 : 1 }}>
+            <Pressable disabled={year <= minYear} onPress={() => onPick(year - 1, month)} style={pressFade({ opacity: year <= minYear ? 0.3 : 1 })}>
               <Icon name="chevL" size={22} color={t.sub} />
             </Pressable>
             <Txt size={18} num weight="bold">{beYear(year)}</Txt>
-            <Pressable disabled={year >= maxYear} onPress={() => onPick(year + 1, month)} style={{ opacity: year >= maxYear ? 0.3 : 1 }}>
+            <Pressable disabled={year >= maxYear} onPress={() => onPick(year + 1, month)} style={pressFade({ opacity: year >= maxYear ? 0.3 : 1 })}>
               <Icon name="chevR" size={22} color={t.sub} />
             </Pressable>
           </View>
@@ -42,13 +42,13 @@ export function MonthYearPicker({ visible, year, month, onClose, onPick, minYear
                   onPick(year, i);
                   onClose();
                 }}
-                style={{
+                style={pressFade({
                   width: '33.33%',
                   paddingVertical: 12,
                   alignItems: 'center',
                   borderRadius: 12,
                   backgroundColor: i === month ? t.accent : 'transparent',
-                }}>
+                })}>
                 <Txt size={13} weight={i === month ? 'bold' : 'reg'} color={i === month ? '#FFFFFF' : t.ink}>
                   {m}
                 </Txt>

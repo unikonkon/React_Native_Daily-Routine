@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
-import { Btn, Card, Segmented, Txt, useTokens } from '@/components/ui';
+import { Btn, Card, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
 import { ATTN, CAT_BY_ID, DANGER, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fromISO, mondayOf, thaiDate, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
 import { dumpAll, purgeRange, type BackupData } from '@/lib/db';
@@ -204,7 +204,7 @@ export default function ManageDataScreen() {
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Txt size={13} weight="bold">{window.label}</Txt>
               {offset !== 0 ? (
-                <Pressable onPress={() => { setOffset(0); setConfirm(null); }} hitSlop={6}>
+                <Pressable style={pressFade()} onPress={() => { setOffset(0); setConfirm(null); }} hitSlop={6}>
                   <Txt size={10} color={t.accent}>{offset < 0 ? 'อนาคต · กลับปัจจุบัน' : 'ย้อนหลัง · กลับปัจจุบัน'}</Txt>
                 </Pressable>
               ) : null}
@@ -270,7 +270,7 @@ function NavBtn({ icon, disabled, onPress }: { icon: string; disabled?: boolean;
       onPress={onPress}
       disabled={disabled}
       hitSlop={6}
-      style={{
+      style={pressFade({
         width: 32,
         height: 32,
         borderRadius: 9,
@@ -278,7 +278,7 @@ function NavBtn({ icon, disabled, onPress }: { icon: string; disabled?: boolean;
         alignItems: 'center',
         justifyContent: 'center',
         opacity: disabled ? 0.35 : 1,
-      }}>
+      })}>
       <Icon name={icon} size={16} color={t.sub} />
     </Pressable>
   );

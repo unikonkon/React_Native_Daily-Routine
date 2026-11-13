@@ -18,7 +18,7 @@ import { Screen } from '@/components/screen';
 import { SnippetChips } from '@/components/snippet-chips';
 import { SvgIcon } from '@/components/svg-icon';
 import { TimeDragBar, TimeDragRail } from '@/components/time-drag';
-import { Btn, Card, Chip, ChipRow, PriBadge, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
+import { Btn, Card, Chip, ChipRow, PriBadge, Segmented, Toggle, Txt, pressFade, useTokens } from '@/components/ui';
 import { ATTN, CATS, CAT_BY_ID, CAT_OPTIONS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, durText, fmtMin, fromISO, hoursText, thaiDate, todayISO, wdMon } from '@/lib/dates';
 import { FREE_WINDOW_END, conflictsOn, freeSlots, maskFromDates, seriesDates } from '@/lib/engine';
@@ -805,7 +805,7 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
                 accessibilityRole="radio"
                 accessibilityState={{ checked: active }}
                 onPress={() => d.set({ cat: c.id })}
-                style={{
+                style={pressFade({
                   width: '47.5%',
                   padding: 14,
                   borderRadius: 18,
@@ -813,7 +813,7 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
                   borderWidth: 1.5,
                   borderColor: active ? c.color : 'transparent',
                   gap: 8,
-                }}>
+                })}>
                 <Icon name={c.icon} size={22} color={c.color} />
                 <Txt size={13} weight="med">{c.name}</Txt>
               </Pressable>
@@ -1177,7 +1177,7 @@ function InlineContactForm({ value, onChange }: { value: InlineContact; onChange
           <Field label="หมายเหตุ" optional value={value.note ?? ''} onChange={(note) => set({ note })} placeholder="เช่น โทรได้หลัง 10 โมง" multiline />
         </>
       ) : (
-        <Pressable accessibilityRole="button" onPress={() => setMoreOpen(true)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 4 }}>
+        <Pressable accessibilityRole="button" onPress={() => setMoreOpen(true)} hitSlop={6} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 4 })}>
           <Icon name="plus" size={14} color={t.accentInk} />
           <Txt size={13} weight="med" color={t.accentInk}>
             ช่องทางอื่น · อีเมล Zoom Google Meet หมายเหตุ
@@ -1257,7 +1257,7 @@ function DatesBody() {
       {calOpen ? (
         <>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Pressable accessibilityRole="button" onPress={() => setPickerOpen(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40 }}>
+            <Pressable accessibilityRole="button" onPress={() => setPickerOpen(true)} style={pressFade({ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40 })}>
               <Txt size={14} weight="bold">
                 {MONTH_TH_FULL[ym.m]} {beYear(ym.y)}
               </Txt>
@@ -1355,7 +1355,7 @@ function TimeBody({ analysis, onDragState }: { analysis: Analysis; onDragState: 
                   accessibilityState={{ selected: on }}
                   accessibilityLabel={`${thaiDate(p.date)}${p.conflicts.length ? ' · เวลาชน' : ''}`}
                   onPress={() => setRefPick(i)}
-                  style={{ height: 34, paddingHorizontal: 12, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: on ? t.ink : t.track }}>
+                  style={pressFade({ height: 34, paddingHorizontal: 12, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: on ? t.ink : t.track })}>
                   <Txt size={13} weight={on ? 'bold' : 'med'} color={on ? t.bg : t.sub}>
                     {shortDate(p.date)}
                   </Txt>

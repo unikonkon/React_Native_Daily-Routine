@@ -1,7 +1,11 @@
 // วงกลมสถานะของระบบ B1 — วาด 24px แต่พื้นที่แตะ 44×44 · ใช้ทั้งบนราง แผ่นรายละเอียด และหน้าทบทวน
-import React from 'react';
+// ติ๊กว่าทำแล้ว: วงเด้งเบา ๆ + เครื่องหมายถูกวาดเป็นเส้น + คลื่นเขียวจาง 1 วง (เปิดมาเป็น "ทำแล้ว" อยู่แล้วไม่เล่น)
+import React, { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
+import Animated, { useAnimatedProps, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 
+import { EASE_OUT, useBurst } from '@/components/motion';
 import { SvgIcon } from '@/components/svg-icon';
 import { useTokens } from '@/components/ui';
 import { ATTN, GREEN } from '@/constants/theme';
@@ -17,8 +21,29 @@ const LABEL: Record<RailState, string> = {
   rescheduled: 'เลื่อนไปแล้ว',
 };
 
-/** หน้าตาวงกลม (ไม่มีพื้นที่แตะ) — ใช้ในปุ่มอื่น เช่นตัวเลือกสถานะในแผ่นรายละเอียด */
-export function StatusDot({ state, size = 24 }: { state: RailState; size?: number }) {
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+/** ความยาวเส้นเครื่องหมายถูก (viewBox 24) ≈ 22.6 — เผื่อไว้ให้ปลายเส้นมนไม่โผล่ตอนเริ่ม */
+const CHECK_LEN = 24;
+
+/** เครื่องหมายถูกที่ "วาด" จากขีดสั้นไปขีดยาว — รูปเดียวกับไอคอน check ของ svg-icon */
+function DrawnCheck({ size, color }: { size: number; color: string }) {
+  const p = useSharedValue(0);
+  useEffect(() => {
+    p.set(withDelay(70, withTiming(1, { duration: 240, easing: EASE_OUT })));
+  }, [p]);
+  const props = useAnimatedProps(() => ({ strokeDashoffset: CHECK_LEN * (1 - p.value), opacity: p.value < 0.02 ? 0 : 1 }));
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <AnimatedPath d="M4 12l5 5L20 6" fill="none" stroke={color} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={CHECK_LEN} animatedProps={props} />
+    </Svg>
+  );
+}
+
+/**
+ * หน้าตาวงกลม (ไม่มีพื้นที่แตะ) — ใช้ในปุ่มอื่น เช่นตัวเลือกสถานะในแผ่นรายละเอียด
+ * drawCheck = วาดเครื่องหมายถูกเป็นเส้นตอนเปิด (ใช้ตอนเพิ่งติ๊ก)
+ */
+export function StatusDot({ state, size = 24, drawCheck }: { state: RailState; size?: number; drawCheck?: boolean }) {
   const t = useTokens();
   const s = {
     done: { bg: GREEN, bd: 'transparent', ink: '#FFFFFF', icon: 'check' },
@@ -41,15 +66,47 @@ export function StatusDot({ state, size = 24 }: { state: RailState; size?: numbe
         alignItems: 'center',
         justifyContent: 'center',
       }}>
-      {s.icon ? <SvgIcon name={s.icon} size={size * 0.58} color={s.ink} strokeWidth={3} /> : null}
+      {state === 'done' && drawCheck ? (
+        <DrawnCheck size={size * 0.58} color={s.ink} />
+      ) : s.icon ? (
+        <SvgIcon name={s.icon} size={size * 0.58} color={s.ink} strokeWidth={3} />
+      ) : null}
       {/* กำลังทำ = วงสีเน้นของธีม + จุดกลาง (สีเดียวกับเส้น "ตอนนี้") · ค้างบันทึก = ส้มคงที่ทุกธีม */}
       {state === 'current' ? <View style={{ width: size * 0.42, height: size * 0.42, borderRadius: size, backgroundColor: t.accent }} /> : null}
     </View>
   );
 }
 
+/** คลื่นเขียว 1 วง ขยายออกจากวงกลมแล้วจางหาย — บอกว่า "บันทึกแล้ว" โดยไม่ต้องอ่าน toast */
+function DoneRipple({ size }: { size: number }) {
+  const p = useSharedValue(0);
+  useEffect(() => {
+    p.set(withTiming(1, { duration: 520, easing: EASE_OUT }));
+  }, [p]);
+  const style = useAnimatedStyle(() => ({ opacity: 0.38 * (1 - p.value), transform: [{ scale: 1 + 0.75 * p.value }] }));
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[{ position: 'absolute', left: (44 - size) / 2, top: (44 - size) / 2, width: size, height: size, borderRadius: size / 2, borderWidth: 2, borderColor: GREEN }, style]}
+    />
+  );
+}
+
+/** ย่อแล้วคืนขนาดแบบสปริงนุ่ม (เกินขนาดจริงเพียงเล็กน้อย) — play = false: นิ่ง */
+function Pop({ play, children }: { play: boolean; children: React.ReactNode }) {
+  const s = useSharedValue(play ? 0.84 : 1);
+  useEffect(() => {
+    if (play) s.set(withSpring(1, { duration: 300, dampingRatio: 0.68 }));
+  }, [play, s]);
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
+  return <Animated.View style={style}>{children}</Animated.View>;
+}
+
 /** วงกลมสถานะที่กดได้ (ปุ่มติ๊ก) */
 export function StatusCircle({ state, onPress, size = 24, label }: { state: RailState; onPress?: () => void; size?: number; label?: string }) {
+  // จำนวนครั้งที่ "เพิ่งกลายเป็นทำแล้ว" — เปลี่ยน key ให้แอนิเมชันเริ่มใหม่ทุกครั้งที่ติ๊ก
+  const burst = useBurst(state === 'done');
+  const fresh = burst > 0 && state === 'done';
   return (
     <Pressable
       accessibilityRole="button"
@@ -57,7 +114,11 @@ export function StatusCircle({ state, onPress, size = 24, label }: { state: Rail
       onPress={onPress}
       disabled={!onPress || state === 'rescheduled'}
       style={({ pressed }) => ({ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', transform: [{ scale: pressed ? 0.88 : 1 }] })}>
-      <StatusDot state={state} size={size} />
+      {/* key ต้องไม่ซ้ำกันระหว่างพี่น้อง — ใช้คำนำหน้าแยกคลื่นกับตัววงกลม */}
+      {fresh ? <DoneRipple key={`ripple-${burst}`} size={size} /> : null}
+      <Pop key={`dot-${burst}`} play={fresh}>
+        <StatusDot state={state} size={size} drawCheck={fresh} />
+      </Pop>
     </Pressable>
   );
 }

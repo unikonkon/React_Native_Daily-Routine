@@ -6,11 +6,13 @@
 // รายการที่เวลาทับกัน (≥2) → รวมเป็นกลุ่มซ้อน: พื้นแผ่นเดียว + ขอบการ์ดซ้อนด้านล่าง
 //   หัวกลุ่ม = "ซ้อนเวลา n รายการ · ทับกัน 18:30–19:30" + แถบเวลาย่อ (แท่งละรายการ · ช่วงที่ทับกันแรเงา)
 //   ในกลุ่ม: คอลัมน์ซ้ายโชว์แค่เวลาเริ่ม (ซ้ำกับแถวก่อน = เว้นว่าง) · เวลาจบย้ายไปบรรทัดรายละเอียด "ถึง 19:30"
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, View, type LayoutChangeEvent } from 'react-native';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 
 import { ContactIcons } from '@/components/b1/contact-icons';
 import { StatusCircle } from '@/components/b1/status-circle';
+import { ProgressFill, SettleIn, useEased } from '@/components/motion';
 import { SvgIcon } from '@/components/svg-icon';
 import { useCaseContacts } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
@@ -353,14 +355,17 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
                 </Txt>
               </View>
             ) : null}
-            <Txt
-              size={15}
-              weight={card ? 'bold' : 'med'}
-              numberOfLines={3}
-              color={muted ? t.muted : t.ink}
-              style={{ lineHeight: 21, textDecorationLine: st === 'done' ? 'line-through' : 'none' }}>
-              {it.title}
-            </Txt>
+            {/* ติ๊กทำแล้ว/ข้าม (หรือย้อนกลับ) → ชื่อจางแล้วค่อย ๆ กลับมาในสภาพใหม่ (ขีดฆ่า/สีจาง) */}
+            <SettleIn signal={muted ? st : 'open'}>
+              <Txt
+                size={15}
+                weight={card ? 'bold' : 'med'}
+                numberOfLines={3}
+                color={muted ? t.muted : t.ink}
+                style={{ lineHeight: 21, textDecorationLine: st === 'done' ? 'line-through' : 'none' }}>
+                {it.title}
+              </Txt>
+            </SettleIn>
             {meta ? (
               <View style={{ flexDirection: 'row', marginTop: 3 }}>
                 <View style={{ width: 2, borderRadius: 1, backgroundColor: cat.color, marginRight: 7 }} />
@@ -388,12 +393,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
             {live ? (
               // แถบความคืบหน้า = เส้น "ตอนนี้" ที่ผ่านรายการนี้อยู่ · หมุดส้มคือเวลาปัจจุบัน
               <View accessible accessibilityLabel={`ตอนนี้ ${fmtMin(now.min)} ผ่านไป ${Math.round(pct)}%`} style={{ marginTop: 10, gap: 5 }}>
-                <View style={{ height: 10, justifyContent: 'center' }}>
-                  <View style={{ height: 4, borderRadius: 2, backgroundColor: t.track, overflow: 'hidden' }}>
-                    <View style={{ width: `${pct}%`, height: 4, backgroundColor: t.accent }} />
-                  </View>
-                  <View style={{ position: 'absolute', left: `${pct}%`, marginLeft: -5, width: 10, height: 10, borderRadius: 5, backgroundColor: t.primary, borderWidth: 2, borderColor: nextCardBg ?? t.card }} />
-                </View>
+                <LiveBar pct={pct / 100} bg={nextCardBg ?? t.card} />
                 <View style={{ flexDirection: 'row' }}>
                   <Txt size={11.5} num weight="bold" color={t.accentInk} style={{ flex: 1 }}>
                     ตอนนี้ {fmtMin(now.min)}
@@ -465,6 +465,22 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
           </View>
         );
       })}
+    </View>
+  );
+}
+
+/** แถบความคืบหน้าของการ์ด "กำลังทำ" — เวลาเดินแล้วเนื้อแถบกับหมุดเลื่อนไปพร้อมกัน (ไม่กระโดด) */
+function LiveBar({ pct, bg }: { pct: number; bg: string }) {
+  const t = useTokens();
+  const [w, setW] = useState(0);
+  const p = useEased(pct);
+  const pin = useAnimatedStyle(() => ({ transform: [{ translateX: p.value * w }] }));
+  return (
+    <View onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ height: 10, justifyContent: 'center' }}>
+      <View style={{ height: 4, borderRadius: 2, backgroundColor: t.track, overflow: 'hidden' }}>
+        <ProgressFill pct={pct} color={t.accent} height={4} />
+      </View>
+      <Animated.View style={[{ position: 'absolute', left: -5, top: 0, width: 10, height: 10, borderRadius: 5, backgroundColor: t.primary, borderWidth: 2, borderColor: bg, opacity: w ? 1 : 0 }, pin]} />
     </View>
   );
 }

@@ -13,7 +13,7 @@ import { useToggleStatus } from '@/components/b1/use-toggle';
 import { WeekStrip } from '@/components/b1/week-strip';
 import { SvgIcon } from '@/components/svg-icon';
 import { SwipeDays } from '@/components/today/swipe-days';
-import { Txt, useTokens } from '@/components/ui';
+import { Txt, pressFade, useTokens } from '@/components/ui';
 import { addDays, beYear, fromISO, MONTH_TH, WD_TH_FULL, wdMon } from '@/lib/dates';
 import { daytimeFreeSlots, streakBefore, streakWithToday } from '@/lib/engine';
 import { dayProgress, overdueBetween } from '@/lib/progress';
@@ -151,7 +151,7 @@ function EmptyDay({ onAdd }: { onAdd: () => void }) {
       <Txt size={15} weight="med" color={t.sub} style={{ textAlign: 'center' }}>
         ยังไม่มีกิจกรรมในวันนี้
       </Txt>
-      <Pressable accessibilityRole="button" onPress={onAdd} style={{ height: 44, paddingHorizontal: 18, borderRadius: 22, backgroundColor: t.track, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      <Pressable accessibilityRole="button" onPress={onAdd} style={pressFade({ height: 44, paddingHorizontal: 18, borderRadius: 22, backgroundColor: t.track, flexDirection: 'row', alignItems: 'center', gap: 6 })}>
         <SvgIcon name="plus" size={16} color={t.ink} strokeWidth={2.2} />
         <Txt size={14} weight="bold">
           เพิ่มกิจกรรม

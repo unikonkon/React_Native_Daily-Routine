@@ -1,8 +1,10 @@
 // UI primitives ชุดเดียวใช้ทั้งแอป — การ์ด / ชิป / segmented / toggle / ปุ่ม / แถวตั้งค่า
-import React from 'react';
-import { Pressable, StyleSheet, Text, TextStyle, View, ViewStyle, useColorScheme } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, StyleSheet, Text, TextStyle, View, ViewStyle, useColorScheme, type PressableStateCallbackType, type StyleProp } from 'react-native';
+import Animated, { interpolateColor, useAnimatedStyle } from 'react-native-reanimated';
 
 import { Icon } from '@/components/icon';
+import { useEased } from '@/components/motion';
 import { FONT, GREEN, PRI_BY_ID, THEME_PALETTES, type Palette, type PriorityId, type ThemeName } from '@/constants/theme';
 import { useSettings } from '@/stores/settings';
 
@@ -19,6 +21,18 @@ export function useTokens(): Palette {
   const light = useSettings((s) => s.themeLight);
   const dark = useSettings((s) => s.themeDark);
   return THEME_PALETTES[mode === 'dark' ? dark : light];
+}
+
+/**
+ * สถานะตอนกดแบบนุ่มสำหรับ Pressable ที่ไม่มีพื้นของตัวเองให้เปลี่ยนสี — จางลงเล็กน้อยขณะนิ้วแตะ
+ * ใช้: style={pressFade({ ...สไตล์เดิม })} · สไตล์ที่ตั้ง opacity ไว้แล้ว (เช่น ปุ่มจาง) จางต่อจากค่านั้น
+ */
+export function pressFade(style?: StyleProp<ViewStyle>) {
+  return ({ pressed }: PressableStateCallbackType): StyleProp<ViewStyle> => {
+    if (!pressed) return style;
+    const base = StyleSheet.flatten(style)?.opacity;
+    return [style, { opacity: (typeof base === 'number' ? base : 1) * 0.6 }];
+  };
 }
 
 interface TxtProps {
@@ -114,11 +128,47 @@ interface SegmentedProps<K extends string> {
   onChange: (k: K) => void;
 }
 
+/** ระยะขอบใน / ช่องว่างระหว่างตัวเลือกของ Segmented — ใช้คำนวณตำแหน่งแผ่นขาวที่เลื่อนตามตัวเลือก */
+const SEG_PAD = 3;
+const SEG_GAP = 2;
+
 export function Segmented<K extends string>({ options, value, onChange }: SegmentedProps<K>) {
   const t = useTokens();
+  // ความกว้างราง (วัดตอน layout) → ความกว้างต่อช่อง · ยังไม่ได้วัด = วาดพื้นขาวที่ตัวเลือกตรง ๆ ไปก่อน (ไม่กะพริบเฟรมแรก)
+  const [w, setW] = useState(0);
+  const n = options.length;
+  const seg = w ? (w - SEG_PAD * 2 - SEG_GAP * (n - 1)) / n : 0;
+  const step = seg + SEG_GAP;
+  const pos = useEased(Math.max(options.findIndex((o) => o.key === value), 0), 220);
+  const thumb = useAnimatedStyle(() => ({ transform: [{ translateX: pos.value * step }] }));
   return (
-    // ระบบ B1 — รางสีเบจ มุม 14 · ตัวที่เลือก = การ์ดขาวมีเงาบาง
-    <View accessibilityRole="tablist" style={{ flexDirection: 'row', backgroundColor: t.track, borderRadius: 14, padding: 3, gap: 2 }}>
+    // ระบบ B1 — รางสีเบจ มุม 14 · ตัวที่เลือก = การ์ดขาวมีเงาบาง เลื่อนไปหาตัวเลือกใหม่
+    <View
+      accessibilityRole="tablist"
+      onLayout={(e) => setW(e.nativeEvent.layout.width)}
+      style={{ flexDirection: 'row', backgroundColor: t.track, borderRadius: 14, padding: SEG_PAD, gap: SEG_GAP }}>
+      {seg > 0 ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              left: SEG_PAD,
+              top: SEG_PAD,
+              bottom: SEG_PAD,
+              width: seg,
+              borderRadius: 11,
+              backgroundColor: t.card,
+              shadowColor: '#221C13',
+              shadowOpacity: 0.12,
+              shadowRadius: 3,
+              shadowOffset: { width: 0, height: 1 },
+              elevation: 1,
+            },
+            thumb,
+          ]}
+        />
+      ) : null}
       {options.map((o) => {
         const active = o.key === value;
         return (
@@ -127,7 +177,7 @@ export function Segmented<K extends string>({ options, value, onChange }: Segmen
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             onPress={() => onChange(o.key)}
-            style={{
+            style={({ pressed }) => ({
               flex: 1,
               flexDirection: 'row',
               alignItems: 'center',
@@ -136,13 +186,9 @@ export function Segmented<K extends string>({ options, value, onChange }: Segmen
               minHeight: 40,
               paddingHorizontal: 4,
               borderRadius: 11,
-              backgroundColor: active ? t.card : 'transparent',
-              shadowColor: '#221C13',
-              shadowOpacity: active ? 0.12 : 0,
-              shadowRadius: 3,
-              shadowOffset: { width: 0, height: 1 },
-              elevation: active ? 1 : 0,
-            }}>
+              backgroundColor: active && !seg ? t.card : 'transparent',
+              opacity: pressed && !active ? 0.6 : 1,
+            })}>
             {o.icon ? <Icon name={o.icon} size={14} color={active ? (o.iconColor ?? t.ink) : t.sub} /> : null}
             <Txt size={13} weight={active ? 'bold' : 'med'} color={active ? t.ink : t.sub}>
               {o.label}
@@ -154,9 +200,16 @@ export function Segmented<K extends string>({ options, value, onChange }: Segmen
   );
 }
 
+/** ระยะที่หัวสวิตช์เลื่อน = กว้างราง 46 − ขอบใน 3×2 − หัว 22 */
+const TOGGLE_TRAVEL = 18;
+
 export function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label?: string }) {
   const t = useTokens();
-  // ระบบ B1 — สวิตช์เขียวเมื่อเปิด · พื้นที่แตะ 52×44
+  // ระบบ B1 — สวิตช์เขียวเมื่อเปิด · พื้นที่แตะ 52×44 · หัวสวิตช์เลื่อน + สีรางไล่ตาม
+  const p = useEased(value ? 1 : 0, 200);
+  const off = t.railDash;
+  const track = useAnimatedStyle(() => ({ backgroundColor: interpolateColor(p.value, [0, 1], [off, GREEN]) }));
+  const thumb = useAnimatedStyle(() => ({ transform: [{ translateX: p.value * TOGGLE_TRAVEL }] }));
   return (
     <Pressable
       accessibilityRole="switch"
@@ -164,18 +217,14 @@ export function Toggle({ value, onChange, label }: { value: boolean; onChange: (
       accessibilityLabel={label}
       onPress={() => onChange(!value)}
       style={{ width: 52, height: 44, marginRight: -4, alignItems: 'center', justifyContent: 'center' }}>
-      <View
-        style={{
-          width: 46,
-          height: 28,
-          borderRadius: 14,
-          padding: 3,
-          backgroundColor: value ? GREEN : t.railDash,
-          alignItems: value ? 'flex-end' : 'flex-start',
-          justifyContent: 'center',
-        }}>
-        <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#FFFFFF', shadowColor: '#221C13', shadowOpacity: 0.25, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 1 }} />
-      </View>
+      <Animated.View style={[{ width: 46, height: 28, borderRadius: 14, padding: 3, justifyContent: 'center' }, track]}>
+        <Animated.View
+          style={[
+            { width: 22, height: 22, borderRadius: 11, backgroundColor: '#FFFFFF', shadowColor: '#221C13', shadowOpacity: 0.25, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+            thumb,
+          ]}
+        />
+      </Animated.View>
     </Pressable>
   );
 }

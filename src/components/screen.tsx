@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BOTTOM_BAR_SPACE, SubBar, type SubBarAction } from '@/components/b1/bottom-bar';
 import { SvgIcon } from '@/components/svg-icon';
 import { Icon } from '@/components/icon';
-import { Txt, useTokens } from '@/components/ui';
+import { Txt, pressFade, useTokens } from '@/components/ui';
 import { GREEN } from '@/constants/theme';
 import { useUI } from '@/stores/ui';
 
@@ -82,14 +82,14 @@ function DayliyUseToggle() {
       accessibilityLabel="แสดงเวลาว่าง"
       accessibilityState={{ selected: freeMode }}
       onPress={toggleFreeMode}
-      style={{
+      style={pressFade({
         width: 40,
         height: 40,
         borderRadius: 20,
         backgroundColor: freeMode ? GREEN : 'transparent',
         alignItems: 'center',
         justifyContent: 'center',
-      }}>
+      })}>
       {freeMode ? <Icon name="clockPlus" size={20} color="#FFFFFF" /> : <SvgIcon name="clock" size={20} color={t.sub} strokeWidth={1.8} />}
     </Pressable>
   );

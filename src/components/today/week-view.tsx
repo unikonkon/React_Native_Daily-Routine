@@ -7,7 +7,7 @@ import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindow
 import { useNow } from '@/components/b1/use-now';
 import { Icon } from '@/components/icon';
 import { useCaseNames } from '@/components/today/parts';
-import { Txt, useTokens } from '@/components/ui';
+import { Txt, pressFade, useTokens } from '@/components/ui';
 import { ATTN, CAT_BY_ID, CATS, DAY_END, DAY_START, GREEN, type CatId } from '@/constants/theme';
 import { addDays, fmtMin, fromISO, mondayOf, todayISO, WD_TH } from '@/lib/dates';
 import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
@@ -145,7 +145,7 @@ export function TodayWeekView({
                       <Pressable
                         key={itemKey(it)}
                         onPress={() => onPressItem(it)}
-                        style={{
+                        style={pressFade({
                           position: 'absolute',
                           top: `${top}%`,
                           height: `${h}%`,
@@ -162,7 +162,7 @@ export function TodayWeekView({
                           justifyContent: 'center',
                           overflow: 'hidden',
                           paddingHorizontal: 1,
-                        }}>
+                        })}>
                         {showIcon ? <Icon name={cat.icon} size={11} color={skipped ? t.sub : '#FFFFFF'} /> : null}
                         {done ? (
                           <View style={{ position: 'absolute', top: 1, right: 1, width: 12, height: 12, borderRadius: 6, backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center' }}>
@@ -187,7 +187,7 @@ export function TodayWeekView({
                           <Pressable
                             key={`slot:${s.start}`}
                             onPress={() => onPressSlot?.(d, s.start, s.end)}
-                            style={{
+                            style={pressFade({
                               position: 'absolute',
                               top: `${top}%`,
                               height: `${sh}%`,
@@ -201,7 +201,7 @@ export function TodayWeekView({
                               alignItems: 'center',
                               justifyContent: 'center',
                               overflow: 'hidden',
-                            }}>
+                            })}>
                             {s.end - s.start >= 60 ? <Icon name="plus" size={11} color={GREEN} /> : null}
                           </Pressable>
                         );
@@ -238,7 +238,7 @@ export function TodayWeekView({
                 key={cat.id}
                 onPress={() => toggleNameCat(cat.id)}
                 hitSlop={4}
-                style={{
+                style={pressFade({
                   flexDirection: 'row',
                   alignItems: 'center',
                   gap: 4,
@@ -246,7 +246,7 @@ export function TodayWeekView({
                   paddingHorizontal: on ? 7 : 0,
                   borderRadius: 99,
                   backgroundColor: on ? cat.color + '26' : 'transparent',
-                }}>
+                })}>
                 <Icon name={cat.icon} size={12} color={cat.color} />
                 <Txt size={11} weight={on ? 'bold' : 'reg'} color={on ? cat.color : t.sub}>
                   {cat.short}
@@ -255,7 +255,7 @@ export function TodayWeekView({
             );
           })}
           {nameCats.size ? (
-            <Pressable onPress={() => setNameCats(new Set())} hitSlop={4} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+            <Pressable onPress={() => setNameCats(new Set())} hitSlop={4} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 3 })}>
               <Icon name="x" size={11} color={t.accent} />
               <Txt size={11} weight="med" color={t.accent}>
                 ซ่อนชื่อ
@@ -386,7 +386,7 @@ function WeekHeaderStrip({
                 const p = dayProgress(getDay(d), nowR);
                 const past = d <= nowR.date;
                 return (
-                  <Pressable key={d} onPress={() => onPressDay(d)} style={{ flex: 1, alignItems: 'center', gap: 2 }}>
+                  <Pressable key={d} onPress={() => onPressDay(d)} style={pressFade({ flex: 1, alignItems: 'center', gap: 2 })}>
                     <Txt size={10.5} weight="med" color={i === 6 ? t.accent : t.faint}>
                       {WD_TH[i]}
                     </Txt>

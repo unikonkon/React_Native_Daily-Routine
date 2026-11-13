@@ -6,7 +6,7 @@ import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { CAT_BY_ID, GREEN } from '@/constants/theme';
-import { Txt, useTokens } from '@/components/ui';
+import { Txt, pressFade, useTokens } from '@/components/ui';
 import { WD_TH, addDays, mondayOf, toISO, todayISO } from '@/lib/dates';
 import { freeMinutes, freeSlots } from '@/lib/engine';
 import { useDayReader } from '@/stores/activities';
@@ -74,7 +74,7 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
                 key={d}
                 disabled={disabled}
                 onPress={() => onPressDay(d)}
-                style={{
+                style={pressFade({
                   flex: 1,
                   aspectRatio: ios ? 0.78 : 0.9,
                   margin: ios ? 0 : 2,
@@ -84,7 +84,7 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
                   justifyContent: ios ? 'flex-start' : 'center',
                   backgroundColor: inMonth ? bg : 'transparent',
                   opacity: !inMonth ? 0 : mode === 'select' && past ? 0.3 : 1,
-                }}>
+                })}>
                 <View
                   style={{
                     width: 26,

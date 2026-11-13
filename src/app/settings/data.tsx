@@ -9,7 +9,7 @@ import { ActivityIndicator, Pressable, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
-import { Btn, Card, Chip, Row, Txt, useTokens } from '@/components/ui';
+import { Btn, Card, Chip, Row, Txt, pressFade, useTokens } from '@/components/ui';
 import { DANGER, GREEN } from '@/constants/theme';
 import { MONTH_TH, beYear, nowMin, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
@@ -635,7 +635,7 @@ function Seg<K extends string>({
       {options.map(([k, lb]) => {
         const on = value === k;
         return (
-          <Pressable key={k} onPress={() => onChange(k)} style={{ flex: 1 }}>
+          <Pressable key={k} onPress={() => onChange(k)} style={pressFade({ flex: 1 })}>
             <View
               style={{
                 paddingVertical: 8,
@@ -686,7 +686,7 @@ function ScopeDetail({
         {months.map((mo) => {
           const on = picked.includes(mo);
           return (
-            <Pressable key={mo} onPress={() => onToggle(mo)}>
+            <Pressable style={pressFade()} key={mo} onPress={() => onToggle(mo)}>
               <View
                 style={{
                   flexDirection: 'row',
@@ -730,7 +730,7 @@ function TonePicks({
         {EXPORT_TONES.map((p) => {
           const on = value === p.id;
           return (
-            <Pressable key={p.id} onPress={() => onChange(p.id)} style={{ flex: 1 }}>
+            <Pressable key={p.id} onPress={() => onChange(p.id)} style={pressFade({ flex: 1 })}>
               <View
                 style={{
                   gap: 6,
@@ -776,7 +776,7 @@ function ttMonthLabel(anchor: string): string {
 function CheckRow({ label, sub, on, disabled, onPress }: { label: string; sub: string; on: boolean; disabled?: boolean; onPress: () => void }) {
   const t = useTokens();
   return (
-    <Pressable onPress={disabled ? undefined : onPress} style={{ opacity: disabled ? 0.4 : 1 }}>
+    <Pressable disabled={disabled} onPress={onPress} style={pressFade({ opacity: disabled ? 0.4 : 1 })}>
       <View
         style={{
           flexDirection: 'row',
@@ -835,7 +835,7 @@ function UrlItem({ url, actionLabel, onAction, onRemove }: { url: string; action
       <Pressable
         onPress={onRemove}
         hitSlop={6}
-        style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: t.chip }}>
+        style={pressFade({ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: t.chip })}>
         <Icon name="trash" size={14} color={DANGER} />
       </Pressable>
     </View>
