@@ -8,7 +8,7 @@ import { daysBetween, todayISO } from '@/lib/dates';
 import { computeDates, seriesDates, suggestStart } from '@/lib/engine';
 import { nowRef } from '@/lib/progress';
 import { HORIZON_DAYS, type Activity, type Channel, type EditScope, type Horizon, type InlineContact, type RepeatRule } from '@/lib/types';
-import { getDay } from '@/stores/activities';
+import { getDay, useActivities } from '@/stores/activities';
 
 /** ความยาวตั้งต้นของกิจกรรมใหม่ */
 const DEFAULT_DUR = 60;
@@ -60,6 +60,15 @@ interface DraftState {
   dates: string[];
   notify: boolean;
   before: number;
+  /**
+   * โน้ตของครั้งนั้น (ขั้น ① · ไม่บังคับ) — บันทึกพร้อมกิจกรรมตอนกด "บันทึก"
+   * เพิ่ม: ลงวันแรก หรือทุกวันที่เลือก (noteAll) · แก้ไข: โน้ตของวันที่เปิดมาแก้ (editDate) = ตัวเดียวกับในแผ่นรายละเอียด
+   */
+  note: string;
+  /** โน้ตเดิมตอนเปิดแก้ไข — เทียบว่าเพิ่ม/แก้/ลบโน้ต */
+  noteOrig: string;
+  /** เพิ่มหลายวัน: ใส่โน้ตทุกวันที่เลือก (false = เฉพาะวันแรก) */
+  noteAll: boolean;
   /** วัน/เวลาถูกเลือกมาแล้ว (แตะช่วงว่างในหน้าวันนี้) — เปิดแท็บเพิ่มแล้วไม่ตั้งเวลาตั้งต้นทับ */
   pinned: boolean;
   /** นับครั้งที่ "โหลด draft ชุดใหม่" (reset / loadActivity / loadSlot) — ฟอร์มใช้ซิงก์ state ภายในของตัวเอง */
@@ -100,6 +109,9 @@ const initial = {
   horizon: '1m' as Horizon,
   notify: false, // ค่าเริ่มต้น: ปิดแจ้งเตือน — เปิดเองเมื่อกิจกรรมนั้นต้องการจริง ๆ
   before: 30,
+  note: '',
+  noteOrig: '',
+  noteAll: false,
   pinned: false,
 };
 
@@ -156,6 +168,7 @@ export const useDraft = create<DraftState>((set, get) => ({
     const horizon = (Object.keys(HORIZON_DAYS) as Horizon[]).find((h) => HORIZON_DAYS[h] === span);
     const keepEnd = computed && !horizon ? { endDate: a.endDate } : null;
     const repeating = a.repeat !== 'none';
+    const note = useActivities.getState().notes[date ?? a.startDate]?.[a.id] ?? '';
     set((s) => ({
       ...initial,
       loadRev: s.loadRev + 1,
@@ -181,6 +194,8 @@ export const useDraft = create<DraftState>((set, get) => ({
       dates: computed ? computeDates(a.repeat, horizon ?? initial.horizon, a.startDate, keepEnd ? keepEnd.endDate : undefined) : seriesDates(a),
       notify: a.notify,
       before: a.notifyBefore,
+      note,
+      noteOrig: note,
     }));
   },
 

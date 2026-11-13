@@ -2,6 +2,7 @@
 // ① หมวด+รายละเอียด → ② วันที่+ทำซ้ำ → ③ เวลา (เตือนชน + เสนอช่วงว่างที่ใกล้ที่สุด) → ④ แจ้งเตือน
 // แก้ไข: แถบ "กำลังแก้ไข" + ป้าย "เปลี่ยนแล้ว" ต่อขั้น + การ์ดขอบเขตชุดทำซ้ำ (มีผล n ครั้ง)
 // แถบล่าง: ‹ กลับ (เพิ่ม = เก็บร่างไว้ · แก้ไข = ทิ้งการแก้ไข) + บันทึก / บันทึกการแก้ไข
+// โน้ตของครั้งนั้น (ขั้น ① · ไม่บังคับ): บันทึกพร้อมกิจกรรม — ชุดเดียวกับโน้ตในแผ่นรายละเอียด (ตั้งค่าที่ ตั้งค่า › จัดการโน้ต)
 import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -12,12 +13,14 @@ import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
 import { MonthYearPicker } from '@/components/month-year-picker';
 import { Screen } from '@/components/screen';
+import { SnippetChips } from '@/components/snippet-chips';
 import { SvgIcon } from '@/components/svg-icon';
 import { TimeDragBar, TimeDragRail } from '@/components/time-drag';
 import { Btn, Card, Chip, ChipRow, PriBadge, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
 import { CATS, CAT_BY_ID, CAT_OPTIONS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, durText, fmtMin, fromISO, hoursText, thaiDate, todayISO, wdMon } from '@/lib/dates';
 import { FREE_WINDOW_END, conflictsOn, freeSlots, maskFromDates, seriesDates } from '@/lib/engine';
+import { appendNote, stripTemplate } from '@/lib/notes';
 import { HORIZON_DAYS, type Activity, type Contact, type Horizon, type InlineContact, type RepeatRule } from '@/lib/types';
 import { getDay, useActivities, useDayReader } from '@/stores/activities';
 import { contactChannels, isEmail, useContacts } from '@/stores/contacts';
@@ -90,10 +93,15 @@ function dateRange(a: string, b: string): string {
 }
 
 /** ค่าที่โหลดมาตอนเปิดฟอร์ม — เทียบหา "เปลี่ยนแล้ว" ในโหมดแก้ไข */
+/** โน้ตในร่างหลังตัดบรรทัดแม่แบบที่ไม่ได้กรอก (ข้อความที่จะบันทึกจริง) */
+function draftNote(d: Pick<Draft, 'note' | 'cat'>): string {
+  return stripTemplate(d.note, d.cat ? useSettings.getState().noteCfg[d.cat].template : '');
+}
+
 function snapOf(d: Draft) {
   return {
     // นัดเคส: เทียบเฉพาะข้อมูลของโหมดที่เลือก (อีกโหมดไม่ถูกบันทึก)
-    s1: JSON.stringify([d.cat, d.title.trim(), d.sub, d.loc, d.channel, d.contactMode === 'inline' ? ['inline', cleanInline(d.inline)] : ['people', d.priority, d.contactIds]]),
+    s1: JSON.stringify([d.cat, d.title.trim(), d.sub, d.loc, d.channel, d.contactMode === 'inline' ? ['inline', cleanInline(d.inline)] : ['people', d.priority, d.contactIds], draftNote(d)]),
     s2: JSON.stringify([d.repeat, d.dates.length, d.dates[0], d.dates[d.dates.length - 1]]),
     start: d.start,
     end: d.end,
@@ -197,6 +205,11 @@ export default function AddScreen() {
         ? cleanInline(d.inline) ? d.inline.name.trim() || 'ช่องทางติดต่อ' : ''
         : d.contactIds.map((id) => contacts.find((c) => c.id === id)?.name).filter(Boolean).join(', ');
   const s1Text = [d.title.trim(), who, d.sub, d.loc].filter(Boolean).join(' · ');
+  // แถวโน้ตในสรุปขั้น ① — แก้ไขแล้วล้างโน้ตเดิม = แจ้งว่าจะลบตอนบันทึก
+  const noteOn = useSettings((s) => s.noteDisplay.form);
+  const noteNow = noteOn ? draftNote(d) : '';
+  const noteGone = noteOn && !!d.editId && !!d.noteOrig && !noteNow;
+  const noteLine = noteGone ? 'จะลบโน้ตของวันนี้เมื่อบันทึก' : noteNow ? `โน้ต: ${noteNow.replace(/\s*\n\s*/g, ' · ')}` : '';
   const last = d.dates[d.dates.length - 1];
   const s2Text =
     d.repeat === 'none'
@@ -237,6 +250,14 @@ export default function AddScreen() {
                   ยังไม่ได้เลือกหมวด
                 </Txt>
               )}
+              {noteLine ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <SvgIcon name="note" size={12} color={noteGone ? t.warn : t.sub} />
+                  <Txt size={12.5} color={noteGone ? t.warn : t.sub} numberOfLines={1} style={{ flex: 1 }}>
+                    {noteLine}
+                  </Txt>
+                </View>
+              ) : null}
             </StepSummary>
           )}
         </View>
@@ -605,7 +626,7 @@ function useSave(editing: Activity | undefined, askScope: boolean, openStep1: ()
   const d = useDraft();
   const router = useRouter();
   const showToast = useUI((s) => s.showToast);
-  const { add, editActivity } = useActivities();
+  const { add, editActivity, setNote, setNotes } = useActivities();
   return async () => {
     if (!d.cat || !d.title.trim()) {
       openStep1();
@@ -658,16 +679,32 @@ function useSave(editing: Activity | undefined, askScope: boolean, openStep1: ()
     // วันที่ให้แท็บวันนี้เปิดโชว์หลังบันทึก — แก้เฉพาะ/ตั้งแต่ครั้งนี้ = วันที่เปิดมาแก้
     let focusDate = startDate;
     try {
+      // โน้ตของครั้งนั้น — ช่องโน้ตในฟอร์มปิดอยู่ (ตั้งค่า › จัดการโน้ต) = คงโน้ตเดิมไว้ตามเดิม
+      const noteOn = useSettings.getState().noteDisplay.form;
+      const note = noteOn ? draftNote(d) : d.noteOrig;
       if (d.editId) {
         if (!editing) return showToast('ไม่พบกิจกรรมนี้แล้ว');
         // แก้ไขกิจกรรมที่นำเข้ามา: รักษาสีเดิมที่จำจากไฟล์ไว้
         const scope = askScope ? d.scope : 'all';
-        await editActivity(editing, { ...fields, detachedFrom: editing.detachedFrom, color: editing.color }, scope, d.editDate);
+        const targetId = await editActivity(editing, { ...fields, detachedFrom: editing.detachedFrom, color: editing.color }, scope, d.editDate);
         if (scope !== 'all' && d.editDate) focusDate = d.editDate;
-        showToast(scope === 'one' ? 'บันทึกเฉพาะครั้งนี้แล้ว ✓' : scope === 'future' ? 'บันทึกตั้งแต่ครั้งนี้เป็นต้นไปแล้ว ✓' : 'บันทึกการแก้ไขแล้ว ✓');
+        // โน้ตของวันที่เปิดมาแก้ — กิจกรรมครั้งเดียวที่ย้ายวัน: ย้ายโน้ตตามไปวันใหม่ (เดิมค้างอยู่วันเก่าแล้วหายจากจอ)
+        const fromDate = d.editDate ?? editing.startDate;
+        const toDate = editing.repeat === 'none' && scope === 'all' ? startDate : fromDate;
+        if (targetId !== null) {
+          if (toDate !== fromDate) {
+            if (d.noteOrig) setNote({ id: editing.id, date: fromDate }, null);
+            if (note) setNote({ id: targetId, date: toDate }, note);
+          } else if (note !== d.noteOrig) setNote({ id: targetId, date: toDate }, note || null);
+        }
+        const noteMsg = !noteOn || note === d.noteOrig ? '' : !note ? ' · ลบโน้ตแล้ว' : d.noteOrig ? ' · แก้โน้ตแล้ว' : ' · เพิ่มโน้ตแล้ว';
+        showToast((scope === 'one' ? 'บันทึกเฉพาะครั้งนี้แล้ว ✓' : scope === 'future' ? 'บันทึกตั้งแต่ครั้งนี้เป็นต้นไปแล้ว ✓' : 'บันทึกการแก้ไขแล้ว ✓') + noteMsg);
       } else {
-        await add(fields);
-        showToast(`เพิ่มแล้ว ${d.dates.length} วัน ✓`);
+        const full = await add(fields);
+        // เพิ่มหลายวัน: โน้ตลงวันแรก หรือทุกวันที่เลือก (ตามที่เลือกใต้ช่องโน้ต)
+        const noteDates = note ? (d.noteAll ? d.dates : [startDate]) : [];
+        setNotes(noteDates.map((date) => ({ id: full.id, date })), note);
+        showToast(`เพิ่มแล้ว ${d.dates.length} วัน ✓${noteDates.length ? ` · โน้ต ${noteDates.length === 1 ? '1 วัน' : `${noteDates.length} วัน`}` : ''}`);
       }
     } catch (e) {
       // เขียนลงเครื่องไม่สำเร็จ — คงฟอร์มไว้ให้กดบันทึกใหม่ได้ ไม่ล้างทิ้ง
@@ -900,10 +937,150 @@ function DetailsBody() {
             </ChipRow>
           </>
         ) : null}
+
+        {d.cat ? <FormNote cat={d.cat} /> : null}
       </Card>
     </>
   );
 }
+
+/**
+ * โน้ตของครั้งนั้น ในขั้น ① (ไม่บังคับ · เปิด/ปิดและจำนวนชิปตั้งที่ ตั้งค่า › จัดการโน้ต › ฟอร์มเพิ่ม/แก้ไข)
+ * เป็นร่างจนกด "บันทึก" ของฟอร์ม — แก้ไข: โน้ตของวันที่เปิดมาแก้ ตัวเดียวกับในแผ่นรายละเอียด (ไม่ลงทั้งชุด)
+ * แม่แบบ/ข้อความตัวอย่างตามหมวด · ชิปโน้ตสำเร็จรูป (ปักหมุดก่อน) · ✕ ล้าง · เพิ่มหลายวันเลือกได้ว่าลงวันแรกหรือทุกวัน
+ */
+function FormNote({ cat }: { cat: CatId }) {
+  const t = useTokens();
+  const d = useDraft();
+  const router = useRouter();
+  const display = useSettings((s) => s.noteDisplay);
+  const cfg = useSettings((s) => s.noteCfg[cat]);
+  /** แม่แบบเติมให้ครั้งเดียวต่อการเปิดขั้น — ล้างแล้วไม่เด้งกลับ */
+  const [tplArmed, setTplArmed] = useState(!d.note);
+  if (!display.form) return null;
+
+  const clean = stripTemplate(d.note, cfg.template);
+  const orig = d.noteOrig;
+  /** สถานะเทียบโน้ตเดิม (แก้ไข) — เพิ่มใหม่ไม่มีโน้ตเดิมให้เทียบ */
+  const state: 'add' | 'edit' | 'delete' | 'same' | null = !d.editId
+    ? clean
+      ? 'add'
+      : null
+    : clean === orig
+      ? orig
+        ? 'same'
+        : null
+      : !clean
+        ? 'delete'
+        : orig
+          ? 'edit'
+          : 'add';
+  const many = !d.editId && d.dates.length > 1;
+  const fill = () => {
+    if (!tplArmed) return;
+    setTplArmed(false);
+    if (!d.note.trim() && cfg.template.trim()) d.set({ note: cfg.template });
+  };
+  const insert = (text: string) => {
+    setTplArmed(false);
+    d.set({ note: appendNote(d.note, cfg.template, text) });
+  };
+  const tone = state === 'delete' ? t.warn : state === 'add' || state === 'edit' ? t.accentInk : t.greenInk;
+  const msg =
+    state === 'delete'
+      ? 'จะลบโน้ตเดิมของวันนี้เมื่อกดบันทึก'
+      : state === 'edit'
+        ? 'แก้โน้ตแล้ว — บันทึกพร้อมการแก้ไขกิจกรรม'
+        : state === 'add'
+          ? d.editId
+            ? 'โน้ตใหม่ของวันนี้ — บันทึกพร้อมการแก้ไขกิจกรรม'
+            : 'บันทึกพร้อมกิจกรรม'
+          : state === 'same'
+            ? '✓ โน้ตเดิมของวันนี้'
+            : '';
+
+  return (
+    <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: t.line, paddingTop: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <SvgIcon name="note" size={14} color={t.sub} />
+        <Txt size={13} weight="med" color={t.sub} style={{ flex: 1 }}>
+          {d.editId && d.editDate ? `โน้ตของวัน ${shortDate(d.editDate)}` : 'โน้ต'} <Txt size={12} color={t.faint}>(ไม่บังคับ)</Txt>
+        </Txt>
+      </View>
+      <SnippetChips cat={cat} limit={display.formChips} onPick={insert} onManage={() => router.push('/settings/notes')} />
+      <View>
+        <TextInput
+          value={d.note}
+          onChangeText={(note) => d.set({ note })}
+          onFocus={fill}
+          placeholder={cfg.hint || 'เช่น สรุปสั้น ๆ ของครั้งนี้'}
+          placeholderTextColor={t.faint}
+          multiline
+          accessibilityLabel="โน้ตของครั้งนี้"
+          style={{
+            minHeight: 64,
+            maxHeight: 140,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: state === 'delete' ? t.warn : state === 'add' || state === 'edit' ? '#D2603A' : t.line,
+            backgroundColor: t.card2,
+            paddingLeft: 12,
+            paddingRight: 40,
+            paddingTop: 10,
+            paddingBottom: 10,
+            fontFamily: FONT.ui,
+            fontSize: 14,
+            color: t.ink,
+            textAlignVertical: 'top',
+          }}
+        />
+        {d.note ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="ล้างข้อความในช่องโน้ต"
+            onPress={() => {
+              setTplArmed(false);
+              d.set({ note: '' });
+            }}
+            hitSlop={8}
+            style={({ pressed }) => ({ position: 'absolute', top: 8, right: 8, width: 26, height: 26, borderRadius: 13, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
+            <SvgIcon name="x" size={12} color={t.sub} strokeWidth={2.6} />
+          </Pressable>
+        ) : null}
+      </View>
+      {msg || state === 'same' ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 28 }}>
+          <Txt size={11.5} weight={state === 'same' ? 'reg' : 'bold'} color={tone} style={{ flex: 1 }} numberOfLines={2}>
+            {msg}
+          </Txt>
+          {/* แก้ไข: คืนโน้ตเดิม / ลบโน้ตเดิม (มีผลตอนกดบันทึก) */}
+          {d.editId && (state === 'edit' || state === 'delete' || (state === 'add' && orig)) ? (
+            <Chip small label={state === 'delete' ? 'ไม่ลบ' : 'คืนโน้ตเดิม'} onPress={() => d.set({ note: orig })} />
+          ) : null}
+          {state === 'same' ? <Chip small icon="trash" label="ลบโน้ต" onPress={() => d.set({ note: '' })} /> : null}
+        </View>
+      ) : null}
+      {/* เพิ่มหลายวัน: ลงวันแรก หรือทุกวันที่เลือก */}
+      {many && clean ? (
+        <View style={{ gap: 6 }}>
+          <Txt size={12} color={t.sub}>ใส่โน้ตนี้ใน</Txt>
+          <ChipRow style={{ gap: 6 }}>
+            <Chip small label={`เฉพาะวันแรก · ${shortDate(d.dates[0])}`} active={!d.noteAll} onPress={() => d.set({ noteAll: false })} />
+            <Chip small label={`ทุกวันที่เลือก · ${d.dates.length} วัน`} active={d.noteAll} onPress={() => d.set({ noteAll: true })} />
+          </ChipRow>
+        </View>
+      ) : null}
+      {d.editId && editingSeries(d) ? (
+        <Txt size={11.5} color={t.faint}>
+          โน้ตเป็นของครั้งนี้ครั้งเดียว ไม่ลงทั้งชุด — ครั้งอื่นจดได้ที่แผ่นรายละเอียดของวันนั้น
+        </Txt>
+      ) : null}
+    </View>
+  );
+}
+
+/** กำลังแก้ชุดทำซ้ำ (ไม่ใช่ครั้งเดียว) */
+const editingSeries = (d: Draft) => d.repeat !== 'none' || d.dates.length > 1;
 
 /**
  * ฟอร์มช่องทางติดต่อของนัด (โหมด "ช่องทางติดต่อ") — ช่องเหมือนสมุดรายชื่อ แต่ไม่มีระดับความสำคัญ

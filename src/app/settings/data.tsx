@@ -40,6 +40,9 @@ export default function DataScreen() {
   const removeSheetsUrl = useSettings((s) => s.removeSheetsUrl);
   /** ตัวเลือกย่อยต่อหมวดที่ตั้งไว้ — ส่งเข้ารายงานเพื่อให้เห็นตัวที่ตั้งไว้แต่ยังไม่ได้ใช้ด้วย */
   const catOptions = useSettings((s) => s.catOptions);
+  /** โน้ตในรายงาน/ไฟล์/ชีต — ปิดได้ที่ ตั้งค่า › จัดการโน้ต (null = ไม่มีคอลัมน์/ตารางโน้ต) */
+  const noteReport = useSettings((s) => s.noteDisplay.report);
+  const reportNotes = () => (noteReport ? useActivities.getState().notes : null);
   const [sending, setSending] = useState(false);
   /** กำลังนำเข้า/กู้คืน — ข้อมูลเยอะใช้เวลาหลายวินาที: บอกผู้ใช้ และกันกดซ้ำ */
   const [busy, setBusy] = useState<string | null>(null);
@@ -140,7 +143,7 @@ export default function DataScreen() {
     setTtOpen(false);
     try {
       const report = withReport
-        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions, useActivities.getState().notes)
+        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions, reportNotes())
         : null;
       const pal = EXPORT_PALETTES[ttTone];
       const ttAnchors = reportOnly ? [] : anchors;
@@ -207,14 +210,14 @@ export default function DataScreen() {
     setSending(true);
     try {
       const report = shReport
-        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions, useActivities.getState().notes)
+        ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions, reportNotes())
         : null;
       const tabs = buildSheetTabs(getDay, anchors, {
         style: shStyle,
         pal: EXPORT_PALETTES[shTone],
         grid: shGrid,
         report,
-        notes: useActivities.getState().notes,
+        notes: reportNotes(),
       });
       if (!tabs.length) {
         showToast('ไม่มีข้อมูลให้ส่ง');
@@ -340,7 +343,7 @@ export default function DataScreen() {
             <Txt size={11} color={t.faint}>เนื้อหาในไฟล์</Txt>
             <CheckRow
               label="รายงานสรุปจากที่บันทึกไว้"
-              sub="ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · สรุปหมวดหมู่ (หมวดที่ใช้มากสุด + ทุกหมวดพร้อมสถานะ/สัดส่วน) · รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด (ครั้ง/เสร็จ/ชั่วโมง/ช่วงวัน) · นัดเคส · รายการนัด · โน้ตรายครั้งทุกหมวด"
+              sub={`ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · สรุปหมวดหมู่ (หมวดที่ใช้มากสุด + ทุกหมวดพร้อมสถานะ/สัดส่วน) · รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด (ครั้ง/เสร็จ/ชั่วโมง/ช่วงวัน) · นัดเคส · รายการนัด${noteReport ? ' · โน้ตรายครั้งทุกหมวด' : ''}`}
               on={withReport}
               onPress={() => {
                 const next = !withReport;
@@ -367,7 +370,7 @@ export default function DataScreen() {
             />
             <Txt size={11} color={t.faint}>
               {ttFormat === 'xlsx'
-                ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้ (เฉพาะตาราง — โน้ตไม่ถูกนำเข้า)${withReport ? ' · รายงานอยู่ในชีตแยกหน้าสุด (รายงานสรุป · สรุปเคส & รายชื่อ · โน้ตรายครั้ง)' : ''}`
+                ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้ (เฉพาะตาราง — โน้ตไม่ถูกนำเข้า)${withReport ? ` · รายงานอยู่ในชีตแยกหน้าสุด (รายงานสรุป · สรุปเคส & รายชื่อ${noteReport ? ' · โน้ตรายครั้ง' : ''})` : ''}`
                 : ttFormat === 'xls'
                   ? 'มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ — เปิดดูใน Excel/Sheets ได้ แต่นำกลับเข้าแอปไม่ได้'
                   : `CSV: ข้อความล้วน นำกลับเข้าแอปนี้ได้${withReport ? ' (บล็อกรายงานถูกข้ามตอนนำเข้า)' : ''}`}
@@ -498,7 +501,7 @@ export default function DataScreen() {
                   <Txt size={11} color={t.faint}>เนื้อหาในชีต</Txt>
                   <CheckRow
                     label="รายงานสรุปจากที่บันทึกไว้"
-                    sub="แท็บหน้าสุด: “รายงานสรุป” (ภาพรวม/แนวโน้ม/สรุปหมวดหมู่ + รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด) · “สรุปเคส & รายชื่อ” (รวมรายการนัด) · “โน้ตรายครั้ง” (โน้ตทุกหมวด)"
+                    sub={`แท็บหน้าสุด: “รายงานสรุป” (ภาพรวม/แนวโน้ม/สรุปหมวดหมู่ + รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด) · “สรุปเคส & รายชื่อ” (รวมรายการนัด)${noteReport ? ' · “โน้ตรายครั้ง” (โน้ตทุกหมวด)' : ''}`}
                     on={shReport}
                     onPress={() => {
                       const next = !shReport;
@@ -508,7 +511,7 @@ export default function DataScreen() {
                   />
                   <CheckRow
                     label="ตาราง Time Table + รายการกิจกรรม"
-                    sub="แท็บ grid ช่องเวลา 30 นาที ต่อเดือน + แท็บรายการกิจกรรมแบบแถว (มีคอลัมน์โน้ต)"
+                    sub={`แท็บ grid ช่องเวลา 30 นาที ต่อเดือน + แท็บรายการกิจกรรมแบบแถว${noteReport ? ' (มีคอลัมน์โน้ต)' : ''}`}
                     on={shGrid}
                     disabled={!shReport}
                     onPress={() => setShGrid(!shGrid)}

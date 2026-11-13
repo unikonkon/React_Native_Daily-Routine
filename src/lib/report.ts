@@ -132,8 +132,8 @@ export interface ReportData {
   unnamed: number;
   items: DayItem[];
   nameById: Record<number, string>;
-  /** โน้ตรายครั้ง — คอลัมน์ "โน้ต" ในตารางรายการนัดเคส */
-  notes: NoteMap;
+  /** โน้ตรายครั้ง — คอลัมน์ "โน้ต" ในตารางรายการนัดเคส · null = ปิดโน้ตในรายงาน (ตั้งค่า › จัดการโน้ต) ไม่มีคอลัมน์/ตาราง/แถวโน้ตเลย */
+  notes: NoteMap | null;
   /** โน้ตทุกหมวดในช่วง [from, to] — ตาราง "โน้ตรายครั้ง" */
   noteItems: ReportNote[];
 }
@@ -167,8 +167,8 @@ export function buildReport(
   now: number,
   /** ตัวเลือกย่อยต่อหมวดที่ผู้ใช้ตั้งไว้ (settings store) — ไม่ส่งมาก็ใช้ค่าเริ่มต้นของแอป */
   catOptions?: Partial<Record<CatId, string[]>>,
-  /** โน้ตรายครั้ง (store) — ไม่ส่งมา = ไม่มีคอลัมน์โน้ตให้กรอก */
-  notes: NoteMap = {},
+  /** โน้ตรายครั้ง (store) · null = ปิดโน้ตในรายงาน (ไม่มีคอลัมน์/ตาราง/แถวโน้ต) */
+  notes: NoteMap | null = {},
 ): ReportData {
   const first = fromISO(anchors[0]);
   const lastA = fromISO(anchors[anchors.length - 1]);
@@ -344,7 +344,8 @@ export function buildReport(
 
   // ---------- โน้ตรายครั้งทุกหมวด (เฉพาะวันที่มีโน้ต — ไม่ต้องไล่ทุกวันในช่วง) ----------
   const noteItems: ReportNote[] = [];
-  for (const date of Object.keys(notes).filter((x) => x >= from && x <= to).sort()) {
+  for (const date of Object.keys(notes ?? {}).filter((x) => x >= from && x <= to).sort()) {
+    if (!notes) break;
     const day = notes[date];
     for (const it of dayItems(acts, occ, date)) {
       const note = day[it.id]?.trim();
@@ -405,7 +406,7 @@ function overviewRows(d: ReportData): [string, string, string][] {
       `${CATS.length - d.usedCats} / ${CATS.length} หมวด`,
       idleCatNames(d) || 'ใช้ครบทุกหมวดในช่วงนี้',
     ],
-    ['โน้ตที่บันทึก', `${d.noteItems.length} ครั้ง`, noteCatText(d) || 'ยังไม่มีโน้ตในช่วงนี้'],
+    ...(d.notes ? [['โน้ตที่บันทึก', `${d.noteItems.length} ครั้ง`, noteCatText(d) || 'ยังไม่มีโน้ตในช่วงนี้'] as [string, string, string]] : []),
     [
       'หมวดที่ใช้มากสุด',
       d.topCat ? d.topCat.short : '–',
@@ -570,17 +571,19 @@ const noteRow = ({ item: it, note }: ReportNote): string[] => [
 ];
 const noteTitle = (d: ReportData) => `โน้ตรายครั้ง (${d.noteItems.length} ครั้ง)`;
 
-const ITEM_HEAD = ['วันที่', 'วัน', 'เวลา', 'เคส', 'ระดับ', 'ช่องทาง', 'ผู้ติดต่อ', 'สถานะ', 'โน้ต'];
-const itemRow = (it: DayItem, nameById: Record<number, string>, notes: NoteMap): (string | number)[] => [
+const ITEM_HEAD_BASE = ['วันที่', 'วัน', 'เวลา', 'เคส', 'ระดับ', 'ช่องทาง', 'ผู้ติดต่อ', 'สถานะ'];
+/** หัวตารางรายการนัดเคส — คอลัมน์ "โน้ต" ท้ายสุดเมื่อเปิดโน้ตในรายงาน */
+const itemHead = (d: ReportData): string[] => (d.notes ? [...ITEM_HEAD_BASE, 'โน้ต'] : ITEM_HEAD_BASE);
+const itemRow = (it: DayItem, d: ReportData): (string | number)[] => [
   it.date,
   WD_TH_FULL[wdMon(it.date)],
   fmtRange(it.startMin, it.endMin),
   it.title,
   it.priority ?? '–',
   it.channel === 'online' ? 'ออนไลน์' : it.channel === 'inperson' ? 'พบตัว' : '',
-  caseWho(it, nameById).join(', '),
+  caseWho(it, d.nameById).join(', '),
   STATUS_TH[it.ostatus],
-  notes[it.date]?.[it.id] ?? '',
+  ...(d.notes ? [d.notes[it.date]?.[it.id] ?? ''] : []),
 ];
 
 // ---------- .xlsx ----------
@@ -748,7 +751,7 @@ function catCells(c: ReportCat, pal: ExportPalette, S: Styles): (XWriteCell | nu
 function caseSheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
   const rows: (XWriteCell | null)[][] = [];
   const merges: string[] = [];
-  const W = Math.max(CASE_HEAD.length, PEOPLE_HEAD.length, ITEM_HEAD.length);
+  const W = Math.max(CASE_HEAD.length, PEOPLE_HEAD.length, itemHead(d).length);
   let r = 0;
 
   r = table(rows, merges, r, W, `สรุปตามเคส (${d.cases.length} เคส)`, pad(CASE_HEAD, W),
@@ -757,9 +760,9 @@ function caseSheet(d: ReportData, pal: ExportPalette, S: Styles): XWriteSheet {
   r = table(rows, merges, r, W, `รายชื่อคน (${d.people.length} คน)`, pad(PEOPLE_HEAD, W),
     d.people.length ? d.people.map((p) => rowCells(personRow(p), 1, pal, S)) : [[cell('ไม่มีนัดเคสที่ระบุผู้ติดต่อในช่วงนี้', S.note)]], S);
 
-  table(rows, merges, r, W, `รายการนัดเคส (${d.items.length} นัด)`, pad(ITEM_HEAD, W),
+  table(rows, merges, r, W, `รายการนัดเคส (${d.items.length} นัด)`, pad(itemHead(d), W),
     d.items.map((it) => {
-      const cs = rowCells(itemRow(it, d.nameById, d.notes), 4, pal, S);
+      const cs = rowCells(itemRow(it, d), 4, pal, S);
       const st = it.ostatus;
       cs[7] = { v: STATUS_TH[st], s: { ...S.num, bold: st === 'done' || st === 'skipped', color: st === 'done' ? pal.ok : st === 'skipped' || st === 'cancelled' ? pal.bad : S.num.color, strike: st === 'skipped' } };
       return cs;
@@ -872,8 +875,8 @@ export function reportCsv(d: ReportData): string {
       ...d.people.map((p) => line(personRow(p))),
       '',
       line([`รายการนัดเคส (${d.items.length} นัด)`]),
-      line(ITEM_HEAD),
-      ...d.items.map((it) => line(itemRow(it, d.nameById, d.notes))),
+      line(itemHead(d)),
+      ...d.items.map((it) => line(itemRow(it, d))),
     );
   }
   if (d.noteItems.length) out.push('', line([noteTitle(d)]), line(NOTE_HEAD), ...d.noteItems.map((n) => line(noteRow(n))));
@@ -951,7 +954,7 @@ export function reportHtml(d: ReportData, pal: ExportPalette = EXPORT_PALETTES.c
   if (d.items.length) {
     s += T(`สรุปตามเคส (${d.cases.length} เคส)`, CASE_HEAD, d.cases.map(caseRow), (v, i) => priTint(v, i, 1));
     s += T(`รายชื่อคน (${d.people.length} คน)`, PEOPLE_HEAD, d.people.map(personRow), (v, i) => priTint(v, i, 1));
-    s += T(`รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD, d.items.map((it) => itemRow(it, d.nameById, d.notes)), (v, i) => priTint(v, i, 4));
+    s += T(`รายการนัดเคส (${d.items.length} นัด)`, itemHead(d), d.items.map((it) => itemRow(it, d)), (v, i) => priTint(v, i, 4));
   }
   if (d.noteItems.length) {
     s += T(noteTitle(d), NOTE_HEAD, d.noteItems.map(noteRow), (v, i) => {
@@ -1138,9 +1141,9 @@ function caseTab(d: ReportData, pal: ExportPalette): ReportTab {
     d.people.length
       ? d.people.map((p) => sheetCells(personRow(p), 1, pal))
       : [[{ v: 'ไม่มีนัดเคสที่ระบุผู้ติดต่อในช่วงนี้', bg: pal.cellBg, fg: pal.faint }]]);
-  sheetBlock(b, pal, `รายการนัดเคส (${d.items.length} นัด)`, ITEM_HEAD,
+  sheetBlock(b, pal, `รายการนัดเคส (${d.items.length} นัด)`, itemHead(d),
     d.items.map((it) => {
-      const cells = sheetCells(itemRow(it, d.nameById, d.notes), 4, pal);
+      const cells = sheetCells(itemRow(it, d), 4, pal);
       const st = it.ostatus;
       cells[7] = {
         v: STATUS_TH[st],

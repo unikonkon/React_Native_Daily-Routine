@@ -577,12 +577,12 @@ export interface BackupData {
   reschedule_logs: RescheduleLogRow[];
   /** v6 — สำรองรุ่นเก่าไม่มีฟิลด์นี้ */
   occ_notes?: { activity_id: number; date: string; note: string }[];
-  /** การตั้งค่าที่ผูกกับข้อมูล (แม่แบบโน้ต/ตัวเลือกย่อยของหมวด/ทางลัด) — สำรองรุ่นเก่าไม่มีฟิลด์นี้ */
+  /** การตั้งค่าที่ผูกกับข้อมูล (แม่แบบโน้ต/โน้ตสำเร็จรูป/การแสดงโน้ต/ตัวเลือกย่อยของหมวด/ทางลัด) — สำรองรุ่นเก่าไม่มีฟิลด์นี้ */
   settings?: { key: string; value: string }[];
 }
 
 /** คีย์ settings ที่ไปกับไฟล์สำรอง — ไม่รวมธีม/การแจ้งเตือน/URL ชีต (เป็นของเครื่องนั้น ๆ) */
-const BACKUP_SETTING_KEYS = ['note_cfg', 'cat_options', 'quick_picks'];
+const BACKUP_SETTING_KEYS = ['note_cfg', 'note_snippets', 'note_display', 'cat_options', 'quick_picks'];
 
 export async function dumpAll(): Promise<BackupData> {
   const d = getDb();

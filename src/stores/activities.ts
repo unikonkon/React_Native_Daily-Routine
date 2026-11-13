@@ -34,11 +34,14 @@ interface ActivitiesState {
    * บันทึกฟอร์มแก้ไข — prev = กิจกรรมเดิม, fields = ค่าใหม่จากฟอร์ม
    * ชุดทำซ้ำเลือกขอบเขตได้: 'one' แยกวัน date ออกเป็นครั้งเดียว · 'future' แบ่งชุดที่ date · 'all' แก้ทั้งชุด
    */
-  editActivity: (prev: Activity, fields: Omit<Activity, 'id'>, scope: EditScope, date: string | null) => Promise<void>;
+  /** คืน id ของกิจกรรมที่ครั้งวัน date อยู่หลังแก้ (ทั้งชุด = id เดิม · เฉพาะครั้งนี้/ตั้งแต่ครั้งนี้ = id ใหม่ · ไม่มีแล้ว = null) */
+  editActivity: (prev: Activity, fields: Omit<Activity, 'id'>, scope: EditScope, date: string | null) => Promise<number | null>;
   /** status null = กลับเป็น planned */
   setStatus: (item: DayItem, status: OccStatus | null) => void;
   /** โน้ตของครั้งนี้ — '' / null = ลบ */
   setNote: (item: Pick<DayItem, 'id' | 'date'>, note: string | null) => void;
+  /** โน้ตเดียวกันหลายครั้ง (ฟอร์มเพิ่ม "ใส่ทุกวันที่เลือก") — set ครั้งเดียว · '' / null = ลบ */
+  setNotes: (items: Pick<DayItem, 'id' | 'date'>[], note: string | null) => void;
   deleteOne: (item: DayItem) => void;
   /**
    * ลบหลายรายการพร้อมกัน (หน้า "ลบรายการ") — ครั้งเดียว = ลบทั้งรายการ · ชุดทำซ้ำ = ยกเลิกเฉพาะวันที่เลือก (ชุดยังอยู่)
@@ -49,9 +52,14 @@ interface ActivitiesState {
   reschedule: (item: DayItem, to: RescTarget, reason: string) => void;
 }
 
-function resync(s: Pick<ActivitiesState, 'acts' | 'occ'>) {
-  const { notifMaster, morning } = useSettings.getState();
-  requestResync(s.acts, s.occ, notifMaster, morning);
+function resync(s: Pick<ActivitiesState, 'acts' | 'occ' | 'notes'>) {
+  const { notifMaster, morning, noteDisplay } = useSettings.getState();
+  requestResync(s.acts, s.occ, notifMaster, morning, noteDisplay.morning ? s.notes : null);
+}
+
+/** ตั้งคิวแจ้งเตือนใหม่ตามค่าปัจจุบัน — เรียกหลังเปลี่ยนการตั้งค่าที่มีผลกับแจ้งเตือน (เช่น แนบโน้ตในสรุปตอนเช้า) */
+export function resyncNotifications() {
+  resync(useActivities.getState());
 }
 
 /**
@@ -111,7 +119,7 @@ export const useActivities = create<ActivitiesState>((set, get) => {
       if (whole) {
         // ทั้งชุด (หรือกิจกรรมครั้งเดียว / แก้จากวันแรกของชุด) — แก้แถวเดิมตรง ๆ
         get().update({ ...fields, id: prev.id });
-        return;
+        return prev.id;
       }
 
       if (scope === 'one') {
@@ -139,7 +147,7 @@ export const useActivities = create<ActivitiesState>((set, get) => {
           notes[date] = nd;
         }
         bump({ acts: [...get().acts, { ...one, id: newId }], occ: { ...get().occ, [date]: day }, notes });
-        return;
+        return newId;
       }
 
       // ตั้งแต่ date เป็นต้นไป: ชุดเดิมจบเมื่อวานของ date (ประวัติก่อนหน้าไม่เปลี่ยน) · ชุดใหม่รับค่าจากฟอร์ม
@@ -178,6 +186,7 @@ export const useActivities = create<ActivitiesState>((set, get) => {
       const acts = get().acts.map((a) => (a.id === prev.id ? { ...a, ...head } : a));
       if (tail && newId !== null) acts.push({ ...tail, id: newId });
       bump({ acts, occ, notes });
+      return tail ? newId : null;
     },
 
     setStatus: (item, status) => {
@@ -190,6 +199,21 @@ export const useActivities = create<ActivitiesState>((set, get) => {
       persist(db.setOccurrence(item.id, item.date, status));
     },
 
+    setNotes: (items, note) => {
+      if (!items.length) return;
+      const text = note?.trim() ?? '';
+      const notes = { ...get().notes };
+      for (const it of items) {
+        const day = { ...(notes[it.date] ?? {}) };
+        if (text) day[it.id] = text;
+        else delete day[it.id];
+        notes[it.date] = day;
+      }
+      set((s) => ({ notes, version: s.version + 1 }));
+      if (useSettings.getState().noteDisplay.morning) resync(get());
+      for (const it of items) persist(db.setOccNote(it.id, it.date, text || null));
+    },
+
     setNote: (item, note) => {
       const text = note?.trim() ?? '';
       const notes = { ...get().notes };
@@ -197,7 +221,9 @@ export const useActivities = create<ActivitiesState>((set, get) => {
       if (text) day[item.id] = text;
       else delete day[item.id];
       notes[item.date] = day;
-      set((s) => ({ notes, version: s.version + 1 })); // โน้ตไม่กระทบการแจ้งเตือน — ไม่ต้อง resync
+      set((s) => ({ notes, version: s.version + 1 }));
+      // โน้ตกระทบแจ้งเตือนเฉพาะเมื่อเปิด "แนบโน้ตในสรุปตอนเช้า"
+      if (useSettings.getState().noteDisplay.morning) resync(get());
       persist(db.setOccNote(item.id, item.date, text || null));
     },
 

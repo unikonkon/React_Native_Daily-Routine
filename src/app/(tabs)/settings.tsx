@@ -32,7 +32,8 @@ export default function SettingsScreen() {
 
   const stats = useMemo(() => computeStats(acts, occ, nowMin()), [acts, occ]);
 
-  const syncNotif = (master: boolean, morning: boolean) => requestResync(acts, occ, master, morning);
+  const syncNotif = (master: boolean, morning: boolean) =>
+    requestResync(acts, occ, master, morning, settings.noteDisplay.morning ? useActivities.getState().notes : null);
 
   // ข้อมูลตัวอย่าง = ตารางจริงจากไฟล์ "Time Table จอย.xlsx" นำเข้าเป็นเดือนปัจจุบัน 1 เดือน (แทนที่ข้อมูลเดิมทั้งหมด)
   const showToast = useUI((s) => s.showToast);
@@ -161,6 +162,12 @@ export default function SettingsScreen() {
       <Section title="การจัดการ">
         <Row icon="user" label="สมุดรายชื่อ" sub={`${nContacts} รายชื่อ · ใช้กับนัดเคส`} onPress={() => router.push('/settings/contacts')} />
         <Row icon="grid" label="หมวดหมู่" sub={`${CATS.length} หมวด · ชื่อที่ใช้บ่อย ประเภท สถานที่`} onPress={() => router.push('/settings/categories')} />
+        <Row
+          icon="note"
+          label="จัดการโน้ต"
+          sub={`โน้ตสำเร็จรูป ${settings.noteSnippets.length} · แม่แบบต่อหมวด · จุดที่แสดงโน้ต`}
+          onPress={() => router.push('/settings/notes')}
+        />
         <Row icon="copy" label="คัดลอกกิจกรรม" sub="เลือกจากสัปดาห์/เดือน → วางวันอื่น" onPress={() => router.push('/settings/copy')} />
         <Row icon="trash" label="ลบรายการ" sub="เลือกทีละรายการ หรือทั้งวัน · สัปดาห์ · เดือน" onPress={() => router.push('/settings/delete')} last />
       </Section>

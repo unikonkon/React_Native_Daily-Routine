@@ -6,6 +6,46 @@ import * as db from '@/lib/db';
 /** ตัวเลือกย่อยเริ่มต้นของทุกหมวด (หมวดที่ไม่มีชุดตัวเลือก = ลิสต์ว่าง) */
 const DEFAULT_CAT_OPTIONS = Object.fromEntries(CATS.map((c) => [c.id, CAT_OPTIONS[c.id]?.defaults ?? []])) as Record<CatId, string[]>;
 
+/**
+ * โน้ตสำเร็จรูป (ตั้งค่า › จัดการโน้ต) — ข้อความที่ใช้บ่อย แตะชิปในแผ่นรายละเอียดเพื่อแทรกลงโน้ตของครั้งนั้น
+ * เป็นแค่ต้นแบบ: แทรกแล้วกลายเป็นข้อความของโน้ตครั้งนั้นเอง — แก้/ลบในคลังไม่กระทบโน้ตที่จดไปแล้ว
+ */
+export interface NoteSnippet {
+  id: string;
+  text: string;
+  /** หมวดที่ให้ชิปขึ้น ([] = ทุกหมวด) */
+  cats: CatId[];
+  /** จำนวนครั้งที่แตะใช้ — เรียงชิปที่ใช้บ่อยไว้หน้า */
+  uses: number;
+  /** ปักหมุด = ขึ้นก่อนเสมอ (เรียงตามลำดับในคลัง เลื่อน ↑↓ ได้) */
+  pinned: boolean;
+  /** ซ่อน = ไม่ขึ้นเป็นชิป แต่ยังอยู่ในคลัง */
+  hidden: boolean;
+}
+
+/** การแสดงโน้ต (ตั้งค่า › จัดการโน้ต) — จุดที่แสดง + จำนวนที่แสดง */
+export interface NoteDisplay {
+  /** โน้ตบนการ์ดรายการ (หน้าวัน · การ์ดวันในเดือน · ทบทวน) */
+  rail: boolean;
+  /** จำนวนบรรทัดโน้ตบนการ์ด 1–4 */
+  railLines: number;
+  /** โน้ตครั้งก่อนในแผ่นรายละเอียด 0–5 (0 = ไม่แสดง) */
+  prevCount: number;
+  /** ชิปโน้ตสำเร็จรูปในแผ่นรายละเอียด 0–12 (0 = ไม่แสดง · ที่เหลือกด "ทั้งหมด") */
+  chips: number;
+  /** ช่องโน้ตในฟอร์มเพิ่ม/แก้ไขรายการ (ขั้น ① หมวดและรายละเอียด) */
+  form: boolean;
+  /** ชิปโน้ตสำเร็จรูปในฟอร์มเพิ่ม/แก้ไข 0–12 */
+  formChips: number;
+  /** ตาราง/คอลัมน์โน้ตในรายงาน · Excel · CSV · Google Sheets */
+  report: boolean;
+  /** แนบโน้ตครั้งก่อนของนัดวันนี้ในแจ้งเตือนสรุปตอนเช้า */
+  morning: boolean;
+}
+
+export const NOTE_DISPLAY_DEFAULTS: NoteDisplay = { rail: true, railLines: 2, prevCount: 1, chips: 4, form: true, formChips: 6, report: true, morning: false };
+export const NOTE_LIMITS = { railLines: [1, 4], prevCount: [0, 5], chips: [0, 12], formChips: [0, 12] } as const;
+
 interface SettingsState {
   /** โหมดแสดงผลที่เลือก — ใช้ useThemeName() (components/ui) เพื่อได้ธีมที่ใช้จริง */
   theme: ThemePref;
@@ -17,6 +57,8 @@ interface SettingsState {
   catOptions: Record<CatId, string[]>;
   /** โน้ตรายครั้งต่อหมวด (ข้อความตัวอย่าง / แม่แบบ / ถามโน้ตเมื่อติ๊กว่าทำแล้ว) — แก้ไขได้ใน settings/categories */
   noteCfg: Record<CatId, NoteCfg>;
+  noteSnippets: NoteSnippet[];
+  noteDisplay: NoteDisplay;
   /** URL ของ Google Apps Script Web App ที่ใช้งานอยู่ ('' = ยังไม่เชื่อมต่อ) */
   sheetsUrl: string;
   /** รายการ URL ที่เคยบันทึก ใหม่ → เก่า (สูงสุด 5, ไม่ซ้ำ) — คงอยู่แม้ยกเลิกการเชื่อมต่อ ไว้สลับ/เชื่อมต่อใหม่ */
@@ -28,6 +70,14 @@ interface SettingsState {
   setQuickPicks: (cat: CatId, list: string[]) => void;
   setCatOptions: (cat: CatId, list: string[]) => void;
   setNoteCfg: (cat: CatId, patch: Partial<NoteCfg>) => void;
+  addSnippet: (text: string, cats: CatId[]) => void;
+  updateSnippet: (id: string, patch: Partial<Pick<NoteSnippet, 'text' | 'cats' | 'pinned' | 'hidden'>>) => void;
+  /** เลื่อนลำดับโน้ตที่ปักหมุด (สลับกับตัวปักหมุดถัดไปทางขึ้น/ลง) */
+  moveSnippet: (id: string, dir: -1 | 1) => void;
+  removeSnippet: (id: string) => void;
+  /** นับการใช้ชิป (ไว้เรียงที่ใช้บ่อยก่อน) */
+  countSnippet: (id: string) => void;
+  setNoteDisplay: (patch: Partial<NoteDisplay>) => void;
   setSheetsUrl: (url: string) => void;
   removeSheetsUrl: (url: string) => void;
 }
@@ -85,13 +135,74 @@ function parseNoteCfg(raw: string | undefined): Record<CatId, NoteCfg> {
   ) as Record<CatId, NoteCfg>;
 }
 
-export const useSettings = create<SettingsState>((set, get) => ({
+const CAT_IDS = new Set<string>(CATS.map((c) => c.id));
+
+/** คลังโน้ตสำเร็จรูปที่บันทึกเป็น JSON — ตัดรายการผิดรูป/ข้อความว่างทิ้ง */
+function parseSnippets(raw: string | undefined): NoteSnippet[] {
+  try {
+    const arr = raw ? (JSON.parse(raw) as unknown) : null;
+    if (!Array.isArray(arr)) return [];
+    return arr.flatMap((x, i): NoteSnippet[] => {
+      if (!x || typeof x !== 'object') return [];
+      const o = x as Record<string, unknown>;
+      const text = typeof o.text === 'string' ? o.text.trim() : '';
+      if (!text) return [];
+      return [
+        {
+          id: typeof o.id === 'string' && o.id ? o.id : `s${i}`,
+          text,
+          cats: Array.isArray(o.cats) ? o.cats.filter((c): c is CatId => typeof c === 'string' && CAT_IDS.has(c)) : [],
+          uses: typeof o.uses === 'number' && o.uses > 0 ? Math.floor(o.uses) : 0,
+          pinned: o.pinned === true,
+          hidden: o.hidden === true,
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
+
+const clampInt = (v: unknown, [lo, hi]: readonly [number, number], d: number) =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : d;
+
+/** การแสดงโน้ตที่บันทึกเป็น JSON — ช่องไหนไม่มี/ผิดชนิดใช้ค่าเริ่มต้น · ตัวเลขถูกบีบให้อยู่ในช่วง */
+function parseNoteDisplay(raw: string | undefined): NoteDisplay {
+  let v: Record<string, unknown> = {};
+  try {
+    const o = raw ? (JSON.parse(raw) as unknown) : null;
+    if (o && typeof o === 'object') v = o as Record<string, unknown>;
+  } catch {
+    // ใช้ค่าเริ่มต้นทั้งหมด
+  }
+  const d = NOTE_DISPLAY_DEFAULTS;
+  const bool = (k: 'rail' | 'form' | 'report' | 'morning') => (typeof v[k] === 'boolean' ? (v[k] as boolean) : d[k]);
+  return {
+    rail: bool('rail'),
+    railLines: clampInt(v.railLines, NOTE_LIMITS.railLines, d.railLines),
+    prevCount: clampInt(v.prevCount, NOTE_LIMITS.prevCount, d.prevCount),
+    chips: clampInt(v.chips, NOTE_LIMITS.chips, d.chips),
+    form: bool('form'),
+    formChips: clampInt(v.formChips, NOTE_LIMITS.formChips, d.formChips),
+    report: bool('report'),
+    morning: bool('morning'),
+  };
+}
+
+export const useSettings = create<SettingsState>((set, get) => {
+  const saveSnippets = (noteSnippets: NoteSnippet[]) => {
+    set({ noteSnippets });
+    db.saveSetting('note_snippets', JSON.stringify(noteSnippets));
+  };
+  return {
   theme: 'system',
   notifMaster: true,
   morning: true,
   quickPicks: QUICK_PICKS,
   catOptions: DEFAULT_CAT_OPTIONS,
   noteCfg: NOTE_DEFAULTS,
+  noteSnippets: [],
+  noteDisplay: NOTE_DISPLAY_DEFAULTS,
   sheetsUrl: '',
   sheetsUrls: [],
 
@@ -105,6 +216,8 @@ export const useSettings = create<SettingsState>((set, get) => ({
       quickPicks: parseCatLists(s.quick_picks, QUICK_PICKS),
       catOptions: parseCatLists(s.cat_options, DEFAULT_CAT_OPTIONS),
       noteCfg: parseNoteCfg(s.note_cfg),
+      noteSnippets: parseSnippets(s.note_snippets),
+      noteDisplay: parseNoteDisplay(s.note_display),
       sheetsUrl: s.sheets_url ?? '',
       sheetsUrls: parseSheetsUrls(s),
     });
@@ -137,6 +250,44 @@ export const useSettings = create<SettingsState>((set, get) => ({
     set({ noteCfg });
     db.saveSetting('note_cfg', JSON.stringify(noteCfg));
   },
+  addSnippet: (text, cats) => {
+    const t = text.trim();
+    if (!t) return;
+    const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    saveSnippets([{ id, text: t, cats, uses: 0, pinned: false, hidden: false }, ...get().noteSnippets]);
+  },
+  updateSnippet: (id, patch) => {
+    const text = patch.text?.trim();
+    if (patch.text !== undefined && !text) return;
+    const list = get().noteSnippets;
+    const cur = list.find((x) => x.id === id);
+    if (!cur) return;
+    const next = { ...cur, ...patch, ...(text ? { text } : {}) };
+    const rest = list.filter((x) => x.id !== id);
+    if (patch.pinned && !cur.pinned) {
+      // ปักหมุดใหม่ → ต่อท้ายกลุ่มที่ปักหมุดอยู่แล้ว (ไม่แซงลำดับที่จัดไว้)
+      const at = rest.reduce((last, x, i) => (x.pinned ? i + 1 : last), 0);
+      saveSnippets([...rest.slice(0, at), next, ...rest.slice(at)]);
+    } else saveSnippets(list.map((x) => (x.id === id ? next : x)));
+  },
+  moveSnippet: (id, dir) => {
+    const list = [...get().noteSnippets];
+    const i = list.findIndex((x) => x.id === id);
+    if (i < 0) return;
+    // หาตัวปักหมุดถัดไปตามทิศ แล้วสลับตำแหน่ง (ตัวที่ไม่ปักหมุดไม่มีผลกับลำดับชิป)
+    let j = i + dir;
+    while (j >= 0 && j < list.length && !list[j].pinned) j += dir;
+    if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    saveSnippets(list);
+  },
+  removeSnippet: (id) => saveSnippets(get().noteSnippets.filter((x) => x.id !== id)),
+  countSnippet: (id) => saveSnippets(get().noteSnippets.map((x) => (x.id === id ? { ...x, uses: x.uses + 1 } : x))),
+  setNoteDisplay: (patch) => {
+    const noteDisplay = parseNoteDisplay(JSON.stringify({ ...get().noteDisplay, ...patch }));
+    set({ noteDisplay });
+    db.saveSetting('note_display', JSON.stringify(noteDisplay));
+  },
   setSheetsUrl: (sheetsUrl) => {
     set({ sheetsUrl });
     db.saveSetting('sheets_url', sheetsUrl);
@@ -152,4 +303,5 @@ export const useSettings = create<SettingsState>((set, get) => ({
     set({ sheetsUrls });
     db.saveSetting('sheets_urls', JSON.stringify(sheetsUrls));
   },
-}));
+  };
+});

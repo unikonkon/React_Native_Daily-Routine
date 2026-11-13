@@ -11,12 +11,14 @@ import { Pressable, View, type LayoutChangeEvent } from 'react-native';
 
 import { ContactIcons } from '@/components/b1/contact-icons';
 import { StatusCircle } from '@/components/b1/status-circle';
+import { SvgIcon } from '@/components/svg-icon';
 import { useCaseContacts } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
 import { CAT_BY_ID } from '@/constants/theme';
 import { durText, fmtMin, hoursText } from '@/lib/dates';
 import { nextItemId, railState, type NowRef, type RailState } from '@/lib/progress';
 import type { DayItem, FreeSlot } from '@/lib/types';
+import { useSettings } from '@/stores/settings';
 
 const TIME_W = 42;
 const RAIL_W = 28;
@@ -100,7 +102,7 @@ interface RailProps {
   onPressItem: (it: DayItem) => void;
   onToggle: (it: DayItem, state: RailState) => void;
   onPressSlot?: (slot: FreeSlot) => void;
-  /** โน้ตรายครั้ง (key = `${id}:${date}`) — โชว์ต่อท้ายรายละเอียด */
+  /** โน้ตรายครั้งของรายการ — แถวโน้ตใต้รายละเอียด (เปิด/ปิด + จำนวนบรรทัดตั้งที่ ตั้งค่า › จัดการโน้ต) */
   noteOf?: (it: DayItem) => string | undefined;
   /** ปุ่มเสริมท้ายแถว เช่น "ข้าม" ในหน้าทบทวน */
   renderRight?: (it: DayItem) => React.ReactNode;
@@ -123,6 +125,8 @@ function VDash({ color }: { color: string }) {
 
 export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, onPressSlot, noteOf, renderRight, nextCardBg, onNowLayout }: RailProps) {
   const t = useTokens();
+  const noteShow = useSettings((s) => s.noteDisplay.rail);
+  const noteLines = useSettings((s) => s.noteDisplay.railLines);
   const caseContactsOf = useCaseContacts();
   const nextId = nextItemId(items, now);
 
@@ -269,13 +273,13 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
     // นัดเคส: รายชื่อแยกเป็นแถวไอคอนช่องทางติดต่อ (ไม่ซ้ำชื่อในบรรทัดรายละเอียด)
     const people = !cat.isCase ? [] : it.inlineContact ? [it.inlineContact] : caseContactsOf(it);
     const where = cat.isCase ? [it.channel === 'online' ? 'ออนไลน์' : it.channel === 'inperson' ? 'พบตัว' : '', it.loc].filter(Boolean).join(' · ') : [it.sub, it.loc].filter(Boolean).join(' · ');
-    const note = noteOf?.(it);
+    const note = noteShow ? noteOf?.(it) : undefined;
     // ในกลุ่มซ้อน เวลาจบอยู่บรรทัดรายละเอียด (การ์ดกำลังทำมี "จบ" ในแถบความคืบหน้าแล้ว)
     const until = inGroup && !live ? `ถึง ${fmtMin(it.endMin)}` : '';
     // นัดเคส: ป้ายบอกประเภทผู้ติดต่อที่เลือก (คนที่นัด / ช่องทางติดต่อ) แทนชื่อหมวด "นัดเคส"
     // นัดที่ไม่ได้ระบุผู้ติดต่อเลย (เช่น นำเข้าจาก Time Table) แสดงชื่อหมวดตามเดิม ไม่ขึ้น "คนที่นัด" ลอย ๆ
     const kind = cat.isCase ? (it.inlineContact ? 'ช่องทางติดต่อ' : people.length ? 'คนที่นัด' : cat.short) : cat.short;
-    const meta = [until, st === 'skipped' ? 'ข้าม' : kind, where, note ? `โน้ต: ${note}` : ''].filter(Boolean).join(' · ');
+    const meta = [until, st === 'skipped' ? 'ข้าม' : kind, where].filter(Boolean).join(' · ');
     const tag =
       st === 'overdue'
         ? 'ค้างบันทึก — แตะวงกลมเพื่อบันทึก'
@@ -368,6 +372,17 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
                     </Txt>
                   ) : null}
                   {until ? meta.slice(until.length) : meta}
+                </Txt>
+              </View>
+            ) : null}
+            {note ? (
+              // โน้ตแยกแถวของตัวเอง — โน้ตหลายบรรทัด (จากแม่แบบ) ไม่ถูกตัดรวมกับรายละเอียด
+              <View accessibilityLabel={`โน้ต: ${note}`} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 5 }}>
+                <View style={{ paddingTop: 2 }}>
+                  <SvgIcon name="note" size={12} color={t.muted} />
+                </View>
+                <Txt size={12} color={muted ? t.muted : t.sub} numberOfLines={noteLines} style={{ flex: 1, lineHeight: 17 }}>
+                  {note}
                 </Txt>
               </View>
             ) : null}

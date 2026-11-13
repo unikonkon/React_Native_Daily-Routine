@@ -8,7 +8,7 @@ import { CAT_BY_ID } from '@/constants/theme';
 import { addDays, fmtMin, fromISO, todayISO } from '@/lib/dates';
 import { dayItems } from '@/lib/engine';
 import { morningDigest } from '@/lib/morning';
-import type { Activity, OccMap } from '@/lib/types';
+import type { Activity, NoteMap, OccMap } from '@/lib/types';
 
 const BUDGET = 50;
 const LOOKAHEAD_DAYS = 30;
@@ -79,14 +79,15 @@ export async function requestNotifPermission(): Promise<boolean> {
 let timer: ReturnType<typeof setTimeout> | null = null;
 
 /** เรียกหลังทุก mutation / ตอนเปิดแอป — debounce แล้วตั้งคิวใหม่ทั้งชุด */
-export function requestResync(acts: Activity[], occ: OccMap, master: boolean, morning: boolean) {
+/** morningNotes = โน้ตรายครั้ง เมื่อเปิด "แนบโน้ตในสรุปตอนเช้า" (null = ไม่แนบ) */
+export function requestResync(acts: Activity[], occ: OccMap, master: boolean, morning: boolean, morningNotes: NoteMap | null = null) {
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
-    resync(acts, occ, master, morning).catch(() => {});
+    resync(acts, occ, master, morning, morningNotes).catch(() => {});
   }, 600);
 }
 
-async function resync(acts: Activity[], occ: OccMap, master: boolean, morning: boolean) {
+async function resync(acts: Activity[], occ: OccMap, master: boolean, morning: boolean, morningNotes: NoteMap | null) {
   if (Platform.OS === 'web') return;
   if (!master) {
     // ปิดแจ้งเตือน — ยกเลิกของเดิมทั้งหมด โดยไม่ต้องขอสิทธิ์
@@ -107,7 +108,7 @@ async function resync(acts: Activity[], occ: OccMap, master: boolean, morning: b
       const at = fromISO(d);
       at.setHours(MORNING_HOUR, 0, 0, 0);
       if (+at <= now) continue; // เช้าวันนี้ผ่านไปแล้ว → เริ่มที่พรุ่งนี้
-      const digest = morningDigest(acts, occ, d);
+      const digest = morningDigest(acts, occ, d, morningNotes);
       await Notifications.scheduleNotificationAsync({
         content: { title: digest.title, body: digest.body },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at, channelId: CHANNEL_ID },

@@ -28,8 +28,8 @@ export interface SheetsBuild {
   grid?: boolean;
   /** รายงานสรุป — ใส่เป็นแท็บแยกไว้หน้าสุด (null/undefined = ไม่ส่ง) */
   report?: ReportData | null;
-  /** โน้ตรายครั้ง — คอลัมน์ "โน้ต" ท้ายแท็บรายการกิจกรรม (แท็บ "โน้ตรายครั้ง" มากับรายงาน) */
-  notes?: NoteMap;
+  /** โน้ตรายครั้ง — คอลัมน์ "โน้ต" ท้ายแท็บรายการกิจกรรม (แท็บ "โน้ตรายครั้ง" มากับรายงาน) · ไม่ส่ง/null = ไม่มีคอลัมน์โน้ต */
+  notes?: NoteMap | null;
 }
 
 /** โค้ด Apps Script ให้ผู้ใช้คัดลอกไปวางในชีต (หน้า settings/sheets-setup) — ตรงกับไฟล์ google-apps-script.gs */
@@ -187,7 +187,8 @@ export function buildSheetTabs(read: (date: string) => DayItem[], anchors: strin
   if (o.grid === false) return rectangle(tabs);
 
   const gridTabs: SheetTab[] = [];
-  const listRows: string[][] = [['วันที่', 'วัน', 'เริ่ม', 'สิ้นสุด', 'กิจกรรม', 'หมวด', 'สถานะ', 'สถานที่', 'โน้ต']];
+  const notes = o.notes ?? null;
+  const listRows: string[][] = [['วันที่', 'วัน', 'เริ่ม', 'สิ้นสุด', 'กิจกรรม', 'หมวด', 'สถานะ', 'สถานที่', ...(notes ? ['โน้ต'] : [])]];
   const listMeta: { cat: CatId; status: OccStatus }[] = []; // ขนานกับ listRows (ข้ามหัวตาราง) — ไว้ระบายสี
 
   for (const anchor of anchors) {
@@ -209,7 +210,7 @@ export function buildSheetTabs(read: (date: string) => DayItem[], anchors: strin
           CAT_BY_ID[it.cat].short,
           STATUS_TH[it.ostatus],
           it.loc ?? '',
-          o.notes?.[date]?.[it.id] ?? '',
+          ...(notes ? [notes[date]?.[it.id] ?? ''] : []),
         ]);
         listMeta.push({ cat: it.cat, status: it.ostatus });
       }

@@ -40,6 +40,7 @@ const FEATHER: Record<string, React.ComponentProps<typeof Feather>['name']> = {
   search: 'search',
   clipboard: 'clipboard',
   lock: 'lock',
+  note: 'file-text',
 };
 
 // ไอคอนที่ Feather ไม่มี — ดึงจาก MaterialCommunityIcons แทน

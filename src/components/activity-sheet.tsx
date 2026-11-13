@@ -8,12 +8,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusDot } from '@/components/b1/status-circle';
 import { useNow } from '@/components/b1/use-now';
 import { Icon } from '@/components/icon';
+import { SnippetChips } from '@/components/snippet-chips';
 import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Chip, ChipRow, PriBadge, Txt, useTokens } from '@/components/ui';
 import { ACCENT, CAT_BY_ID, DANGER, FONT, GREEN, PRI, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, WD_TH, addDays, durText, fmtMin, fmtRange, fromISO, thaiDate, wdMon } from '@/lib/dates';
 import { daytimeFreeSlots, seriesDates } from '@/lib/engine';
-import { previousNote, stripTemplate } from '@/lib/notes';
+import { appendNote, previousNotes, stripTemplate } from '@/lib/notes';
 import { isPast, railState } from '@/lib/progress';
 import type { Contact, ContactInfo, OccStatus } from '@/lib/types';
 import { useActivities, useDay } from '@/stores/activities';
@@ -57,6 +58,7 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
   const item = dayList.find((i) => i.id === id);
   const tomorrowList = useDay(addDays(date, 1));
   const noteCfgs = useSettings((s) => s.noteCfg);
+  const noteDisplay = useSettings((s) => s.noteDisplay);
   const savedNote = notes[date]?.[id] ?? '';
   const [noteText, setNoteText] = useState(savedNote);
   /** แม่แบบเติมให้ได้ครั้งเดียวต่อการเปิดแผ่น — ล้างข้อความแล้วไม่เด้งแม่แบบกลับมา */
@@ -94,7 +96,9 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
 
   // โน้ตตามหมวด: ข้อความตัวอย่าง + แม่แบบ (เติมให้เมื่อแตะช่องที่ยังว่าง · บรรทัดแม่แบบที่ไม่ได้กรอกถูกตัดตอนบันทึก)
   const noteCfg = noteCfgs[item.cat];
-  const prevNote = previousNote(item, notes, acts);
+  // จำนวนโน้ตครั้งก่อน / ชิปโน้ตสำเร็จรูป ตั้งที่ ตั้งค่า › จัดการโน้ต (0 = ไม่แสดง)
+  const prevNotes = previousNotes(item, notes, acts, noteDisplay.prevCount);
+
   const fillTemplate = () => {
     if (!tplArmed) return;
     setTplArmed(false);
@@ -152,12 +156,19 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
     setLeaveAsk({ go });
   };
   const requestClose = () => leave(closeSheet);
-  /** ใช้โน้ตครั้งก่อนเป็นตั้งต้น — ช่องว่าง (หรือมีแค่แม่แบบ) = แทนที่ · มีข้อความแล้ว = ต่อท้าย */
-  const applyPrevNote = () => {
-    if (!prevNote) return;
-    const cur = stripTemplate(noteText, noteCfg.template);
-    setNoteText(cur ? `${cur}\n${prevNote.note}` : prevNote.note);
+  /**
+   * แทรกโน้ตครั้งก่อน/โน้ตสำเร็จรูปลงช่อง — ช่องว่าง (หรือมีแค่แม่แบบ) = แทนที่ · มีข้อความแล้ว = ต่อท้าย
+   * เป็นร่างจนกด "บันทึก" เหมือนการพิมพ์เอง · ข้อความถูกคัดลอกมา (แก้/ลบต้นทางทีหลังไม่กระทบโน้ตนี้)
+   */
+  const insertNote = (text: string) => {
+    setTplArmed(false);
+    setNoteText(appendNote(noteText, noteCfg.template, text));
   };
+  const openNoteSettings = () =>
+    leave(() => {
+      useUI.getState().parkSheet();
+      router.push('/settings/notes');
+    });
 
   // เลื่อนด่วน: ช่วงว่างถัดไปที่ยาวพอ (วันเดียวกัน หลังตอนนี้/หลังรายการนี้) · พรุ่งนี้เวลาเดิม · เลือกเอง (Reschedule Modal)
   const others = dayList.filter((x) => x.id !== item.id);
@@ -441,24 +452,30 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
               <Txt size={12.5} weight="bold" color={t.sub}>
                 โน้ตของครั้งนี้ <Txt size={12.5} color={t.faint}>(ไม่บังคับ)</Txt>
               </Txt>
-              {/* โน้ตครั้งก่อนของกิจกรรมเดียวกัน — ดูความต่อเนื่อง (เช่น น้ำหนักที่ยก) · "ใช้ต่อ" = เอามาเป็นตั้งต้น */}
-              {prevNote ? (
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: t.track, borderRadius: 10, paddingLeft: 10, paddingRight: 6, paddingVertical: 7 }}>
-                  <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
-                    <Txt size={11.5} weight="bold" color={t.sub}>
-                      ครั้งก่อน · {shortThai(prevNote.date)}
-                    </Txt>
-                    <Txt size={12.5} color={t.ink} numberOfLines={3} style={{ lineHeight: 18 }}>
-                      {prevNote.note}
-                    </Txt>
-                  </View>
-                  <Pressable accessibilityRole="button" accessibilityLabel="ใช้โน้ตครั้งก่อน" onPress={applyPrevNote} hitSlop={6} style={({ pressed }) => ({ height: 30, paddingHorizontal: 10, borderRadius: 15, backgroundColor: pressed ? t.rail : t.card, justifyContent: 'center' })}>
-                    <Txt size={12} weight="bold" color={t.sub}>
-                      ใช้ต่อ
-                    </Txt>
-                  </Pressable>
-                </View>
+              {/* โน้ตครั้งก่อนของกิจกรรมเดียวกัน (ใหม่ → เก่า ตามจำนวนที่ตั้งไว้) — ดูความต่อเนื่อง · "ใช้ต่อ" = เอามาเป็นตั้งต้น */}
+              {prevNotes.length ? (
+                <ScrollView style={{ maxHeight: 176, flexGrow: 0 }} nestedScrollEnabled showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                  {prevNotes.map((p, i) => (
+                    <View key={p.date} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: t.track, borderRadius: 10, paddingLeft: 10, paddingRight: 6, paddingVertical: 7 }}>
+                      <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+                        <Txt size={11.5} weight="bold" color={t.sub}>
+                          {i === 0 ? 'ครั้งก่อน' : `ก่อนหน้า ${i + 1} ครั้ง`} · {shortThai(p.date)}
+                        </Txt>
+                        <Txt size={12.5} color={t.ink} numberOfLines={i === 0 ? 3 : 2} style={{ lineHeight: 18 }}>
+                          {p.note}
+                        </Txt>
+                      </View>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`ใช้โน้ตของ ${shortThai(p.date)}`} onPress={() => insertNote(p.note)} hitSlop={6} style={({ pressed }) => ({ height: 30, paddingHorizontal: 10, borderRadius: 15, backgroundColor: pressed ? t.rail : t.card, justifyContent: 'center' })}>
+                        <Txt size={12} weight="bold" color={t.sub}>
+                          ใช้ต่อ
+                        </Txt>
+                      </Pressable>
+                    </View>
+                  ))}
+                </ScrollView>
               ) : null}
+              {/* โน้ตสำเร็จรูปของหมวดนี้ — แตะเพื่อแทรก (ปักหมุดก่อน แล้วใช้บ่อย) · จำนวนตั้งที่ จัดการโน้ต › แผ่นรายละเอียด */}
+              <SnippetChips cat={item.cat} limit={noteDisplay.chips} onPick={insertNote} onManage={openNoteSettings} />
               <View>
                 <TextInput
                   ref={noteRef}
