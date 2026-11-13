@@ -59,8 +59,10 @@ export const useUI = create<UIState>((set) => ({
   showToast: (msg, action, action2) => {
     set({ toast: msg, toastAction: action ?? null, toastAction2: action2 ?? null });
     if (toastTimer) clearTimeout(toastTimer);
-    // หายเอง ~1.9s ตาม prototype · มีปุ่ม (เลิกทำ) ค้าง 5s ให้กดทัน · 2 ปุ่ม 6s
-    toastTimer = setTimeout(() => set({ toast: null, toastAction: null, toastAction2: null }), action2 ? 6000 : action ? 5000 : 1900);
+    // หายเองตามความยาวข้อความ: สั้น ๆ ~1.9s · ข้อความยาว/ข้อผิดพลาดค้างนานขึ้นให้อ่านทัน (สูงสุด 6s)
+    // มีปุ่ม (เลิกทำ) ค้างอย่างน้อย 5s ให้กดทัน · 2 ปุ่ม 6s
+    const read = Math.min(1900 + Math.max(msg.length - 22, 0) * 55, 6000);
+    toastTimer = setTimeout(() => set({ toast: null, toastAction: null, toastAction2: null }), action2 ? 6000 : action ? Math.max(5000, read) : read);
   },
   hideToast: () => {
     if (toastTimer) clearTimeout(toastTimer);

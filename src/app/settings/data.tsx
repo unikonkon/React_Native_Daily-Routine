@@ -8,10 +8,11 @@ import React, { useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
+import { FadeInView } from '@/components/motion';
 import { Screen } from '@/components/screen';
-import { Btn, Card, Chip, Row, Txt, pressFade, useTokens } from '@/components/ui';
-import { DANGER, GREEN } from '@/constants/theme';
-import { MONTH_TH, beYear, nowMin, todayISO } from '@/lib/dates';
+import { Btn, Card, Chip, Row, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
+import { GREEN } from '@/constants/theme';
+import { MONTH_TH, addDays, beYear, fmtMin, nowMin, thaiDate, toISO, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
 import { EXPORT_PALETTES, EXPORT_TONES, type ExportTone } from '@/lib/export-theme';
 import { buildReport, reportCsv, reportHtml, reportSheets } from '@/lib/report';
@@ -38,6 +39,9 @@ export default function DataScreen() {
   const sheetsUrls = useSettings((s) => s.sheetsUrls);
   const setSheetsUrl = useSettings((s) => s.setSheetsUrl);
   const removeSheetsUrl = useSettings((s) => s.removeSheetsUrl);
+  const restoreSheetsUrls = useSettings((s) => s.restoreSheetsUrls);
+  const sheetsLast = useSettings((s) => s.sheetsLast);
+  const setSheetsLast = useSettings((s) => s.setSheetsLast);
   /** ตัวเลือกย่อยต่อหมวดที่ตั้งไว้ — ส่งเข้ารายงานเพื่อให้เห็นตัวที่ตั้งไว้แต่ยังไม่ได้ใช้ด้วย */
   const catOptions = useSettings((s) => s.catOptions);
   /** โน้ตในรายงาน/ไฟล์/ชีต — ปิดได้ที่ ตั้งค่า › จัดการโน้ต (null = ไม่มีคอลัมน์/ตารางโน้ต) */
@@ -46,6 +50,12 @@ export default function DataScreen() {
   const [sending, setSending] = useState(false);
   /** กำลังนำเข้า/กู้คืน — ข้อมูลเยอะใช้เวลาหลายวินาที: บอกผู้ใช้ และกันกดซ้ำ */
   const [busy, setBusy] = useState<string | null>(null);
+  /** "แทนที่" ลบข้อมูลเดิม — ต้องยืนยันขั้นที่สองก่อน (กู้คืน JSON = ทั้งแอป · Time Table = จำนวนรายการเดิมในช่วงนั้น) */
+  const [confirmAll, setConfirmAll] = useState(false);
+  const [confirmTT, setConfirmTT] = useState<number | null>(null);
+  /** ส่งขึ้นชีตไม่สำเร็จ — ค้างไว้บนจอ (ไม่ใช่ toast ที่หายเอง) พร้อมปุ่มลองใหม่ */
+  const [sendErr, setSendErr] = useState<string | null>(null);
+  const contactCount = useContacts((s) => s.list.length);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [showSwitch, setShowSwitch] = useState(false);
   /** URL อื่นที่บันทึกไว้ (ไม่รวมตัวที่ใช้งานอยู่) */
@@ -59,12 +69,13 @@ export default function DataScreen() {
 
   const connectUrl = (url: string) => {
     setSheetsUrl(url);
-    showToast('เชื่อมต่อ Google Sheets แล้ว ✓');
+    showToast('เชื่อมต่อ Google Sheets แล้ว');
   };
 
   const deleteUrl = (url: string) => {
+    const before = sheetsUrls;
     removeSheetsUrl(url);
-    showToast('ลบ URL ออกจากรายการแล้ว');
+    showToast('ลบ URL ออกจากรายการแล้ว', { label: 'เลิกทำ', run: () => restoreSheetsUrls(before) });
   };
 
   const pickDocument = async (type: string[]) => {
@@ -140,8 +151,11 @@ export default function DataScreen() {
       showToast('เลือกอย่างน้อยหนึ่งอย่าง: ตาราง Time Table หรือรายงานสรุป');
       return;
     }
+    if (busy) return;
     setTtOpen(false);
+    setBusy('กำลังเตรียมไฟล์…');
     try {
+      await nextFrame(); // ให้แถบ "กำลังเตรียมไฟล์" ขึ้นก่อน — การสร้างไฟล์กินเธรดหลักหลายวินาทีเมื่อข้อมูลเยอะ
       const report = withReport
         ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions, reportNotes())
         : null;
@@ -164,7 +178,9 @@ export default function DataScreen() {
         await shareFile(`${kind}-${tag}.csv`, buildTimeTableCsvMulti(getDay, ttAnchors, report ? reportCsv(report) : undefined), 'text/csv');
       }
     } catch {
-      showToast('ส่งออกไม่สำเร็จ');
+      showToast('ส่งออกไม่สำเร็จ — ลองอีกครั้ง');
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -208,7 +224,9 @@ export default function DataScreen() {
     }
     setShOpen(false);
     setSending(true);
+    setSendErr(null);
     try {
+      await nextFrame();
       const report = shReport
         ? buildReport(acts, occ, useContacts.getState().list, anchors, todayISO(), nowMin(), catOptions, reportNotes())
         : null;
@@ -224,20 +242,26 @@ export default function DataScreen() {
         return;
       }
       await pushToSheets(sheetsUrl, tabs);
-      showToast(`ส่งขึ้น Sheets แล้ว ✓ (${tabs.length} แท็บ)`);
+      setSheetsLast({ at: Date.now(), tabs: tabs.length, url: sheetsUrl });
+      showToast(`ส่งขึ้น Sheets แล้ว (${tabs.length} แท็บ)`);
     } catch (err) {
-      showToast(`ส่งไม่สำเร็จ — ${err instanceof Error ? err.message : 'ลองใหม่อีกครั้ง'}`);
+      setSendErr(err instanceof Error ? err.message : 'ลองใหม่อีกครั้ง');
     } finally {
       setSending(false);
     }
   };
 
   const exportJson = async () => {
+    if (busy) return;
+    setBusy('กำลังเตรียมไฟล์สำรอง…');
     try {
+      await nextFrame();
       const data = await dumpAll();
       await shareFile(`routine-backup-${todayISO()}.json`, JSON.stringify(data, null, 1), 'application/json');
     } catch {
-      showToast('สำรองข้อมูลไม่สำเร็จ');
+      showToast('สำรองข้อมูลไม่สำเร็จ — ลองอีกครั้ง');
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -263,8 +287,8 @@ export default function DataScreen() {
         asset.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
       setPendingTT(isXlsx ? parseTimeTableXlsx(bytes) : parseTimeTableCsv(await file.text()));
     } catch (err) {
-      const why = err instanceof Error ? err.message : '';
-      showToast(`อ่านไฟล์ไม่ได้${why ? ` — ${why}` : ''} — ต้องเป็น .xlsx/.csv ฟอร์แมต Time Table (มีหัว MONTH และแถว Time)`);
+      console.warn('[import] timetable parse failed', err);
+      showToast('อ่านไฟล์นี้ไม่ได้ — ต้องเป็นไฟล์ Time Table (.xlsx หรือ .csv) ที่ส่งออกจากแอปนี้ หรือใช้โครงเดียวกัน');
     }
   };
 
@@ -276,9 +300,10 @@ export default function DataScreen() {
       await insertActivities(pendingTT.list);
       await useActivities.getState().boot();
       setPendingTT(null);
-      showToast(`นำเข้า ${pendingTT.list.length} รายการแล้ว ✓`);
+      setConfirmTT(null);
+      showToast(`นำเข้า ${pendingTT.list.length} รายการแล้ว`);
     } catch {
-      showToast('นำเข้าไม่สำเร็จ');
+      showToast('นำเข้าไม่สำเร็จ — ข้อมูลเดิมไม่ถูกแก้ ลองอีกครั้ง');
     } finally {
       setBusy(null);
     }
@@ -292,6 +317,7 @@ export default function DataScreen() {
       const text = await new File(asset.uri).text();
       const data = JSON.parse(text) as BackupData;
       if (data.version !== 1 || !Array.isArray(data.activities)) throw new Error('bad format');
+      setConfirmAll(false);
       setPendingImport(data);
     } catch {
       showToast('ไฟล์ไม่ถูกต้อง — ต้องเป็น JSON ที่สำรองจากแอปนี้');
@@ -306,23 +332,31 @@ export default function DataScreen() {
       // แม่แบบโน้ต/ตัวเลือกย่อยของหมวดมากับไฟล์สำรองด้วย — โหลด settings ใหม่ให้หน้าจอใช้ค่าที่กู้มา
       await Promise.all([useActivities.getState().boot(), useContacts.getState().boot(), useSettings.getState().boot()]);
       setPendingImport(null);
-      showToast(mode === 'replace' ? 'กู้คืนข้อมูล (แทนที่) แล้ว ✓' : 'รวมข้อมูลแล้ว ✓');
+      setConfirmAll(false);
+      showToast(mode === 'replace' ? 'กู้คืนข้อมูลจากไฟล์แล้ว' : 'รวมข้อมูลจากไฟล์แล้ว');
     } catch {
-      showToast('กู้คืนไม่สำเร็จ');
+      showToast('กู้คืนไม่สำเร็จ — ลองอีกครั้ง');
     } finally {
       setBusy(null);
     }
   };
 
   return (
-    <Screen title="ข้อมูล" subtitle="ส่งออก สำรอง และเชื่อม Google Sheets" variant="sub" action={{ label: 'สำรองตอนนี้', icon: 'check', onPress: exportJson }}>
+    <Screen title="ข้อมูล" subtitle="ส่งออก สำรอง และเชื่อม Google Sheets" variant="sub" action={{ label: busy ? 'กำลังทำงาน…' : 'สำรองตอนนี้', icon: 'check', onPress: exportJson, disabled: !!busy }}>
+      {/* งานที่ไม่มีกล่องของตัวเอง (ส่งออกไฟล์ / สำรอง) — บอกสถานะไว้บนสุดของหน้า */}
+      {busy && !pendingTT && !pendingImport ? (
+        <Card tone="card2">
+          <BusyLine text={busy} />
+        </Card>
+      ) : null}
       <Card>
-        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>Time Table — ส่งออก / นำเข้า</Txt>
+        <Txt size={12} weight="bold" color={t.sub} style={{ marginBottom: 4 }}>Time Table — ส่งออก / นำเข้า</Txt>
         <Row icon="grid" label="ส่งออก Time Table & รายงานสรุป" sub="เลือกช่วง: เดือนนี้ / เลือกเดือน / ทั้งหมด — Excel (.xlsx), มีสี (.xls) หรือ CSV" onPress={openExport} />
-        <Row icon="repeat" label="นำเข้า Time Table" sub="ไฟล์ .xlsx หรือ CSV แบบ grid — รองรับหลายเดือน/หลายชีตในไฟล์เดียว" onPress={pickTimeTableImport} last />
+        <Row icon="repeat" label="นำเข้า Time Table" sub="ไฟล์ .xlsx หรือ CSV แบบตารางเวลา — รองรับหลายเดือน/หลายชีตในไฟล์เดียว" onPress={pickTimeTableImport} last />
       </Card>
 
       {ttOpen ? (
+        <FadeInView rise={-6}>
         <Card tone="card2" style={{ gap: 12 }}>
           <Txt size={14} weight="bold">ส่งออก Time Table & รายงานสรุป — เลือกช่วงข้อมูล</Txt>
 
@@ -340,7 +374,7 @@ export default function DataScreen() {
 
           {/* เนื้อหาในไฟล์ — ตาราง Time Table / รายงานสรุป (ชุดเดียวกับหน้าสถิติ) */}
           <View style={{ gap: 6 }}>
-            <Txt size={11} color={t.faint}>เนื้อหาในไฟล์</Txt>
+            <Txt size={12} weight="med" color={t.sub}>เนื้อหาในไฟล์</Txt>
             <CheckRow
               label="รายงานสรุปจากที่บันทึกไว้"
               sub={`ภาพรวม · แนวโน้ม · ชั่วโมงตามหมวด · สรุปหมวดหมู่ (หมวดที่ใช้มากสุด + ทุกหมวดพร้อมสถานะ/สัดส่วน) · รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด (ครั้ง/เสร็จ/ชั่วโมง/ช่วงวัน) · นัดเคส · รายการนัด${noteReport ? ' · โน้ตรายครั้งทุกหมวด' : ''}`}
@@ -353,7 +387,7 @@ export default function DataScreen() {
             />
             <CheckRow
               label="ตาราง Time Table รายเดือน"
-              sub="grid ช่องเวลา 30 นาที — เอาออกได้ถ้าต้องการเฉพาะรายงาน"
+              sub="ตารางช่องเวลา 30 นาที — เอาออกได้ถ้าต้องการเฉพาะรายงาน"
               on={!reportOnly}
               disabled={!withReport}
               onPress={() => setReportOnly(!reportOnly)}
@@ -362,15 +396,15 @@ export default function DataScreen() {
 
           {/* เลือกรูปแบบไฟล์ */}
           <View style={{ gap: 6 }}>
-            <Txt size={11} color={t.faint}>รูปแบบไฟล์</Txt>
+            <Txt size={12} weight="med" color={t.sub}>รูปแบบไฟล์</Txt>
             <Seg
               options={[['xlsx', 'Excel (.xlsx)'], ['xls', 'มีสี (.xls)'], ['csv', 'CSV']]}
               value={ttFormat}
               onChange={setTtFormat}
             />
-            <Txt size={11} color={t.faint}>
+            <Txt size={11.5} color={t.sub} style={{ lineHeight: 17 }}>
               {ttFormat === 'xlsx'
-                ? `Excel (.xlsx): โครงเดียวกับไฟล์ “Time Table จอย” — คอลัมน์คั่นสัปดาห์ แถบ WEEK เซลล์ merge ตามช่วงเวลา · นำกลับเข้าแอปได้ (เฉพาะตาราง — โน้ตไม่ถูกนำเข้า)${withReport ? ` · รายงานอยู่ในชีตแยกหน้าสุด (รายงานสรุป · สรุปเคส & รายชื่อ${noteReport ? ' · โน้ตรายครั้ง' : ''})` : ''}`
+                ? `Excel (.xlsx): ตารางเวลารายเดือน คั่นเป็นสัปดาห์ รวมเซลล์ตามช่วงเวลา · นำกลับเข้าแอปได้ (เฉพาะตาราง — โน้ตไม่ถูกนำเข้า)${withReport ? ` · รายงานอยู่ในชีตแยกหน้าสุด (รายงานสรุป · สรุปเคส & รายชื่อ${noteReport ? ' · โน้ตรายครั้ง' : ''})` : ''}`
                 : ttFormat === 'xls'
                   ? 'มีสี (.xls): พื้นสีตามหมวด ✓/✗ ตามสถานะ — เปิดดูใน Excel/Sheets ได้ แต่นำกลับเข้าแอปไม่ได้'
                   : `CSV: ข้อความล้วน นำกลับเข้าแอปนี้ได้${withReport ? ' (บล็อกรายงานถูกข้ามตอนนำเข้า)' : ''}`}
@@ -403,50 +437,104 @@ export default function DataScreen() {
             />
           </View>
         </Card>
+        </FadeInView>
       ) : null}
 
       {pendingTT ? (
-        <Card tone="card2" style={{ gap: 10 }}>
+        <FadeInView rise={-6}>
+        <Card tone="card2" style={{ gap: 10, borderWidth: confirmTT != null ? 1.5 : 0, borderColor: t.warn }}>
           <Txt size={14} weight="bold">
             พบ Time Table {pendingTT.monthLabel}: {pendingTT.list.length} รายการ
           </Txt>
-          <Txt size={12} color={t.sub}>
-            ช่วง {pendingTT.from} – {pendingTT.to} · หมวดถูกเดาจากชื่อกิจกรรม แก้ทีหลังได้{'\n'}
-            ไฟล์ .xlsx: สีพื้นเซลล์เดิมถูกจำไว้ ส่งออกครั้งหน้าได้สีเดิมกลับไป{'\n'}
-            “แทนที่ช่วงนี้” จะลบข้อมูลเดิมเฉพาะช่วงวันดังกล่าวก่อนนำเข้า
-          </Txt>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" disabled={!!busy} onPress={() => setPendingTT(null)} />
-            <Btn style={{ flex: 1 }} label="เพิ่มรวม" disabled={!!busy} onPress={() => doTTImport('merge')} />
-            <Btn style={{ flex: 1 }} kind="danger" label="แทนที่ช่วงนี้" disabled={!!busy} onPress={() => doTTImport('replace')} />
-          </View>
+          {confirmTT != null ? (
+            <>
+              <Txt size={13.5} weight="bold" color={t.warn}>
+                ลบกิจกรรมเดิม {confirmTT} รายการในช่วงนี้ก่อนนำเข้า?
+              </Txt>
+              <Txt size={12.5} color={t.sub} style={{ lineHeight: 18 }}>
+                ช่วง {thaiDate(pendingTT.from)} – {thaiDate(pendingTT.to)} · ของเดิมในช่วงนี้ (รวมสถานะและโน้ต) จะหายและกู้คืนไม่ได้ · ถ้ายังไม่แน่ใจ สำรองข้อมูลไว้ก่อน
+              </Txt>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Btn style={{ flex: 1 }} kind="ghost" label="ไม่แทนที่" disabled={!!busy} onPress={() => setConfirmTT(null)} />
+                <Btn style={{ flex: 1 }} kind="ghost" icon="download" label="สำรองก่อน" disabled={!!busy} onPress={exportJson} />
+              </View>
+              <Btn kind="danger" label="ยืนยัน · แทนที่ช่วงนี้" disabled={!!busy} onPress={() => doTTImport('replace')} />
+            </>
+          ) : (
+            <>
+              <Txt size={12} color={t.sub}>
+                ช่วง {thaiDate(pendingTT.from)} – {thaiDate(pendingTT.to)} · หมวดถูกเดาจากชื่อกิจกรรม แก้ทีหลังได้{'\n'}
+                ไฟล์ .xlsx: สีพื้นเซลล์เดิมถูกจำไว้ ส่งออกครั้งหน้าได้สีเดิมกลับไป{'\n'}
+                “แทนที่ช่วงนี้” จะลบข้อมูลเดิมเฉพาะช่วงวันดังกล่าวก่อนนำเข้า
+              </Txt>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" disabled={!!busy} onPress={() => setPendingTT(null)} />
+                <Btn style={{ flex: 1 }} label="เพิ่มรวม" disabled={!!busy} onPress={() => doTTImport('merge')} />
+                <Btn
+                  style={{ flex: 1 }}
+                  kind="dangerSoft"
+                  label="แทนที่ช่วงนี้…"
+                  disabled={!!busy}
+                  onPress={() => {
+                    // นับของเดิมในช่วงที่จะถูกลบ — บอกจำนวนก่อนให้ยืนยัน
+                    let n = 0;
+                    for (let d = pendingTT.from; d <= pendingTT.to; d = addDays(d, 1)) n += getDay(d).length;
+                    if (n) setConfirmTT(n);
+                    else doTTImport('replace'); // ช่วงนี้ยังว่าง — ไม่มีอะไรให้ลบ
+                  }}
+                />
+              </View>
+            </>
+          )}
           {busy ? <BusyLine text={busy} /> : null}
         </Card>
+        </FadeInView>
       ) : null}
 
       <Card>
-        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>สำรอง & กู้คืน(แบบ Json)</Txt>
-        <Row icon="download" label="สำรองข้อมูล (JSON)" sub="ครบทุกตาราง (รายชื่อ/สถานะ/โน้ต + แม่แบบโน้ตและตัวเลือกของหมวด) — เก็บไว้กู้คืน/ย้ายเครื่อง" onPress={exportJson} />
-        <Row icon="restore" label="กู้คืน / นำเข้า (JSON)" sub="เลือกไฟล์ที่สำรองไว้" onPress={pickImport} last />
+        <Txt size={12} weight="bold" color={t.sub} style={{ marginBottom: 4 }}>สำรองและกู้คืน</Txt>
+        <Row icon="download" label="สำรองข้อมูลทั้งหมด" sub="ไฟล์เดียวครบทุกอย่าง (กิจกรรม · รายชื่อ · สถานะ · โน้ต · การตั้งค่าหมวด) — เก็บไว้กู้คืนหรือย้ายเครื่อง" onPress={exportJson} />
+        <Row icon="restore" label="กู้คืนจากไฟล์สำรอง" sub="เลือกไฟล์ที่สำรองไว้จากแอปนี้" onPress={pickImport} last />
       </Card>
 
       {pendingImport ? (
-        <Card tone="card2" style={{ gap: 10 }}>
+        <FadeInView rise={-6}>
+        <Card tone="card2" style={{ gap: 10, borderWidth: confirmAll ? 1.5 : 0, borderColor: t.warn }}>
           <Txt size={14} weight="bold">
-            พบข้อมูล: กิจกรรม {pendingImport.activities.length} · รายชื่อ {pendingImport.contacts.length}
+            ในไฟล์: กิจกรรม {pendingImport.activities.length} · รายชื่อ {pendingImport.contacts.length}
           </Txt>
-          <Txt size={12} color={t.sub}>เลือกวิธีนำเข้า — “แทนที่” จะลบข้อมูลปัจจุบันทั้งหมดก่อน</Txt>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" disabled={!!busy} onPress={() => setPendingImport(null)} />
-            <Btn style={{ flex: 1 }} label="รวม (merge)" disabled={!!busy} onPress={() => doImport('merge')} />
-            <Btn style={{ flex: 1 }} kind="danger" label="แทนที่" disabled={!!busy} onPress={() => doImport('replace')} />
-          </View>
+          {confirmAll ? (
+            <>
+              <Txt size={13.5} weight="bold" color={t.warn}>
+                ลบข้อมูลในเครื่องทั้งหมด แล้วใช้ข้อมูลจากไฟล์นี้แทน?
+              </Txt>
+              <Txt size={12.5} color={t.sub} style={{ lineHeight: 18 }}>
+                ตอนนี้ในเครื่องมีกิจกรรม {acts.length} · รายชื่อ {contactCount} — จะหายทั้งหมดและกู้คืนไม่ได้ · ถ้ายังไม่ได้สำรอง กด “สำรองก่อน”
+              </Txt>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Btn style={{ flex: 1 }} kind="ghost" label="ไม่แทนที่" disabled={!!busy} onPress={() => setConfirmAll(false)} />
+                <Btn style={{ flex: 1 }} kind="ghost" icon="download" label="สำรองก่อน" disabled={!!busy} onPress={exportJson} />
+              </View>
+              <Btn kind="danger" label="ยืนยัน · แทนที่ทั้งหมด" disabled={!!busy} onPress={() => doImport('replace')} />
+            </>
+          ) : (
+            <>
+              <Txt size={12} color={t.sub}>เลือกวิธีนำเข้า — “รวม” เก็บของเดิมไว้แล้วเพิ่มของในไฟล์ · “แทนที่” ลบข้อมูลในเครื่องทั้งหมดก่อน</Txt>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" disabled={!!busy} onPress={() => setPendingImport(null)} />
+                <Btn style={{ flex: 1 }} label="รวมกับของเดิม" disabled={!!busy} onPress={() => doImport('merge')} />
+                {/* ในเครื่องยังว่าง = ไม่มีอะไรให้ลบ → แทนที่ได้เลย */}
+                <Btn style={{ flex: 1 }} kind="dangerSoft" label="แทนที่…" disabled={!!busy} onPress={() => (acts.length || contactCount ? setConfirmAll(true) : doImport('replace'))} />
+              </View>
+            </>
+          )}
           {busy ? <BusyLine text={busy} /> : null}
         </Card>
+        </FadeInView>
       ) : null}
 
       <Card style={{ gap: 13 }}>
-        <Txt size={12} weight="bold" color={t.faint}>Google Sheets (ทางเดียว)</Txt>
+        <Txt size={12} weight="bold" color={t.sub}>Google Sheets (ส่งจากแอปขึ้นชีตทางเดียว)</Txt>
 
         {!sheetsUrl ? (
           // ยังไม่เชื่อมต่อ — เลือกจากรายการ URL ที่บันทึกไว้ได้ทันที หรือไปตั้งค่าใหม่
@@ -454,14 +542,14 @@ export default function DataScreen() {
             <Row
               icon="cloud"
               label="ส่งขึ้น Google Sheets"
-              sub={sheetsUrls.length ? `ยังไม่เชื่อมต่อ — มี ${sheetsUrls.length} URL บันทึกไว้ แตะเพื่อเชื่อมต่อ` : 'ยังไม่เชื่อมต่อ — ติดตั้งครั้งเดียว ใช้ได้ตลอด'}
+              sub={sheetsUrls.length ? `ยังไม่เชื่อมต่อ — มี ${sheetsUrls.length} URL บันทึกไว้ เลือกด้านล่างเพื่อเชื่อมต่อ` : 'ยังไม่เชื่อมต่อ — ติดตั้งครั้งเดียว ใช้ได้ตลอด'}
               last
               onPress={sheetsUrls.length ? undefined : () => router.push('/settings/sheets-setup')}
             />
             {sheetsUrls.length ? (
               <>
                 <View style={{ gap: 6 }}>
-                  <Txt size={11} weight="bold" color={t.faint}>URL ที่บันทึกไว้ ({sheetsUrls.length}/5)</Txt>
+                  <Txt size={12} weight="bold" color={t.sub}>URL ที่บันทึกไว้ ({sheetsUrls.length}/5)</Txt>
                   {sheetsUrls.map((u) => (
                     <UrlItem key={u} url={u} actionLabel="เชื่อมต่อ" onAction={() => connectUrl(u)} onRemove={() => deleteUrl(u)} />
                   ))}
@@ -482,7 +570,8 @@ export default function DataScreen() {
             <Row
               icon="cloud"
               label="เชื่อมต่อแล้ว"
-              sub={truncate(sheetsUrl.replace('https://script.google.com/', '…/'), 20)}
+              sub={sheetsLast && sheetsLast.url === sheetsUrl ? `ส่งล่าสุด ${whenText(sheetsLast.at)} · ${sheetsLast.tabs} แท็บ` : 'ยังไม่เคยส่งจากเครื่องนี้'}
+              subColor={sheetsLast && sheetsLast.url === sheetsUrl ? t.greenInk : undefined}
               last
               right={<Chip small icon="edit" label="แก้ URL" onPress={() => router.push('/settings/sheets-setup')} />}
             />
@@ -498,7 +587,7 @@ export default function DataScreen() {
 
                 {/* เนื้อหาที่จะลงในชีต */}
                 <View style={{ gap: 6 }}>
-                  <Txt size={11} color={t.faint}>เนื้อหาในชีต</Txt>
+                  <Txt size={12} weight="med" color={t.sub}>เนื้อหาในชีต</Txt>
                   <CheckRow
                     label="รายงานสรุปจากที่บันทึกไว้"
                     sub={`แท็บหน้าสุด: “รายงานสรุป” (ภาพรวม/แนวโน้ม/สรุปหมวดหมู่ + รายการกิจกรรมทุกชื่อในทั้ง 6 หมวด) · “สรุปเคส & รายชื่อ” (รวมรายการนัด)${noteReport ? ' · “โน้ตรายครั้ง” (โน้ตทุกหมวด)' : ''}`}
@@ -511,7 +600,7 @@ export default function DataScreen() {
                   />
                   <CheckRow
                     label="ตาราง Time Table + รายการกิจกรรม"
-                    sub={`แท็บ grid ช่องเวลา 30 นาที ต่อเดือน + แท็บรายการกิจกรรมแบบแถว${noteReport ? ' (มีคอลัมน์โน้ต)' : ''}`}
+                    sub={`แท็บตารางช่องเวลา 30 นาที ต่อเดือน + แท็บรายการกิจกรรมแบบแถว${noteReport ? ' (มีคอลัมน์โน้ต)' : ''}`}
                     on={shGrid}
                     disabled={!shReport}
                     onPress={() => setShGrid(!shGrid)}
@@ -520,13 +609,13 @@ export default function DataScreen() {
 
                 {/* ระดับการจัดรูปแบบในชีต */}
                 <View style={{ gap: 6 }}>
-                  <Txt size={11} color={t.faint}>รูปแบบข้อมูลในชีต</Txt>
+                  <Txt size={12} weight="med" color={t.sub}>รูปแบบข้อมูลในชีต</Txt>
                   <Seg
                     options={[['rich', 'เต็มรูปแบบ'], ['color', 'มีสี'], ['plain', 'ค่าล้วน']]}
                     value={shStyle}
                     onChange={setShStyle}
                   />
-                  <Txt size={11} color={t.faint}>
+                  <Txt size={11.5} color={t.sub} style={{ lineHeight: 17 }}>
                     {shStyle === 'rich'
                       ? 'เต็มรูปแบบ: กิจกรรมยาวถมสีต่อเนื่องโดยไม่พิมพ์ชื่อซ้ำ (มองเป็นบล็อกเดียวเหมือนเซลล์ merge) ✓/✗ ตามสถานะ — อ่านสวยที่สุด'
                       : shStyle === 'color'
@@ -563,7 +652,7 @@ export default function DataScreen() {
               </View>
             ) : showSwitch ? (
               <View style={{ gap: 6 }}>
-                <Txt size={11} weight="bold" color={t.faint}>สลับไปใช้ URL อื่น</Txt>
+                <Txt size={12} weight="bold" color={t.sub}>สลับไปใช้ URL อื่น</Txt>
                 {savedOthers.map((u) => (
                   <UrlItem key={u} url={u} actionLabel="ใช้" onAction={() => { connectUrl(u); setShowSwitch(false); }} onRemove={() => deleteUrl(u)} />
                 ))}
@@ -577,7 +666,25 @@ export default function DataScreen() {
                   disabled={sending}
                   onPress={openSheets}
                 />
-                <Txt size={11} color={t.faint}>
+                {sending ? <BusyLine text="กำลังส่งขึ้น Google Sheets…" /> : null}
+                {/* ส่งไม่สำเร็จ — ค้างไว้ให้อ่าน + ลองใหม่/ดูวิธีแก้ (เดิมเป็น toast ที่หายใน 2 วินาที) */}
+                {sendErr && !sending ? (
+                  <FadeInView rise={-6}>
+                    <View style={{ borderRadius: 14, borderWidth: 1, borderColor: t.warn, backgroundColor: t.warn + '12', padding: 12, gap: 8 }}>
+                      <Txt size={13.5} weight="bold" color={t.warn}>
+                        ส่งขึ้นชีตไม่สำเร็จ
+                      </Txt>
+                      <Txt size={12.5} color={t.sub} style={{ lineHeight: 18 }}>
+                        {sendErr}
+                      </Txt>
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <Btn style={{ flex: 1 }} kind="ghost" label="ดูวิธีแก้" onPress={() => router.push('/settings/sheets-setup')} />
+                        <Btn style={{ flex: 1 }} label="ลองอีกครั้ง" onPress={sendToSheets} />
+                      </View>
+                    </View>
+                  </FadeInView>
+                ) : null}
+                <Txt size={11.5} color={t.sub}>
                   เลือกช่วง (เดือนนี้ / เลือกเดือน / ทั้งหมด) · เนื้อหา (ตาราง / รายงานสรุป) · รูปแบบและโทนสีได้ก่อนส่ง
                 </Txt>
                 {savedOthers.length ? (
@@ -602,10 +709,9 @@ export default function DataScreen() {
         )}
       </Card>
 
-      <Txt size={11} color={t.faint} style={{ textAlign: 'center' }}>
-        ส่งขึ้น Google Sheets ทางเดียว (แอป → Sheets): แท็บรายงาน (+ โน้ตรายครั้ง) + grid Time Table รายเดือน + แท็บรายการกิจกรรม
+      <Txt size={11.5} color={t.sub} style={{ textAlign: 'center', lineHeight: 17 }}>
+        ส่งขึ้น Google Sheets ทางเดียว (แอป → Sheets): แท็บรายงาน (+ โน้ตรายครั้ง) + ตารางเวลารายเดือน + แท็บรายการกิจกรรม
         {'\n'}ชีตถูกเขียนทับทุกครั้งที่ส่ง (แท็บชื่อเดิม) — แท็บอื่นในไฟล์เดียวกันไม่ถูกแตะ
-        {'\n'}เคยส่งด้วยเวอร์ชันก่อน: แท็บ “สรุปหมวดหมู่” และ “รายการนัดเคส” ย้ายไปรวมกับ 2 แท็บนี้แล้ว ลบแท็บเก่าทิ้งได้เลย
       </Txt>
     </Screen>
   );
@@ -619,7 +725,7 @@ function truncate(s: string, max: number): string {
 /** ขอบเขตเดือน 3 แบบ — ใช้ทั้งส่งออกไฟล์และส่งขึ้นชีต */
 const SCOPE_OPTIONS = [['month', 'เดือนนี้'], ['pick', 'เลือกเดือน'], ['all', 'ทั้งหมด']] as const;
 
-/** แถบเลือกแบบแบ่งช่องเท่า ๆ กัน (ขอบเขต / รูปแบบไฟล์ / รูปแบบชีต) */
+/** แถบเลือกแบบแบ่งช่องเท่า ๆ กัน (ขอบเขต / รูปแบบไฟล์ / รูปแบบชีต) — ใช้ Segmented กลางของแอป (แผ่นขาวเลื่อน + อ่านด้วยตัวอ่านหน้าจอได้) */
 function Seg<K extends string>({
   options,
   value,
@@ -629,30 +735,17 @@ function Seg<K extends string>({
   value: K;
   onChange: (k: K) => void;
 }) {
-  const t = useTokens();
-  return (
-    <View style={{ flexDirection: 'row', gap: 8 }}>
-      {options.map(([k, lb]) => {
-        const on = value === k;
-        return (
-          <Pressable key={k} onPress={() => onChange(k)} style={pressFade({ flex: 1 })}>
-            <View
-              style={{
-                paddingVertical: 8,
-                paddingHorizontal: 4,
-                borderRadius: 10,
-                borderWidth: 1,
-                alignItems: 'center',
-                borderColor: on ? t.accent : t.line,
-                backgroundColor: on ? t.chip : 'transparent',
-              }}>
-              <Txt size={12} weight="bold" color={on ? t.accent : t.sub}>{lb}</Txt>
-            </View>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
+  return <Segmented options={options.map(([key, label]) => ({ key, label }))} value={value} onChange={onChange} />;
+}
+
+/** ให้จอวาดสถานะ "กำลังทำงาน" ก่อนเริ่มงานหนักบนเธรดหลัก */
+const nextFrame = () => new Promise<void>((r) => setTimeout(r, 40));
+
+/** เวลาที่ผ่านมาแบบอ่านง่าย: "วันนี้ 14:05" / "12 พ.ย. 09:30" */
+function whenText(at: number): string {
+  const d = new Date(at);
+  const iso = toISO(d);
+  return `${iso === todayISO() ? 'วันนี้' : thaiDate(iso)} ${fmtMin(d.getHours() * 60 + d.getMinutes())}`;
 }
 
 /** รายละเอียดของขอบเขตที่เลือก — โหมด "เลือกเดือน" จะกลายเป็นชิปติ๊กเลือกจากเดือนที่มีข้อมูล */
@@ -681,20 +774,20 @@ function ScopeDetail({
   }
   return (
     <View style={{ gap: 6 }}>
-      <Txt size={11} color={t.faint}>ติ๊กเดือนที่จะ{verb} — เลือกได้ ({picked.length} เดือน)</Txt>
+      <Txt size={11.5} color={t.sub}>ติ๊กเดือนที่จะ{verb} — เลือกแล้ว {picked.length} เดือน</Txt>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
         {months.map((mo) => {
           const on = picked.includes(mo);
           return (
-            <Pressable style={pressFade()} key={mo} onPress={() => onToggle(mo)}>
+            <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={ttMonthLabel(mo)} hitSlop={4} style={pressFade()} key={mo} onPress={() => onToggle(mo)}>
               <View
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
                   gap: 4,
-                  paddingVertical: 6,
-                  paddingHorizontal: 10,
-                  borderRadius: 8,
+                  minHeight: 36,
+                  paddingHorizontal: 12,
+                  borderRadius: 18,
                   borderWidth: 1,
                   borderColor: on ? t.accent : t.line,
                   backgroundColor: on ? t.chip : 'transparent',
@@ -725,12 +818,12 @@ function TonePicks({
   const t = useTokens();
   return (
     <View style={{ gap: 6 }}>
-      <Txt size={11} color={t.faint}>{label}</Txt>
+      <Txt size={12} weight="med" color={t.sub}>{label}</Txt>
       <View style={{ flexDirection: 'row', gap: 8 }}>
         {EXPORT_TONES.map((p) => {
           const on = value === p.id;
           return (
-            <Pressable key={p.id} onPress={() => onChange(p.id)} style={pressFade({ flex: 1 })}>
+            <Pressable key={p.id} accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={`โทนสี ${p.name}`} onPress={() => onChange(p.id)} style={pressFade({ flex: 1 })}>
               <View
                 style={{
                   gap: 6,
@@ -753,7 +846,7 @@ function TonePicks({
           );
         })}
       </View>
-      <Txt size={11} color={t.faint}>
+      <Txt size={11.5} color={t.sub}>
         {EXPORT_PALETTES[value].desc}
         {note ? `\n${note}` : ''}
       </Txt>
@@ -776,7 +869,7 @@ function ttMonthLabel(anchor: string): string {
 function CheckRow({ label, sub, on, disabled, onPress }: { label: string; sub: string; on: boolean; disabled?: boolean; onPress: () => void }) {
   const t = useTokens();
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={pressFade({ opacity: disabled ? 0.4 : 1 })}>
+    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: on, disabled: !!disabled }} accessibilityLabel={label} accessibilityHint={sub} disabled={disabled} onPress={onPress} style={pressFade({ opacity: disabled ? 0.4 : 1 })}>
       <View
         style={{
           flexDirection: 'row',
@@ -804,7 +897,7 @@ function CheckRow({ label, sub, on, disabled, onPress }: { label: string; sub: s
         </View>
         <View style={{ flex: 1, gap: 1 }}>
           <Txt size={12.5} weight="bold" color={on ? t.ink : t.sub}>{label}</Txt>
-          <Txt size={10.5} color={t.faint}>{sub}</Txt>
+          <Txt size={11.5} color={t.sub} style={{ lineHeight: 16 }}>{sub}</Txt>
         </View>
       </View>
     </Pressable>
@@ -832,11 +925,14 @@ function UrlItem({ url, actionLabel, onAction, onRemove }: { url: string; action
         {truncate(url.replace('https://script.google.com/macros/s/', '…/'), 24)}
       </Txt>
       <Chip small icon="check" label={actionLabel} onPress={onAction} />
+      {/* เว้นจากปุ่มเชื่อมต่อ + พื้นที่แตะ 36 — ไม่ให้นิ้วพลาดไปโดนปุ่มลบ */}
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="ลบ URL นี้ออกจากรายการ"
         onPress={onRemove}
         hitSlop={6}
-        style={pressFade({ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: t.chip })}>
-        <Icon name="trash" size={14} color={DANGER} />
+        style={pressFade({ width: 36, height: 36, marginLeft: 4, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: t.chip })}>
+        <Icon name="trash" size={15} color={t.warn} />
       </Pressable>
     </View>
   );

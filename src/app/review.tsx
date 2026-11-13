@@ -1,6 +1,6 @@
 // ⑤ ทบทวนรายการค้าง — หน้าย่อย (ระบบ B1): รายการที่เลยเวลาแล้วแต่ยังไม่ได้บอกว่าทำหรือข้าม
 // แยกตามวันบนราง · วงกลม = บันทึกว่าทำแล้ว · ปุ่ม "ข้าม" ต่อแถว · ล่าง: ‹ กลับ + ทำแล้วทั้งหมด (มี toast เลิกทำ)
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { Rail } from '@/components/b1/rail';
@@ -28,7 +28,14 @@ export default function ReviewScreen() {
   const openSheet = useUI((s) => s.openSheet);
   const toggle = useToggleStatus();
   const [range, setRange] = useState<Range>('7');
-  const [confirmSkip, setConfirmSkip] = useState(false);
+  /** ปุ่มรวมที่ "ง้าง" รอยืนยันอยู่ — ทำ/ข้ามทั้งหมดกระทบได้ถึง 30 วัน จึงต้องแตะสองครั้ง · ไม่ยืนยันใน 4 วินาทีแล้วคลายเอง */
+  const [armed, setArmed] = useState<'done' | 'skipped' | null>(null);
+  const confirmSkip = armed === 'skipped';
+  useEffect(() => {
+    if (!armed) return;
+    const id = setTimeout(() => setArmed(null), 4000);
+    return () => clearTimeout(id);
+  }, [armed]);
   // รายการที่เพิ่งจัดการในหน้านี้ — ยังโชว์ต่อ (ขีดฆ่า/ข้าม) ให้เห็นผลและแตะกลับได้ จนกว่าจะออกจากหน้า
   const [handled, setHandled] = useState<string[]>([]);
 
@@ -73,17 +80,26 @@ export default function ReviewScreen() {
       label: 'เลิกทำ',
       run: () => list.forEach((it) => setStatus(it, null)),
     });
-    setConfirmSkip(false);
+    setArmed(null);
   };
 
   const dayLabel = (d: string) => (d === now.date ? 'วันนี้' : d === addDays(now.date, -1) ? 'เมื่อวาน' : '');
 
   return (
     <Screen
-      title="ค้างบันทึก"
+      title="ยังไม่ได้บันทึก"
       subtitle="เลยเวลาแล้ว แต่ยังไม่ได้บอกว่าทำหรือข้าม"
       variant="sub"
-      action={pending.length ? { label: `ทำแล้วทั้งหมด (${pending.length})`, icon: 'check', onPress: () => bulk('done') } : undefined}>
+      // เกิน 5 รายการ: แตะครั้งแรกเปลี่ยนเป็น "ยืนยัน" ก่อน (ติ๊กย้อนหลังหลายวันในแตะเดียวพลาดง่าย)
+      action={
+        pending.length
+          ? {
+              label: armed === 'done' ? `ยืนยัน · ทำแล้ว ${pending.length} รายการ` : `ทำแล้วทั้งหมด (${pending.length})`,
+              icon: 'check',
+              onPress: () => (pending.length > 5 && armed !== 'done' ? setArmed('done') : bulk('done')),
+            }
+          : undefined
+      }>
       <Segmented<Range>
         options={[
           { key: '7', label: `7 วันล่าสุด · ${n7}` },
@@ -92,7 +108,7 @@ export default function ReviewScreen() {
         value={range}
         onChange={(r) => {
           setRange(r);
-          setConfirmSkip(false);
+          setArmed(null);
         }}
       />
 
@@ -103,9 +119,9 @@ export default function ReviewScreen() {
           </Txt>
           <Pressable
             accessibilityRole="button"
-            onPress={() => (confirmSkip ? bulk('skipped') : setConfirmSkip(true))}
+            onPress={() => (confirmSkip ? bulk('skipped') : setArmed('skipped'))}
             hitSlop={6}
-            style={pressFade({ height: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: confirmSkip ? t.warn : 'transparent', justifyContent: 'center' })}>
+            style={pressFade({ height: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: confirmSkip ? t.warnFill : 'transparent', justifyContent: 'center' })}>
             <Txt size={13} weight="bold" color={confirmSkip ? '#FFFFFF' : t.sub}>
               {confirmSkip ? `ยืนยันข้าม ${pending.length}` : 'ข้ามทั้งหมด…'}
             </Txt>

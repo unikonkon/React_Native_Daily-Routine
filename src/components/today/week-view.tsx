@@ -3,19 +3,22 @@
 // เต็มจอ ไม่ต้องเลื่อน — เห็นภาพรวม "ช่วงไหนของวันไหนยุ่ง" ทันที
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindowDimensions, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { useNow } from '@/components/b1/use-now';
 import { Icon } from '@/components/icon';
+import { EASE_OUT, Pulse } from '@/components/motion';
+import { SwipeDays } from '@/components/today/swipe-days';
 import { useCaseNames } from '@/components/today/parts';
 import { Txt, pressFade, useTokens } from '@/components/ui';
 import { ATTN, CAT_BY_ID, CATS, DAY_END, DAY_START, GREEN, type CatId } from '@/constants/theme';
-import { addDays, fmtMin, fromISO, mondayOf, todayISO, WD_TH } from '@/lib/dates';
+import { addDays, fmtMin, fmtRange, fromISO, mondayOf, thaiDate, thaiWeekRange, todayISO, WD_TH } from '@/lib/dates';
 import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import { dayProgress, isPast } from '@/lib/progress';
 import type { DayItem } from '@/lib/types';
 import { useDayReader } from '@/stores/activities';
 
-const GUTTER = 34; // แกนเวลาซ้าย
+const GUTTER = 38; // แกนเวลาซ้าย
 const HPAD = 8;
 // แกนเวลาแบบ "ย่อช่วงดึก" — 01:00–06:00 (บนแกนคือ 25:00–30:00) สูงแค่ 50% ของสเกลปกติ
 // ความสูงที่เหลือถูกเฉลี่ยคืนให้ช่วง 06:00–01:00 อัตโนมัติ (เพราะรวมกันเป็น 100% เท่าเดิม)
@@ -44,6 +47,15 @@ interface WeekViewProps {
   onPressSlot?: (date: string, start: number, end: number) => void;
   /** ปุ่ม "ลบหลายรายการ" ท้ายแถวคำอธิบายหมวด (ไม่ส่ง = ไม่โชว์) */
   onDeleteMany?: () => void;
+}
+
+/** ป้ายสัปดาห์ปลายทางตอนปัดที่ตาราง — สัปดาห์นี้/หน้า/ก่อน หรือช่วงวันที่ */
+function weekLabel(monday: string, today: string): string {
+  const cur = mondayOf(today);
+  if (monday === cur) return 'สัปดาห์นี้';
+  if (monday === addDays(cur, 7)) return 'สัปดาห์หน้า';
+  if (monday === addDays(cur, -7)) return 'สัปดาห์ก่อน';
+  return thaiWeekRange(monday);
 }
 
 /** คีย์ประจำ occurrence หนึ่ง ๆ (กิจกรรมชุดทำซ้ำใช้ id เดียวกันหลายวัน) */
@@ -83,6 +95,17 @@ export function TodayWeekView({
   const nowR = useNow();
   const nowTop = nowR.min;
 
+  // เปลี่ยนสัปดาห์ (ปัด · ปุ่ม ‹ › · แถบหัววัน) → บล็อกจางลงแล้วชัดขึ้นสั้น ๆ ให้รู้ว่าเป็นข้อมูลของสัปดาห์ใหม่ (เดิมสลับทันที)
+  const fade = useSharedValue(1);
+  const seen = useRef(monday);
+  useEffect(() => {
+    if (seen.current === monday) return;
+    seen.current = monday;
+    fade.set(0.35);
+    fade.set(withTiming(1, { duration: 200, easing: EASE_OUT }));
+  }, [monday, fade]);
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
+
   return (
     <View style={{ flex: 1 }}>
       {/* หัวคอลัมน์ (จันทร์นำ) — ปัดซ้าย/ขวาเพื่อเลื่อนสัปดาห์ย้อนหลัง/อนาคต */}
@@ -96,11 +119,14 @@ export function TodayWeekView({
 
       {/* เวที (definite height ผ่าน flex) — วางเส้นชั่วโมง + คอลัมน์ทับกันด้วย % */}
       <View style={{ flex: 1, marginHorizontal: HPAD, paddingBottom: bottomPad }}>
-        <View style={{ flex: 1, position: 'relative' }}>
+        {/* ปัดซ้าย/ขวาที่ตัวตาราง = สัปดาห์ถัดไป/ก่อนหน้า (เดิมปัดได้เฉพาะแถบหัววันด้านบน) */}
+        <SwipeDays focus={monday} onChangeFocus={onChangeMonday} step={7} labelOf={weekLabel}>
+        {/* เว้นบน/ล่าง 8 — ป้ายเวลาแรกและสุดท้ายยื่นพ้นขอบเวทีครึ่งตัว (กล่องปัดตัดส่วนที่ล้น) */}
+        <View style={{ flex: 1, position: 'relative', marginVertical: 8 }}>
           {/* เส้นชั่วโมง + ป้ายเวลา — height 14 + marginTop -7 ให้เส้นตกที่ตำแหน่งเวลาพอดี (ตรงกับบล็อก) */}
           {hours.map((m) => (
             <View key={m} style={{ position: 'absolute', top: `${pct(m)}%`, left: 0, right: 0, height: 14, marginTop: -7, flexDirection: 'row', alignItems: 'center' }}>
-              <Txt size={9} num color={t.faint} style={{ width: GUTTER, textAlign: 'right', paddingRight: 5 }}>
+              <Txt size={10.5} num color={t.muted} style={{ width: GUTTER, textAlign: 'right', paddingRight: 5 }}>
                 {fmtMin(m)}
               </Txt>
               <View style={{ flex: 1, height: 1, backgroundColor: t.line }} />
@@ -108,7 +134,7 @@ export function TodayWeekView({
           ))}
 
           {/* 7 คอลัมน์ (ทับบนเส้นชั่วโมง) */}
-          <View style={{ position: 'absolute', top: 0, bottom: 0, left: GUTTER, right: 0, flexDirection: 'row' }}>
+          <Animated.View style={[{ position: 'absolute', top: 0, bottom: 0, left: GUTTER, right: 0, flexDirection: 'row' }, fadeStyle]}>
             {days.map((d, ci) => {
               const items = getDay(d);
               const lanes = assignLanes(items);
@@ -144,14 +170,18 @@ export function TodayWeekView({
                     return (
                       <Pressable
                         key={itemKey(it)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${label || it.title} ${fmtRange(it.startMin, it.endMin)}${done ? ' ทำแล้ว' : skipped ? ' ข้าม' : overdue ? ' ยังไม่ได้บันทึก' : ''}`}
                         onPress={() => onPressItem(it)}
+                        // บล็อกสั้น (ไม่ถึงครึ่งชั่วโมง) สูงไม่กี่จุด — ขยายพื้นที่แตะบน/ล่างให้กดโดน
+                        hitSlop={dur < 45 ? { top: 6, bottom: 6 } : undefined}
                         style={pressFade({
                           position: 'absolute',
                           top: `${top}%`,
                           height: `${h}%`,
                           left: `${(100 / n) * lane + 3}%`,
                           width: `${100 / n - 5}%`,
-                          minHeight: 5,
+                          minHeight: 8,
                           borderRadius: 3,
                           backgroundColor: skipped ? t.skipFill : overdue ? cat.color + '66' : cat.color,
                           opacity: (done ? 0.75 : 0.98) * dim * (freeMode ? 0.3 : 1),
@@ -170,7 +200,7 @@ export function TodayWeekView({
                           </View>
                         ) : null}
                         {showName ? (
-                          <Txt size={8} weight="med" color="#FFFFFF" numberOfLines={nameLines} style={{ textAlign: 'center', lineHeight: 9.5 }}>
+                          <Txt size={9.5} weight="med" color="#FFFFFF" numberOfLines={nameLines} style={{ textAlign: 'center', lineHeight: 11 }}>
                             {label}
                           </Txt>
                         ) : null}
@@ -186,6 +216,9 @@ export function TodayWeekView({
                         return (
                           <Pressable
                             key={`slot:${s.start}`}
+                            accessibilityRole="button"
+                            accessibilityLabel={`ว่าง ${fmtRange(s.start, s.end)} ${thaiDate(d)} — แตะเพื่อเพิ่มกิจกรรม`}
+                            hitSlop={s.end - s.start < 45 ? { top: 6, bottom: 6 } : undefined}
                             onPress={() => onPressSlot?.(d, s.start, s.end)}
                             style={pressFade({
                               position: 'absolute',
@@ -210,18 +243,21 @@ export function TodayWeekView({
 
                   {/* เส้นตอนนี้ (เฉพาะวันนี้) */}
                   {isToday ? (
-                    <View style={{ position: 'absolute', top: `${pct(nowTop)}%`, left: 0, right: 0, height: 3, backgroundColor: t.accent }}>
+                    <View pointerEvents="none" style={{ position: 'absolute', top: `${pct(nowTop)}%`, left: 0, right: 0, height: 3, backgroundColor: t.accent }}>
+                      {/* คลื่นจาง ๆ ที่หัวเส้น "ตอนนี้" — ภาษาเดียวกับมุมมองวัน */}
+                      <Pulse size={7} color={t.accent} style={{ left: -3, top: -2 }} />
                       <View style={{ position: 'absolute', left: -3, top: -2, width: 7, height: 7, borderRadius: 3, backgroundColor: t.accent }} />
                     </View>
                   ) : null}
                 </View>
               );
             })}
-          </View>
+          </Animated.View>
         </View>
+        </SwipeDays>
 
         {/* คำอธิบายไอคอนหมวด (legend) — ถอดความหมายไอคอนในบล็อก */}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 4, paddingHorizontal: HPAD + 4, paddingVertical: 8, marginTop: 4 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 6, rowGap: 2, paddingHorizontal: HPAD, paddingVertical: 6, marginTop: 4 }}>
           {freeMode ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <View style={{ width: 12, height: 12, borderRadius: 3, borderWidth: 1, borderColor: GREEN, backgroundColor: GREEN + '26' }} />
@@ -236,15 +272,19 @@ export function TodayWeekView({
             return (
               <Pressable
                 key={cat.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`${cat.short} — ${on ? 'ซ่อน' : 'แสดง'}ชื่อกิจกรรมในบล็อก`}
                 onPress={() => toggleNameCat(cat.id)}
-                hitSlop={4}
+                hitSlop={{ top: 6, bottom: 6 }}
+                // ชิปสูง 30 เต็มตัว (เดิมสูง ~16 แตะยาก) · เลือกแล้วพื้นสีหมวดอ่อน
                 style={pressFade({
                   flexDirection: 'row',
                   alignItems: 'center',
                   gap: 4,
-                  paddingVertical: 2,
-                  paddingHorizontal: on ? 7 : 0,
-                  borderRadius: 99,
+                  height: 30,
+                  paddingHorizontal: 8,
+                  borderRadius: 15,
                   backgroundColor: on ? cat.color + '26' : 'transparent',
                 })}>
                 <Icon name={cat.icon} size={12} color={cat.color} />
@@ -255,7 +295,7 @@ export function TodayWeekView({
             );
           })}
           {nameCats.size ? (
-            <Pressable onPress={() => setNameCats(new Set())} hitSlop={4} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 3 })}>
+            <Pressable accessibilityRole="button" onPress={() => setNameCats(new Set())} hitSlop={{ top: 6, bottom: 6 }} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 3, height: 30, paddingHorizontal: 8 })}>
               <Icon name="x" size={11} color={t.accent} />
               <Txt size={11} weight="med" color={t.accent}>
                 ซ่อนชื่อ
@@ -386,8 +426,8 @@ function WeekHeaderStrip({
                 const p = dayProgress(getDay(d), nowR);
                 const past = d <= nowR.date;
                 return (
-                  <Pressable key={d} onPress={() => onPressDay(d)} style={pressFade({ flex: 1, alignItems: 'center', gap: 2 })}>
-                    <Txt size={10.5} weight="med" color={i === 6 ? t.accent : t.faint}>
+                  <Pressable key={d} accessibilityRole="button" accessibilityLabel={`${thaiDate(d)}${isToday ? ' วันนี้' : ''} — เปิดมุมมองวัน`} onPress={() => onPressDay(d)} style={pressFade({ flex: 1, alignItems: 'center', gap: 2 })}>
+                    <Txt size={11} weight="med" color={i === 6 ? t.accentInk : t.sub}>
                       {WD_TH[i]}
                     </Txt>
                     <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: isToday ? t.accent : 'transparent' }}>
@@ -401,7 +441,7 @@ function WeekHeaderStrip({
                       </Txt>
                     ) : p.total ? (
                       // ทำแล้ว x/y — เขียว = ครบ · ส้มเข้ม = มีค้างบันทึก · วันอนาคตบอกแค่จำนวน
-                      <Txt size={10.5} num weight="bold" color={!past ? t.faint : p.overdue ? t.warn : p.done === p.total ? t.greenInk : t.sub}>
+                      <Txt size={11} num weight="bold" color={!past ? t.muted : p.overdue ? t.warn : p.done === p.total ? t.greenInk : t.sub}>
                         {past ? `${p.done}/${p.total}` : p.total}
                       </Txt>
                     ) : null}

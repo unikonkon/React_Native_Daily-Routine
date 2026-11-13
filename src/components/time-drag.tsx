@@ -2,6 +2,8 @@
 // • TimeDragBar  — แถบ 24 ชม. แนวนอน (06:00–06:00) เห็นทั้งวันในแถบเดียว
 // • TimeDragRail — รางแนวตั้งแบบละเอียด (1 ชม. = 48px) เลื่อนดูได้ ลากได้แม่นกว่า
 // ทั้งสองแบบ: กดค้างที่บล็อกส้มแล้วลาก = ย้ายทั้งช่วง (ความยาวเท่าเดิม) · กดค้างที่ขอบแล้วลาก = ยืด/หด
+// แถบแนวนอน: ปัดไปทางซ้าย/ขวาบนบล็อกได้เลยโดยไม่ต้องกดค้าง (หน้าจอเลื่อนแนวตั้ง จึงไม่แย่งกัน) — เดิมปัดแล้วไม่เกิดอะไร
+// แตะบล็อกสั้น ๆ = ยังไม่ได้ลาก → แจ้งกลับ (onHint) ให้หน้าฟอร์มเน้นคำอธิบายวิธีลาก
 //             แตะที่ว่างบนแถบ = ย้ายช่วงไปเวลานั้น · ขยับทีละ 15 นาที · กิจกรรมเดิมของวันนั้นเป็นบล็อกเทา
 // ใช้ PanResponder ของ RN (ไม่ต้องห่อ GestureHandlerRootView) · กดค้างก่อนจึงลากได้ → ไม่แย่งการเลื่อนหน้าจอ
 import React, { useEffect, useRef, useState } from 'react';
@@ -29,6 +31,8 @@ interface DragOpts {
   onChange: (start: number, end: number) => void;
   /** เริ่ม/เลิกลาก — ให้หน้าล็อกการเลื่อนระหว่างลาก */
   onDragState?: (dragging: boolean) => void;
+  /** แตะบล็อกสั้น ๆ โดยไม่ได้ลาก — ผู้ใช้น่าจะยังไม่รู้ว่าต้องกดค้าง/ลาก */
+  onHint?: () => void;
 }
 
 const snap = (m: number) => Math.round(m / SNAP) * SNAP;
@@ -86,8 +90,13 @@ function useTimeDrag(opts: DragOpts) {
             moved = true;
             if (timer) clearTimeout(timer);
             timer = null;
-          }
-          return;
+            // แถบแนวนอน: ลากไปด้านข้างชัด ๆ บนบล็อก = เริ่มลากทันที ไม่ต้องรอกดค้าง (แนวตั้งยังเป็นการเลื่อนหน้าตามเดิม)
+            if (latest.current.axis === 'x' && target && Math.abs(g.dx) > Math.abs(g.dy) * 1.2) {
+              armed = true;
+              setActive(target);
+              latest.current.onDragState?.(true);
+            } else return;
+          } else return;
         }
         const o = latest.current;
         const dm = snap(d / o.pxPerMin);
@@ -111,6 +120,8 @@ function useTimeDrag(opts: DragOpts) {
           const s = Math.min(Math.max(snap(o.minAt(origin.pos) - dur / 2), DAY_START), DAY_END - dur);
           if (s !== o.start) o.onChange(s, s + dur);
         }
+        // แตะบนบล็อกเฉย ๆ — บอกวิธีใช้
+        if (!armed && !moved && target) latest.current.onHint?.();
         stop();
       },
       onPanResponderTerminate: stop,
@@ -130,6 +141,8 @@ interface TimeDragProps {
   free?: { start: number; end: number; night?: boolean }[];
   title?: string;
   onDragState?: (dragging: boolean) => void;
+  /** แตะบล็อกสั้น ๆ โดยไม่ได้ลาก */
+  onHint?: () => void;
 }
 
 const SPAN = DAY_END - DAY_START;
@@ -138,7 +151,7 @@ const overlaps = (a1: number, a2: number, b1: number, b2: number) => a1 < b2 && 
 
 // ---------- แถบแนวนอน ----------
 
-export function TimeDragBar({ start, end, onChange, items, free = [], onDragState }: TimeDragProps) {
+export function TimeDragBar({ start, end, onChange, items, free = [], onDragState, onHint }: TimeDragProps) {
   const t = useTokens();
   const [w, setW] = useState(0);
   const ppm = w ? w / SPAN : 0.2;
@@ -164,6 +177,7 @@ export function TimeDragBar({ start, end, onChange, items, free = [], onDragStat
     },
     onChange,
     onDragState,
+    onHint,
   });
   const clash = items.some((i) => (i.ostatus === 'planned' || i.ostatus === 'done') && overlaps(i.startMin, i.endMin, start, end));
   const label = `${fmtMin(start)}–${fmtMin(end)} · ${durText(end - start)}`;
@@ -195,7 +209,7 @@ export function TimeDragBar({ start, end, onChange, items, free = [], onDragStat
         accessible
         accessibilityRole="adjustable"
         accessibilityLabel={`ช่วงเวลา ${fmtMin(start)} ถึง ${fmtMin(end)}`}
-        accessibilityHint="กดค้างที่แถบส้มแล้วลากเพื่อย้าย ลากขอบเพื่อยืดหรือหด หรือใช้ปุ่มปรับละเอียดด้านล่าง"
+        accessibilityHint="ลากแถบสีไปทางซ้ายหรือขวาเพื่อย้าย ลากขอบเพื่อยืดหรือหด หรือใช้ปุ่มปรับเวลาด้านบน"
         accessibilityActions={[
           { name: 'increment', label: 'เลื่อนช้าลง 15 นาที' },
           { name: 'decrement', label: 'เลื่อนเร็วขึ้น 15 นาที' },
@@ -213,7 +227,7 @@ export function TimeDragBar({ start, end, onChange, items, free = [], onDragStat
             <View key={m} style={{ position: 'absolute', left: x(m), top: 0, bottom: 0, width: 1, backgroundColor: t.line }} />
           ))}
           {free.map((f) => (
-            <View key={`f${f.start}`} style={{ position: 'absolute', left: x(f.start), width: Math.max(x(f.end) - x(f.start), 2), top: 0, bottom: 0, backgroundColor: f.night ? 'rgba(110,101,85,0.08)' : 'rgba(76,154,106,0.16)' }} />
+            <View key={`f${f.start}`} style={{ position: 'absolute', left: x(f.start), width: Math.max(x(f.end) - x(f.start), 2), top: 0, bottom: 0, backgroundColor: f.night ? t.sub + '14' : t.greenInk + '2B' }} />
           ))}
           {items.map((i) => (
             <View
@@ -234,7 +248,7 @@ export function TimeDragBar({ start, end, onChange, items, free = [], onDragStat
             borderRadius: 8,
             backgroundColor: t.primary,
             borderWidth: clash ? 2 : 0,
-            borderColor: '#FFD6C2',
+            borderColor: t.card,
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -257,10 +271,10 @@ export function TimeDragBar({ start, end, onChange, items, free = [], onDragStat
         {BAR_TICKS.map((m, i) => (
           <Txt
             key={m}
-            size={10}
+            size={11}
             num
             color={t.muted}
-            style={{ position: 'absolute', left: i === 0 ? 0 : undefined, right: i === BAR_TICKS.length - 1 ? 0 : undefined, ...(i > 0 && i < BAR_TICKS.length - 1 ? { left: x(m) - 10, width: 20, textAlign: 'center' } : {}) }}>
+            style={{ position: 'absolute', left: i === 0 ? 0 : undefined, right: i === BAR_TICKS.length - 1 ? 0 : undefined, ...(i > 0 && i < BAR_TICKS.length - 1 ? { left: x(m) - 11, width: 22, textAlign: 'center' } : {}) }}>
             {fmtMin(m).slice(0, 2)}
           </Txt>
         ))}
@@ -275,7 +289,7 @@ const PX_PER_MIN = 0.8; // 1 ชม. = 48px · 15 นาที = 12px
 const RAIL_H = 380;
 const GUTTER = 50;
 
-export function TimeDragRail({ start, end, onChange, items, free = [], title, onDragState }: TimeDragProps) {
+export function TimeDragRail({ start, end, onChange, items, free = [], title, onDragState, onHint }: TimeDragProps) {
   const t = useTokens();
   const scRef = useRef<ScrollViewInstance>(null);
   const scrolled = useRef(false);
@@ -296,7 +310,9 @@ export function TimeDragRail({ start, end, onChange, items, free = [], title, on
       setDragging(d);
       onDragState?.(d);
     },
+    onHint,
   });
+  const clash = items.some((i) => (i.ostatus === 'planned' || i.ostatus === 'done') && overlaps(i.startMin, i.endMin, start, end));
   // เปิดรางครั้งแรก → เลื่อนให้เห็นช่วงที่เลือก (เผื่อด้านบน 1 ชม.)
   const [initialY] = useState(() => Math.max(y(start) - 48, 0));
   const hours = Array.from({ length: SPAN / 60 + 1 }, (_, i) => DAY_START + i * 60);
@@ -326,12 +342,28 @@ export function TimeDragRail({ start, end, onChange, items, free = [], title, on
             </View>
           ))}
           {/* พื้นที่ลาก — กว้างเต็มหลังแกนเวลา */}
-          <View {...handlers} style={{ position: 'absolute', left: GUTTER, right: 8, top: 0, bottom: 0 }}>
+          <View
+            {...handlers}
+            accessible
+            accessibilityRole="adjustable"
+            accessibilityLabel={`ช่วงเวลา ${fmtMin(start)} ถึง ${fmtMin(end)}`}
+            accessibilityHint="กดค้างที่บล็อกสีแล้วลากเพื่อย้าย ลากขอบเพื่อยืดหรือหด"
+            accessibilityActions={[
+              { name: 'increment', label: 'เลื่อนช้าลง 15 นาที' },
+              { name: 'decrement', label: 'เลื่อนเร็วขึ้น 15 นาที' },
+            ]}
+            onAccessibilityAction={(e) => {
+              const dm = e.nativeEvent.actionName === 'increment' ? SNAP : -SNAP;
+              const dur = end - start;
+              const s2 = Math.min(Math.max(start + dm, DAY_START), DAY_END - dur);
+              onChange(s2, s2 + dur);
+            }}
+            style={{ position: 'absolute', left: GUTTER, right: 8, top: 0, bottom: 0 }}>
             {free.map((f) => (
               <View
                 key={`f${f.start}`}
                 pointerEvents="none"
-                style={{ position: 'absolute', left: 0, right: 0, top: y(f.start), height: y(f.end) - y(f.start), borderRadius: 8, backgroundColor: f.night ? 'rgba(110,101,85,0.06)' : 'rgba(76,154,106,0.12)', borderWidth: 1, borderStyle: 'dashed', borderColor: f.night ? t.line : 'rgba(76,154,106,0.45)', paddingHorizontal: 8, paddingTop: 2 }}>
+                style={{ position: 'absolute', left: 0, right: 0, top: y(f.start), height: y(f.end) - y(f.start), borderRadius: 8, backgroundColor: f.night ? t.sub + '0F' : t.greenInk + '1F', borderWidth: 1, borderStyle: 'dashed', borderColor: f.night ? t.line : t.freeLine, paddingHorizontal: 8, paddingTop: 2 }}>
                 {y(f.end) - y(f.start) >= 24 ? (
                   <Txt size={11} color={f.night ? t.muted : t.greenInk}>
                     ว่าง {fmtMin(f.start)}–{fmtMin(f.end)}
@@ -359,6 +391,9 @@ export function TimeDragRail({ start, end, onChange, items, free = [], title, on
                 height,
                 borderRadius: 10,
                 backgroundColor: t.primary,
+                // เวลาซ้อนกับกิจกรรมเดิม — ขอบสว่างรอบบล็อก (แบบเดียวกับแถบแนวนอน)
+                borderWidth: clash ? 2 : 0,
+                borderColor: t.card,
                 paddingHorizontal: 10,
                 justifyContent: 'center',
                 shadowColor: t.shadow,
@@ -377,6 +412,14 @@ export function TimeDragRail({ start, end, onChange, items, free = [], title, on
               ) : null}
               <View style={{ position: 'absolute', bottom: 3, alignSelf: 'center', width: 28, height: 3, borderRadius: 2, backgroundColor: active === 'end' ? '#FFFFFF' : 'rgba(255,255,255,0.6)' }} />
             </View>
+            {/* บล็อกเตี้ยเกินจะมีตัวหนังสือ (กิจกรรมสั้น) — ป้ายเวลาลอยเหนือบล็อกแทน ให้เห็นค่าระหว่างลาก */}
+            {height < 30 ? (
+              <View pointerEvents="none" style={{ position: 'absolute', right: 0, top: Math.max(top - 26, 0), height: 22, paddingHorizontal: 9, borderRadius: 11, backgroundColor: active ? t.primary : t.ink, justifyContent: 'center' }}>
+                <Txt size={11.5} num weight="bold" color={active ? '#FFFFFF' : t.bg}>
+                  {fmtMin(start)}–{fmtMin(end)} · {durText(end - start)}
+                </Txt>
+              </View>
+            ) : null}
           </View>
         </View>
       </ScrollView>

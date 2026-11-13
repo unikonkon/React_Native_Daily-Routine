@@ -31,7 +31,7 @@ async function openMethod(m: ContactMethod) {
 
 async function copyMethod(m: ContactMethod) {
   await Clipboard.setStringAsync(m.value);
-  useUI.getState().showToast(`คัดลอก${m.label}แล้ว ✓`);
+  useUI.getState().showToast(`คัดลอก${m.label}แล้ว`);
 }
 
 function MethodBtn({ m, name }: { m: ContactMethod; name: string }) {

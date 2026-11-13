@@ -132,7 +132,8 @@ interface ContactsState {
   list: Contact[];
   boot: () => Promise<void>;
   upsert: (c: Omit<Contact, 'id'> & { id?: number }) => Promise<void>;
-  remove: (id: number) => void;
+  /** ลบรายชื่อ (และถอดออกจากทุกนัด) — คืนฟังก์ชัน "เลิกทำ" ที่ใส่รายชื่อกลับและผูกกับนัดเดิม */
+  remove: (id: number) => () => void;
 }
 
 export const useContacts = create<ContactsState>((set, get) => ({
@@ -161,12 +162,26 @@ export const useContacts = create<ContactsState>((set, get) => ({
   },
 
   remove: (id) => {
+    const gone = get().list.find((x) => x.id === id);
+    // นัดที่ผูกกับคนนี้ + ลำดับรายชื่อเดิมของแต่ละนัด — ไว้คืนตอนเลิกทำ
+    const linked = useActivities.getState().acts.filter((a) => a.contactIds.includes(id)).map((a) => ({ id: a.id, contactIds: a.contactIds }));
     set({ list: get().list.filter((x) => x.id !== id) });
     // ถอดรายชื่อนี้ออกจากนัดใน memory ด้วย (ตรงกับฐานข้อมูลที่ลบลิงก์ทิ้ง) — ไม่ต้องรอเปิดแอปใหม่
     useActivities.setState((s) => ({
       acts: s.acts.map((a) => (a.contactIds.includes(id) ? { ...a, contactIds: a.contactIds.filter((c) => c !== id) } : a)),
       version: s.version + 1,
     }));
-    db.deleteContact(id);
+    const deleting = db.deleteContact(id).catch(() => {});
+    return () => {
+      if (!gone) return;
+      set({ list: [...get().list.filter((x) => x.id !== id), gone].sort((a, b) => a.name.localeCompare(b.name, 'th')) });
+      const byId = new Map(linked.map((l) => [l.id, l.contactIds]));
+      useActivities.setState((s) => ({
+        acts: s.acts.map((a) => (byId.has(a.id) ? { ...a, contactIds: byId.get(a.id)! } : a)),
+        version: s.version + 1,
+      }));
+      // รอให้คำสั่งลบเขียนเสร็จก่อนค่อยใส่กลับ (ไม่ให้สลับลำดับกัน)
+      deleting.then(() => db.restoreContact(gone, linked.map((l) => l.id))).catch(() => {});
+    };
   },
 }));

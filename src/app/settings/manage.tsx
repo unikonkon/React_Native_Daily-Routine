@@ -1,13 +1,14 @@
 // จัดการข้อมูล — ดูความจุที่ใช้ + ลบข้อมูลเป็นช่วง รายปี/รายเดือน/รายสัปดาห์/รายวัน
 // รายการรายวัน derive จาก series (engine.dayItems) ส่วน "ความจุ" คิดจากขนาดแถวจริงใน SQLite (dumpAll)
 // ผูกกับวันที่ของแถว: activities → start_date, occurrences → date, reschedule_logs → from_date
-import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View, type ScrollViewInstance } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
-import { Btn, Card, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
-import { ATTN, CAT_BY_ID, DANGER, GREEN, type CatId } from '@/constants/theme';
+import { FadeInView, ProgressFill } from '@/components/motion';
+import { Btn, Card, NavCircle, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
+import { ATTN, CAT_BY_ID, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fromISO, mondayOf, thaiDate, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
 import { dumpAll, purgeRange, type BackupData } from '@/lib/db';
 import { dayItems } from '@/lib/engine';
@@ -64,6 +65,14 @@ export default function ManageDataScreen() {
   const [offset, setOffset] = useState(0);
   const [dump, setDump] = useState<BackupData | null>(null);
   const [confirm, setConfirm] = useState<Bucket | null>(null);
+  /** กำลังลบถาวร — ล็อกปุ่มไม่ให้กดซ้ำ + บอกสถานะ (ข้อมูลเยอะใช้เวลาหลายวินาที) */
+  const [busy, setBusy] = useState(false);
+  const scRef = useRef<ScrollViewInstance>(null);
+  /** เลือกช่วงที่จะลบ → เลื่อนขึ้นไปที่กล่องยืนยัน (ปุ่มถังขยะอาจอยู่ล่างลิสต์ยาว มองไม่เห็นคำเตือน) */
+  const askDelete = (b: Bucket) => {
+    setConfirm(b);
+    scRef.current?.scrollTo({ y: 0, animated: true });
+  };
 
   // โหลดแถวดิบจาก SQLite (รวม cancelled ที่ store ไม่ถือ) — รีโหลดทุกครั้งที่ข้อมูลเปลี่ยน
   useEffect(() => {
@@ -164,24 +173,28 @@ export default function ManageDataScreen() {
   );
 
   const doDelete = async () => {
-    if (!confirm) return;
+    if (!confirm || busy) return;
+    setBusy(true);
     try {
       await purgeRange(confirm.from, confirm.to);
       await useActivities.getState().boot(); // รีโหลด store + resync แจ้งเตือน (version ขยับ → dump รีโหลดเอง)
       setConfirm(null);
-      showToast(`ลบข้อมูล ${confirm.label} แล้ว ✓`);
+      showToast(`ลบข้อมูล ${confirm.label} แล้ว`);
     } catch {
-      showToast('ลบข้อมูลไม่สำเร็จ');
+      showToast('ลบข้อมูลไม่สำเร็จ — ข้อมูลเดิมยังอยู่ ลองอีกครั้ง');
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
     <Screen
+      scrollRef={scRef}
       title="ล้างข้อมูลเก่า"
       subtitle="ดูความจุที่ใช้ แล้วเลือกช่วงที่จะลบ"
       variant="sub"
       // เลือกช่วงแล้ว → ปุ่มลบถาวรอยู่แถบล่าง (การ์ดยืนยันด้านบนบอกผลก่อนกด)
-      action={confirm ? { label: `ลบ ${confirm.label}`, icon: 'trash', tone: 'danger', onPress: doDelete } : undefined}>
+      action={confirm ? { label: busy ? 'กำลังลบ…' : `ลบ ${confirm.label}`, icon: 'trash', tone: 'danger', onPress: doDelete, disabled: busy } : undefined}>
       {/* สรุปรวมตามรายที่เลือก */}
       <Card style={{ gap: 10 }}>
         <Segmented
@@ -200,87 +213,100 @@ export default function ManageDataScreen() {
         />
         {window ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <NavBtn icon="chevL" disabled={!hasOlder} onPress={() => { setOffset(offset + 1); setConfirm(null); }} />
+            <NavCircle dir="prev" label="เดือนก่อนหน้า" disabled={!hasOlder} onPress={() => { setOffset(offset + 1); setConfirm(null); }} />
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Txt size={13} weight="bold">{window.label}</Txt>
               {offset !== 0 ? (
-                <Pressable style={pressFade()} onPress={() => { setOffset(0); setConfirm(null); }} hitSlop={6}>
-                  <Txt size={10} color={t.accent}>{offset < 0 ? 'อนาคต · กลับปัจจุบัน' : 'ย้อนหลัง · กลับปัจจุบัน'}</Txt>
+                <Pressable accessibilityRole="button" style={pressFade({ minHeight: 28, justifyContent: 'center', paddingHorizontal: 8 })} onPress={() => { setOffset(0); setConfirm(null); }} hitSlop={8}>
+                  <Txt size={12} weight="med" color={t.accentInk}>{offset < 0 ? 'อนาคต · กลับเดือนนี้' : 'ย้อนหลัง · กลับเดือนนี้'}</Txt>
                 </Pressable>
               ) : null}
             </View>
-            <NavBtn icon="chevR" onPress={() => { setOffset(offset - 1); setConfirm(null); }} />
+            <NavCircle dir="next" label="เดือนถัดไป" onPress={() => { setOffset(offset - 1); setConfirm(null); }} />
           </View>
         ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Txt size={12} color={t.sub}>
             รวม {shown.length} ช่วง · {totals.items} รายการ · เสร็จ {totals.done}
           </Txt>
-          <Txt size={13} num weight="bold">{fmtBytes(totals.bytes)}</Txt>
+          {dump ? (
+            <Txt size={13} num weight="bold">{fmtBytes(totals.bytes)}</Txt>
+          ) : (
+            // ขนาดมาจากการอ่านฐานข้อมูลทั้งก้อน — ระหว่างรอไม่โชว์ "0 B" ให้เข้าใจผิด
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <ActivityIndicator size="small" color={t.sub} />
+              <Txt size={12} color={t.sub}>กำลังคำนวณขนาด…</Txt>
+            </View>
+          )}
         </View>
+        {mode === 'week' ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <Legend color={GREEN} label="ทำครบ" />
+            <Legend color={ATTN} label="ยังมีที่ไม่ได้บันทึก" />
+            <Legend color={t.chip} label="ไม่มีรายการ" />
+          </View>
+        ) : mode === 'month' ? (
+          <Legend color={GREEN} label="แถบเขียว = สัดส่วนที่ทำเสร็จ" />
+        ) : null}
       </Card>
 
       {/* ยืนยันลบ */}
       {confirm ? (
-        <Card style={{ gap: 10, borderWidth: 1.5, borderColor: t.warn }}>
-          <Txt size={14} weight="bold">ลบข้อมูล {confirm.label}?</Txt>
-          <Txt size={12} color={t.sub}>
-            {confirm.items} รายการ ({fmtBytes(confirm.bytes)}) จะถูกลบถาวร — รายการทำซ้ำที่คาบเกี่ยวช่วงนี้จะถูกตัดให้เหลือเฉพาะนอกช่วง
-          </Txt>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Btn style={{ flex: 1 }} kind="ghost" label="ไม่ลบ" onPress={() => setConfirm(null)} />
-          </View>
-        </Card>
+        <FadeInView key={confirm.key} rise={-6}>
+          <Card style={{ gap: 10, borderWidth: 1.5, borderColor: t.warn }}>
+            <Txt size={15} weight="bold">ลบข้อมูล {confirm.label} ถาวร?</Txt>
+            <Txt size={12.5} color={t.sub} style={{ lineHeight: 18 }}>
+              {confirm.items} รายการ{dump ? ` (${fmtBytes(confirm.bytes)})` : ''} จะถูกลบและกดเลิกทำไม่ได้ · กิจกรรมทำซ้ำที่คาบเกี่ยวช่วงนี้จะเหลือเฉพาะส่วนที่อยู่นอกช่วง · กู้คืนได้จากไฟล์สำรองเท่านั้น
+            </Txt>
+            {busy ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ActivityIndicator size="small" color={t.sub} />
+                <Txt size={12.5} color={t.sub}>กำลังลบ… อย่าเพิ่งปิดแอป</Txt>
+              </View>
+            ) : (
+              <Btn kind="ghost" label="ไม่ลบ" onPress={() => setConfirm(null)} />
+            )}
+          </Card>
+        </FadeInView>
       ) : null}
 
       {shown.length === 0 ? (
         <Card>
           <Txt size={13} color={t.faint} style={{ textAlign: 'center', paddingVertical: 12 }}>
-            {buckets.length === 0 ? 'ยังไม่มีข้อมูลในระบบ' : 'ไม่มีข้อมูลในช่วงนี้ — เลื่อนดูช่วงอื่นด้วยลูกศรด้านบน'}
+            {buckets.length === 0 ? 'ยังไม่มีกิจกรรมที่บันทึกไว้' : 'ไม่มีข้อมูลในช่วงนี้ — เลื่อนดูช่วงอื่นด้วยลูกศรด้านบน'}
           </Txt>
         </Card>
       ) : mode === 'year' ? (
-        shown.map((b) => <YearCard key={b.key} b={b} onDelete={() => setConfirm(b)} />)
+        shown.map((b) => <YearCard key={b.key} b={b} onDelete={() => askDelete(b)} />)
       ) : (
         <Card>
           {shown.map((b, i) =>
             mode === 'month' ? (
-              <MonthRow key={b.key} b={b} last={i === shown.length - 1} onDelete={() => setConfirm(b)} />
+              <MonthRow key={b.key} b={b} last={i === shown.length - 1} onDelete={() => askDelete(b)} />
             ) : mode === 'week' ? (
-              <WeekRow key={b.key} b={b} last={i === shown.length - 1} onDelete={() => setConfirm(b)} />
+              <WeekRow key={b.key} b={b} last={i === shown.length - 1} onDelete={() => askDelete(b)} />
             ) : (
-              <DayRow key={b.key} b={b} last={i === shown.length - 1} onDelete={() => setConfirm(b)} />
+              <DayRow key={b.key} b={b} last={i === shown.length - 1} onDelete={() => askDelete(b)} />
             ),
           )}
         </Card>
       )}
 
-      <Txt size={11} color={t.faint} style={{ textAlign: 'center' }}>
-        ความจุคิดจากขนาดแถวข้อมูลจริงโดยประมาณ · การลบมีผลถาวร กู้คืนได้จากไฟล์สำรอง JSON เท่านั้น
+      <Txt size={12} color={t.sub} style={{ textAlign: 'center', lineHeight: 18 }}>
+        การลบในหน้านี้มีผลถาวร — กู้คืนได้จากไฟล์สำรองเท่านั้น{'\n'}ขนาดคิดจากข้อมูลจริงโดยประมาณ
       </Txt>
     </Screen>
   );
 }
 
-/** ปุ่มเลื่อนหน้าต่าง filter (◀ ย้อนหลัง / ▶ เดินหน้าไปอนาคตได้ไม่จำกัด) */
-function NavBtn({ icon, disabled, onPress }: { icon: string; disabled?: boolean; onPress: () => void }) {
+/** คำอธิบายสัญลักษณ์สีของรายการด้านล่าง */
+function Legend({ color, label }: { color: string; label: string }) {
   const t = useTokens();
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      hitSlop={6}
-      style={pressFade({
-        width: 32,
-        height: 32,
-        borderRadius: 9,
-        backgroundColor: t.chip,
-        alignItems: 'center',
-        justifyContent: 'center',
-        opacity: disabled ? 0.35 : 1,
-      })}>
-      <Icon name={icon} size={16} color={t.sub} />
-    </Pressable>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+      <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: color }} />
+      <Txt size={11.5} color={t.sub}>{label}</Txt>
+    </View>
   );
 }
 
@@ -292,7 +318,7 @@ function TrashBtn({ onPress, label }: { onPress: () => void; label?: string }) {
       accessibilityLabel={label ? `ลบข้อมูล ${label}` : 'ลบข้อมูลช่วงนี้'}
       onPress={onPress}
       style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
-      <Icon name="trash" size={15} color={DANGER} />
+      <Icon name="trash" size={15} color={t.warn} />
     </Pressable>
   );
 }
@@ -320,7 +346,7 @@ function YearCard({ b, onDelete }: { b: Bucket; onDelete: () => void }) {
                 backgroundColor: n ? t.accent : t.chip,
               }}
             />
-            <Txt size={8} color={t.faint}>{MONTH_TH[i].replace(/\./g, '')}</Txt>
+            <Txt size={11} color={t.sub}>{MONTH_TH[i].replace(/\./g, '').slice(0, 2)}</Txt>
           </View>
         ))}
       </View>
@@ -349,13 +375,13 @@ function MonthRow({ b, last, onDelete }: { b: Bucket; last: boolean; onDelete: (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ flex: 1 }}>
           <Txt size={14} weight="med">{b.label}</Txt>
-          <Txt size={12} color={t.faint}>{b.items} รายการ · เสร็จ {b.done}</Txt>
+          <Txt size={12} color={t.sub}>{b.items} รายการ · เสร็จ {b.done}</Txt>
         </View>
         <Txt size={12} num color={t.sub}>{fmtBytes(b.bytes)}</Txt>
         <TrashBtn onPress={onDelete} label={b.label} />
       </View>
-      <View style={{ height: 6, borderRadius: 3, backgroundColor: t.chip }}>
-        <View style={{ width: `${rate * 100}%`, height: 6, borderRadius: 3, backgroundColor: GREEN }} />
+      <View style={{ height: 6, borderRadius: 3, backgroundColor: t.chip, overflow: 'hidden' }}>
+        <ProgressFill pct={rate} color={GREEN} height={6} />
       </View>
     </View>
   );
@@ -376,7 +402,7 @@ function WeekRow({ b, last, onDelete }: { b: Bucket; last: boolean; onDelete: ()
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ flex: 1 }}>
           <Txt size={14} weight="med">{b.label}</Txt>
-          <Txt size={12} color={t.faint}>{b.items} รายการ · เสร็จ {b.done}</Txt>
+          <Txt size={12} color={t.sub}>{b.items} รายการ · เสร็จ {b.done}</Txt>
         </View>
         <Txt size={12} num color={t.sub}>{fmtBytes(b.bytes)}</Txt>
         <TrashBtn onPress={onDelete} label={b.label} />
@@ -392,7 +418,7 @@ function WeekRow({ b, last, onDelete }: { b: Bucket; last: boolean; onDelete: ()
                 backgroundColor: !d?.items ? t.chip : d.done === d.items ? GREEN : ATTN,
               }}
             />
-            <Txt size={9} color={t.faint}>{WD_TH[i]}</Txt>
+            <Txt size={11} color={t.sub}>{WD_TH[i]}</Txt>
           </View>
         ))}
       </View>
@@ -416,7 +442,7 @@ function DayRow({ b, last, onDelete }: { b: Bucket; last: boolean; onDelete: () 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <View style={{ flex: 1 }}>
           <Txt size={14} weight="med">{b.label}</Txt>
-          <Txt size={12} color={t.faint}>{b.items} รายการ · เสร็จ {b.done}</Txt>
+          <Txt size={12} color={t.sub}>{b.items} รายการ · เสร็จ {b.done}</Txt>
         </View>
         <Txt size={12} num color={t.sub}>{fmtBytes(b.bytes)}</Txt>
         <TrashBtn onPress={onDelete} label={b.label} />
@@ -427,7 +453,7 @@ function DayRow({ b, last, onDelete }: { b: Bucket; last: boolean; onDelete: () 
             <View key={i} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: CAT_BY_ID[c].color }} />
           ))}
           {cats.length > shown.length ? (
-            <Txt size={10} color={t.faint}>+{cats.length - shown.length}</Txt>
+            <Txt size={11} color={t.sub}>+{cats.length - shown.length}</Txt>
           ) : null}
         </View>
       ) : null}

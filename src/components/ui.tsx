@@ -203,7 +203,7 @@ export function Segmented<K extends string>({ options, value, onChange }: Segmen
 /** ระยะที่หัวสวิตช์เลื่อน = กว้างราง 46 − ขอบใน 3×2 − หัว 22 */
 const TOGGLE_TRAVEL = 18;
 
-export function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label?: string }) {
+export function Toggle({ value, onChange, label, disabled }: { value: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
   const t = useTokens();
   // ระบบ B1 — สวิตช์เขียวเมื่อเปิด · พื้นที่แตะ 52×44 · หัวสวิตช์เลื่อน + สีรางไล่ตาม
   const p = useEased(value ? 1 : 0, 200);
@@ -213,10 +213,11 @@ export function Toggle({ value, onChange, label }: { value: boolean; onChange: (
   return (
     <Pressable
       accessibilityRole="switch"
-      accessibilityState={{ checked: value }}
+      accessibilityState={{ checked: value, disabled: !!disabled }}
       accessibilityLabel={label}
+      disabled={disabled}
       onPress={() => onChange(!value)}
-      style={{ width: 52, height: 44, marginRight: -4, alignItems: 'center', justifyContent: 'center' }}>
+      style={{ width: 52, height: 44, marginRight: -4, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : 1 }}>
       <Animated.View style={[{ width: 46, height: 28, borderRadius: 14, padding: 3, justifyContent: 'center' }, track]}>
         <Animated.View
           style={[
@@ -229,10 +230,33 @@ export function Toggle({ value, onChange, label }: { value: boolean; onChange: (
   );
 }
 
+/**
+ * ปุ่มกลม ‹ › เลื่อนช่วงเวลา (เดือน · ปี · สัปดาห์) — ตัวเดียวทั้งแอป: 40px พื้นราง มีป้ายให้ตัวอ่านหน้าจอ
+ * (เดิมแต่ละหน้าทำเอง 4 แบบ ขนาด 32–44 และส่วนใหญ่ไม่มีป้าย)
+ */
+export function NavCircle({ dir, label, onPress, disabled }: { dir: 'prev' | 'next'; label?: string; onPress: () => void; disabled?: boolean }) {
+  const t = useTokens();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label ?? (dir === 'prev' ? 'ก่อนหน้า' : 'ถัดไป')}
+      accessibilityState={{ disabled: !!disabled }}
+      onPress={onPress}
+      disabled={disabled}
+      hitSlop={4}
+      style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 })}>
+      <Icon name={dir === 'prev' ? 'chevL' : 'chevR'} size={17} color={t.ink} />
+    </Pressable>
+  );
+}
+
 interface BtnProps {
   label: string;
   onPress: () => void;
-  kind?: 'primary' | 'ghost' | 'danger' | 'green';
+  /** dangerSoft = ปุ่มลบแบบเบา (พื้นแดงจาง ตัวหนังสือแดง) — ใช้คู่กับ danger เมื่อมีตัวเลือกลบสองระดับ */
+  kind?: 'primary' | 'ghost' | 'danger' | 'dangerSoft' | 'green';
+  /** บรรทัดรองใต้ป้าย (เช่น ผลของการกด) */
+  sub?: string;
   icon?: string;
   /** วาดไอคอนเอง (เช่น SVG) — รับสี/ขนาดจากปุ่มเพื่อให้เข้าธีม; ทับ icon เมื่อกำหนด */
   renderIcon?: (color: string, size: number) => React.ReactNode;
@@ -240,11 +264,12 @@ interface BtnProps {
   disabled?: boolean;
 }
 
-export function Btn({ label, onPress, kind = 'primary', icon, renderIcon, style, disabled }: BtnProps) {
+export function Btn({ label, onPress, kind = 'primary', icon, renderIcon, style, disabled, sub }: BtnProps) {
   const t = useTokens();
   // ระบบ B1 — ปุ่มแคปซูลสูง 48 · หลัก = ส้มเข้ม · รอง (ghost) = พื้นราง · ลบ = แดงอิฐ
-  const bg = kind === 'primary' ? t.primary : kind === 'danger' ? t.warn : kind === 'green' ? GREEN : t.track;
-  const fg = kind === 'ghost' ? t.ink : '#FFFFFF';
+  const bg = kind === 'primary' ? t.primary : kind === 'danger' ? t.warnFill : kind === 'dangerSoft' ? t.warn + '1F' : kind === 'green' ? GREEN : t.track;
+  const fg = kind === 'ghost' ? t.ink : kind === 'dangerSoft' ? t.warn : '#FFFFFF';
+  const soft = kind === 'ghost' || kind === 'dangerSoft';
   return (
     <Pressable
       accessibilityRole="button"
@@ -257,19 +282,30 @@ export function Btn({ label, onPress, kind = 'primary', icon, renderIcon, style,
           gap: 6,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: pressed && kind === 'ghost' ? t.rail : bg,
+          backgroundColor: pressed && kind === 'ghost' ? t.rail : pressed && kind === 'dangerSoft' ? t.warn + '33' : bg,
           borderRadius: 24,
           minHeight: 48,
           paddingVertical: 10,
           paddingHorizontal: 18,
-          opacity: disabled ? 0.45 : pressed && kind !== 'ghost' ? 0.88 : 1,
+          opacity: disabled ? 0.45 : pressed && !soft ? 0.88 : 1,
         },
         style,
       ]}>
       {renderIcon ? renderIcon(fg, 16) : icon ? <Icon name={icon} size={16} color={fg} /> : null}
-      <Txt size={14.5} weight="bold" color={fg} style={{ flexShrink: 1, textAlign: 'center' }}>
-        {label}
-      </Txt>
+      {sub ? (
+        <View style={{ flexShrink: 1, alignItems: 'center', gap: 1 }}>
+          <Txt size={14.5} weight="bold" color={fg} style={{ textAlign: 'center' }}>
+            {label}
+          </Txt>
+          <Txt size={11.5} color={fg} style={{ textAlign: 'center', opacity: 0.85 }}>
+            {sub}
+          </Txt>
+        </View>
+      ) : (
+        <Txt size={14.5} weight="bold" color={fg} style={{ flexShrink: 1, textAlign: 'center' }}>
+          {label}
+        </Txt>
+      )}
     </Pressable>
   );
 }
@@ -301,7 +337,7 @@ export function Row({ icon, label, sub, right, onPress, last, subColor }: RowPro
         paddingVertical: 8,
         borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
         borderBottomColor: t.line,
-        opacity: pressed ? 0.7 : 1,
+        opacity: pressed ? 0.6 : 1,
       })}>
       {icon ? (
         <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' }}>
@@ -327,7 +363,7 @@ export function PriBadge({ id, withLabel }: { id: PriorityId | null; withLabel?:
   if (!p) return null;
   return (
     <View style={{ backgroundColor: p.color, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, alignSelf: 'flex-start' }}>
-      <Txt size={10} color="#FFFFFF" weight="bold">
+      <Txt size={11} color="#FFFFFF" weight="bold">
         {withLabel ? `${p.id} ${p.label}` : p.id}
       </Txt>
     </View>

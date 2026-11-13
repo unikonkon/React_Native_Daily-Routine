@@ -49,13 +49,17 @@ interface ActivitiesState {
    * คืนฟังก์ชัน "เลิกทำ" ที่คืนทุกอย่างกลับสถานะก่อนลบ (รวมสถานะทำแล้ว/ข้ามของวันนั้น)
    */
   deleteMany: (items: DayItem[]) => () => void;
-  deleteSeries: (item: DayItem) => void;
-  reschedule: (item: DayItem, to: RescTarget, reason: string) => void;
+  /** ลบชุดตั้งแต่ครั้งนี้ไป — คืนฟังก์ชัน "เลิกทำ" (คืนวันสิ้นสุดเดิม / คืนทั้งรายการ) */
+  deleteSeries: (item: DayItem) => () => void;
+  /** เลื่อนนัด — คืนฟังก์ชัน "เลิกทำ" (ลบนัดปลายทาง + คืนสถานะเดิมของครั้งต้นทาง) · บันทึกไม่สำเร็จ = null */
+  reschedule: (item: DayItem, to: RescTarget, reason: string) => Promise<(() => void) | null>;
+  /** ลบกิจกรรมที่เพิ่งสร้าง (เลิกทำการคัดลอก/วาง) — ลบทั้งรายการตาม id */
+  removeActs: (ids: number[]) => void;
 }
 
 function resync(s: Pick<ActivitiesState, 'acts' | 'occ' | 'notes'>) {
-  const { notifMaster, morning, noteDisplay } = useSettings.getState();
-  requestResync(s.acts, s.occ, notifMaster, morning, noteDisplay.morning ? s.notes : null);
+  const { notifMaster, morning, noteDisplay, morningAt } = useSettings.getState();
+  requestResync(s.acts, s.occ, notifMaster, morning, noteDisplay.morning ? s.notes : null, morningAt);
 }
 
 /** ตั้งคิวแจ้งเตือนใหม่ตามค่าปัจจุบัน — เรียกหลังเปลี่ยนการตั้งค่าที่มีผลกับแจ้งเตือน (เช่น แนบโน้ตในสรุปตอนเช้า) */
@@ -269,6 +273,7 @@ export const useActivities = create<ActivitiesState>((set, get) => {
     deleteSeries: (item) => {
       // เก็บประวัติ: ตัด end_date ถึงเมื่อวาน (อดีตยังแสดง/นับสถิติ) — ถ้าไม่เหลือช่วงเลยจึงยกเลิกทั้งรายการ
       const cut = addDays(item.date, -1);
+      const before = get().acts.find((a) => a.id === item.id);
       if (item.repeat === 'none' || cut < item.startDate) {
         bump({ acts: get().acts.filter((a) => a.id !== item.id) });
         persist(db.cancelActivity(item.id));
@@ -276,11 +281,25 @@ export const useActivities = create<ActivitiesState>((set, get) => {
         bump({ acts: get().acts.map((a) => (a.id === item.id ? { ...a, endDate: cut } : a)) });
         persist(db.setEndDate(item.id, cut));
       }
+      return () => {
+        if (!before) return;
+        const has = get().acts.some((a) => a.id === before.id);
+        bump({ acts: has ? get().acts.map((a) => (a.id === before.id ? before : a)) : [...get().acts, before] });
+        persist(db.updateActivity(before)); // เขียนทั้งแถวกลับ (สถานะ active + วันสิ้นสุดเดิม)
+      };
+    },
+
+    removeActs: (ids) => {
+      if (!ids.length) return;
+      const gone = new Set(ids);
+      bump({ acts: get().acts.filter((a) => !gone.has(a.id)) });
+      persist(Promise.all(ids.map((id) => db.cancelActivity(id))));
     },
 
     reschedule: async (item, to, reason) => {
       const fields: Omit<Activity, 'id'> = {
-        title: item.title.endsWith(' (เลื่อนมา)') ? item.title : `${item.title} (เลื่อนมา)`,
+        // ไม่ต่อท้ายชื่อด้วย "(เลื่อนมา)" แล้ว — หน้าจอแสดงป้าย "เลื่อนมา" จาก rescCounts แทน (ชื่อเดิมไม่ถูกแก้ถาวร)
+        title: item.title,
         cat: item.cat,
         sub: item.sub,
         loc: item.loc,
@@ -306,10 +325,11 @@ export const useActivities = create<ActivitiesState>((set, get) => {
         newId = await db.insertActivity(fields);
       } catch (e) {
         onWriteError(e);
-        return;
+        return null;
       }
       persist(db.insertRescheduleLog(newId, item.date, item.startMin, to.date, to.start, reason || null));
 
+      const was = get().occ[item.date]?.[item.id] ?? null;
       const occ = { ...get().occ, [item.date]: { ...(get().occ[item.date] ?? {}), [item.id]: 'rescheduled' as const } };
       const prev = get().rescCounts[item.id] ?? 0;
       bump({
@@ -318,6 +338,18 @@ export const useActivities = create<ActivitiesState>((set, get) => {
         rescCounts: { ...get().rescCounts, [newId]: prev + 1 },
       });
       persist(db.setOccurrence(item.id, item.date, 'rescheduled'));
+
+      return () => {
+        const back = { ...get().occ };
+        const day = { ...(back[item.date] ?? {}) };
+        if (was === null) delete day[item.id];
+        else day[item.id] = was;
+        back[item.date] = day;
+        const counts = { ...get().rescCounts };
+        delete counts[newId];
+        bump({ acts: get().acts.filter((a) => a.id !== newId), occ: back, rescCounts: counts });
+        persist(Promise.all([db.cancelActivity(newId), db.deleteRescheduleLog(newId), db.setOccurrence(item.id, item.date, was)]));
+      };
     },
   };
 });

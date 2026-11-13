@@ -7,7 +7,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { CAT_BY_ID, GREEN } from '@/constants/theme';
 import { Txt, pressFade, useTokens } from '@/components/ui';
-import { WD_TH, addDays, mondayOf, toISO, todayISO } from '@/lib/dates';
+import { WD_TH, addDays, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
 import { freeMinutes, freeSlots } from '@/lib/engine';
 import { useDayReader } from '@/stores/activities';
 
@@ -33,7 +33,7 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
     <View>
       <View style={{ flexDirection: 'row', marginBottom: 6 }}>
         {WD_TH.map((w) => (
-          <Txt key={w} size={11} color={t.faint} style={{ flex: 1, textAlign: 'center' }}>
+          <Txt key={w} size={11} color={t.sub} style={{ flex: 1, textAlign: 'center' }}>
             {w}
           </Txt>
         ))}
@@ -72,6 +72,12 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
             return (
               <Pressable
                 key={d}
+                accessibilityRole="button"
+                accessibilityLabel={`${thaiDate(d)}${isToday ? ' วันนี้' : ''}${hoursLabel ? ` ว่างประมาณ ${hoursLabel.replace('ช', '')} ชั่วโมง` : ''}`}
+                accessibilityState={{ selected: mode === 'select' ? isSel : undefined, disabled }}
+                // วันนอกเดือน (ช่องว่าง) ไม่ให้ตัวอ่านหน้าจอแวะ
+                importantForAccessibility={inMonth ? 'auto' : 'no-hide-descendants'}
+                accessibilityElementsHidden={!inMonth}
                 disabled={disabled}
                 onPress={() => onPressDay(d)}
                 style={pressFade({
@@ -110,7 +116,7 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
                   </View>
                 ) : null}
                 {mode === 'heat-hours' ? (
-                  <Txt size={9} num color={t.sub} style={{ marginTop: 2 }}>
+                  <Txt size={10.5} num color={t.sub} style={{ marginTop: 2 }}>
                     {hoursLabel}
                   </Txt>
                 ) : null}
@@ -121,7 +127,7 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
       ))}
       {mode === 'heat-hours' ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, justifyContent: 'center' }}>
-          <Txt size={11} color={t.faint}>เวลาว่าง/วัน</Txt>
+          <Txt size={11} color={t.sub}>เวลาว่าง/วัน</Txt>
           {[0.12, 0.3, 0.52].map((a) => (
             <View key={a} style={{ width: 14, height: 8, borderRadius: 3, backgroundColor: `rgba(76,154,106,${a})` }} />
           ))}

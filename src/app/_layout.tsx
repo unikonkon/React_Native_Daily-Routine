@@ -2,7 +2,7 @@
 import { Anuphan_400Regular, Anuphan_500Medium, Anuphan_600SemiBold } from '@expo-google-fonts/anuphan';
 import { SpaceGrotesk_500Medium, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
@@ -14,9 +14,11 @@ import { RescheduleModal } from '@/components/reschedule-modal';
 import { ToastHost } from '@/components/toast';
 import { Welcome } from '@/components/welcome';
 import { pressFade, useThemeName, useTokens } from '@/components/ui';
-import { useActivities } from '@/stores/activities';
+import { attachNotificationTaps } from '@/lib/notifications';
+import { getDay, useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useSettings } from '@/stores/settings';
+import { useUI } from '@/stores/ui';
 
 SplashScreen.preventAutoHideAsync();
 // สลับไปหน้าเปิดแอปที่ภาพเหมือนกัน — จางสั้น ๆ พอ
@@ -50,6 +52,25 @@ export default function RootLayout() {
   }, []);
 
   useEffect(boot, [boot]);
+
+  // แตะแจ้งเตือน → พาไปวันนั้นและเปิดรายการ · กดปุ่ม "ทำแล้ว" บนแจ้งเตือน → บันทึกให้เลย (มีเลิกทำ)
+  const router = useRouter();
+  useEffect(() => {
+    if (!booted) return;
+    return attachNotificationTaps((tap) => {
+      const ui = useUI.getState();
+      ui.setFocusDate(tap.date);
+      router.navigate('/');
+      if (tap.id == null) return; // สรุปตอนเช้า — แค่เปิดวันนั้น
+      const item = getDay(tap.date).find((x) => x.id === tap.id);
+      if (!item) return; // รายการถูกลบ/ย้ายไปแล้ว
+      if (!tap.done) return ui.openSheet(item.id, item.date);
+      if (item.ostatus !== 'planned') return;
+      const { setStatus } = useActivities.getState();
+      setStatus(item, 'done');
+      ui.showToast(`บันทึก “${item.title.length > 20 ? `${item.title.slice(0, 19)}…` : item.title}” ว่าทำแล้ว`, { label: 'เลิกทำ', run: () => setStatus(item, null) });
+    });
+  }, [booted, router]);
 
   // หน้าเปิดแอป (LaunchSplash) รับช่วงต่อจาก splash ระบบ แล้วหายไปเองเมื่อพร้อม
   const [splashDone, setSplashDone] = useState(false);

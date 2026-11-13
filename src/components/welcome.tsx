@@ -1,17 +1,20 @@
 // หน้าต้อนรับ (เปิดแอปครั้งแรก) — 2 ขั้น: ① เลือกโทนสีที่ชอบ (เปลี่ยนทั้งจอทันที) ② คำแนะนำการใช้ 4 ข้อ (ท่าที่มองไม่เห็นบนจอ)
 // เปิดซ้ำได้จาก ตั้งค่า › วิธีใช้เบื้องต้น (เริ่มที่ขั้นคำแนะนำ)
 // เป็นแผ่นทับเต็มจอ (ไม่ใช่ Modal) — ไม่ชนกับแผ่นรายละเอียด/แผ่นเลื่อนนัดที่เป็น Modal
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StatusDot } from '@/components/b1/status-circle';
+import { Icon } from '@/components/icon';
 import { FadeInView } from '@/components/motion';
 import { TopGlow } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
 import { ThemeThumb } from '@/components/theme-thumb';
 import { Btn, Txt, useThemeName, useTokens } from '@/components/ui';
 import { DARK_THEMES, LIGHT_THEMES, THEME_PALETTES, type DarkThemeId, type LightThemeId, type ThemeMeta } from '@/constants/theme';
+import { notifPermissionState, requestNotifPermission } from '@/lib/notifications';
+import { resyncNotifications } from '@/stores/activities';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
@@ -29,6 +32,19 @@ function Body({ first }: { first: boolean }) {
   const themeLight = useSettings((s) => s.themeLight);
   const themeDark = useSettings((s) => s.themeDark);
   const [step, setStep] = useState<1 | 2>(first ? 1 : 2);
+  // สิทธิ์แจ้งเตือน — ขอที่นี่พร้อมคำอธิบาย (เดิมกล่องของระบบเด้งเองตอนเปิดแอปครั้งแรกโดยไม่บอกว่าเอาไปทำอะไร)
+  // ask = ยังไม่เคยถาม → โชว์การ์ดชวนเปิด · on = เพิ่งอนุญาตในหน้านี้ · อื่น ๆ (ได้แล้ว/ถูกปฏิเสธไว้) = ไม่โชว์
+  const [notif, setNotif] = useState<'hide' | 'ask' | 'on'>('hide');
+  useEffect(() => {
+    notifPermissionState()
+      .then((st) => setNotif(st === 'ask' ? 'ask' : 'hide'))
+      .catch(() => {});
+  }, []);
+  const allowNotif = async () => {
+    const ok = await requestNotifPermission().catch(() => false);
+    setNotif(ok ? 'on' : 'hide');
+    if (ok) resyncNotifications();
+  };
 
   const list: ThemeMeta[] = mode === 'dark' ? DARK_THEMES : LIGHT_THEMES;
   const current = mode === 'dark' ? themeDark : themeLight;
@@ -119,6 +135,26 @@ function Body({ first }: { first: boolean }) {
               <Tip art={<SvgIcon name="clock" size={22} color={t.accentInk} strokeWidth={1.8} />} title="ปุ่มนาฬิกามุมขวาบน = ดูเวลาว่าง" sub="ช่วงว่างจะขึ้นเป็นกรอบเส้นประสีเขียว แตะเพื่อเพิ่มกิจกรรมลงเวลานั้นได้ทันที" />
               <Tip art={<SvgIcon name="phone" size={20} color={t.accentInk} strokeWidth={1.8} />} title="กดค้างที่ไอคอนติดต่อ = คัดลอก" sub="แตะครั้งเดียวเพื่อโทรหรือเปิด LINE · กดค้างเพื่อคัดลอกเบอร์หรือไอดี" />
             </View>
+            {notif !== 'hide' ? (
+              <View style={{ padding: 14, borderRadius: 20, backgroundColor: t.accent + '14', gap: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Icon name="bell" size={20} color={t.accentInk} />
+                  <Txt size={14.5} weight="bold" style={{ flex: 1 }}>
+                    ให้แอปเตือนก่อนถึงเวลาไหม
+                  </Txt>
+                </View>
+                <Txt size={12.5} color={t.sub} style={{ lineHeight: 19 }}>
+                  ใช้เตือนเฉพาะกิจกรรมที่เปิดแจ้งเตือนไว้ และสรุปนัดตอนเช้า · ปิดได้ทุกเมื่อที่หน้าตั้งค่า
+                </Txt>
+                {notif === 'on' ? (
+                  <Txt size={13.5} weight="bold" color={t.greenInk}>
+                    เปิดการแจ้งเตือนแล้ว
+                  </Txt>
+                ) : (
+                  <Btn kind="ghost" label="อนุญาตการแจ้งเตือน" onPress={allowNotif} />
+                )}
+              </View>
+            ) : null}
           </FadeInView>
         )}
       </ScrollView>

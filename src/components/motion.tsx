@@ -6,6 +6,7 @@
 // ค่าแชร์ + สไตล์แอนิเมชันมีต้นทุนตอนสร้าง (ต่อชิ้น) — คูณจำนวนแถวแล้วทำให้เปิดมุมมอง/เปลี่ยนวันช้าลงอย่างเห็นได้
 import React, { useEffect, useRef, useState } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
+import { Icon } from '@/components/icon';
 import { useResumed } from '@/lib/active';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 
@@ -127,4 +128,18 @@ export function Pulse({ size, color, style }: { size: number; color: string; sty
   }, [p]);
   const anim = useAnimatedStyle(() => ({ opacity: 0.4 * (1 - p.value), transform: [{ scale: 1 + 1.6 * p.value }] }));
   return <Animated.View pointerEvents="none" style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, backgroundColor: color }, style, anim]} />;
+}
+
+/**
+ * ลูกศรของส่วนที่กาง/พับได้ — หมุนจากชี้ขวา (พับ) ไปชี้ลง (กาง) แทนการสลับไอคอนสองตัวทันที
+ * ใช้คู่กับเนื้อหาที่ห่อด้วย FadeInView ตอนกางออก
+ */
+export function Chevron({ open, size = 16, color }: { open: boolean; size?: number; color: string }) {
+  const p = useEased(open ? 1 : 0, 200);
+  const style = useAnimatedStyle(() => ({ transform: [{ rotate: `${p.value * 90}deg` }] }));
+  return (
+    <Animated.View style={style}>
+      <Icon name="chevR" size={size} color={color} />
+    </Animated.View>
+  );
 }

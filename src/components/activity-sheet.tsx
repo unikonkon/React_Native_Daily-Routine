@@ -3,18 +3,21 @@ import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Keyboard, Modal, Pressable, ScrollView, TextInput, View, useWindowDimensions, type TextInputInstance } from 'react-native';
+import Reanimated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StatusDot } from '@/components/b1/status-circle';
 import { useNow } from '@/components/b1/use-now';
 import { Icon } from '@/components/icon';
+import { FadeInView, useEased } from '@/components/motion';
 import { NoteBtn, NoteKeyboardBar, useKeyboardHeight } from '@/components/note-bar';
 import { SnippetChips } from '@/components/snippet-chips';
 import { SvgIcon } from '@/components/svg-icon';
+import { ToastHost } from '@/components/toast';
 import { Btn, Chip, ChipRow, PriBadge, Txt, pressFade, useTokens } from '@/components/ui';
-import { ATTN, CAT_BY_ID, DANGER, FONT, GREEN, PRI, type PriorityId } from '@/constants/theme';
-import { MONTH_TH, WD_TH, addDays, durText, fmtMin, fmtRange, fromISO, thaiDate, wdMon } from '@/lib/dates';
-import { daytimeFreeSlots, seriesDates } from '@/lib/engine';
+import { ATTN, CAT_BY_ID, FONT, GREEN, PRI, type PriorityId } from '@/constants/theme';
+import { addDays, beYear, durText, fmtMin, fmtRange, shortThai, thaiDate } from '@/lib/dates';
+import { daytimeFreeSlots, plainTitle, seriesDates } from '@/lib/engine';
 import { appendNote, previousNotes, stripTemplate } from '@/lib/notes';
 import { isPast, railState } from '@/lib/progress';
 import type { Contact, ContactInfo, DayItem, OccStatus } from '@/lib/types';
@@ -52,7 +55,7 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
   const closeSheet = useUI((s) => s.closeSheet);
   const openResc = useUI((s) => s.openResc);
   const showToast = useUI((s) => s.showToast);
-  const { setStatus, setNote, reschedule, deleteMany, deleteSeries, update, acts, occ, notes } = useActivities();
+  const { setStatus, setNote, reschedule, deleteMany, deleteSeries, update, acts, occ, notes, rescCounts } = useActivities();
   const now = useNow();
   const contacts = useContacts((s) => s.list);
   const dayList = useDay(date);
@@ -147,7 +150,7 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
     }
     setNoteText(cleanNote); // ตัดบรรทัดแม่แบบที่ไม่ได้กรอกออกจากช่องด้วย
     setNote(item, cleanNote);
-    showToast(notePending === 'add' ? 'บันทึกโน้ตแล้ว ✓' : 'บันทึกการแก้ไขโน้ตแล้ว ✓');
+    showToast(notePending === 'add' ? 'บันทึกโน้ตแล้ว' : 'บันทึกการแก้ไขโน้ตแล้ว');
   };
   /** ยกเลิกการแก้ไข — กลับเป็นโน้ตที่บันทึกไว้ (ยังไม่มีโน้ต: แตะช่องครั้งหน้าแม่แบบเติมให้ใหม่) */
   const discardNote = () => {
@@ -207,10 +210,11 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
   const quickSlot = slotStart != null && slotStart + dur <= slot!.end ? slotStart : null;
   const tomorrowBusy = tomorrowList.some((x) => x.id !== item.id && x.startMin < item.endMin && item.startMin < x.endMin);
   const moveTo = (toDate: string, start: number, label: string) =>
-    leave(() => {
-      reschedule(item, { date: toDate, start, end: start + dur }, '');
+    leave(async () => {
       closeSheet();
-      showToast(`เลื่อนไป ${label} แล้ว`);
+      // แตะเดียวย้ายเลย — จึงต้องมี "เลิกทำ" (คืนครั้งนี้กลับที่เดิม + ลบนัดปลายทาง)
+      const undo = await reschedule(item, { date: toDate, start, end: start + dur }, '');
+      if (undo) showToast(`เลื่อนไป ${label} แล้ว`, { label: 'เลิกทำ', run: undo });
     });
 
   // สรุปของชุดทำซ้ำ (ถึงวันนี้)
@@ -231,6 +235,19 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
     }
     return total ? { total, done: doneN, skip } : null;
   })();
+  // ลบ "ตั้งแต่ครั้งนี้ไป" จะหายกี่ครั้ง — บอกก่อนกด (ชุดไม่มีวันสิ้นสุดนับไม่ได้ → บอกเป็นช่วง)
+  // คิดเฉพาะตอนเปิดกล่องยืนยันลบ (ชุดยาวหลายปีมีเป็นหมื่นครั้ง — ไม่ไล่นับทุกครั้งที่แผ่นวาดใหม่)
+  const futureDates = confirm && series && series.repeat !== 'none' ? seriesDates(series).filter((d) => d >= date && occ[d]?.[series.id] !== 'cancelled' && occ[d]?.[series.id] !== 'rescheduled') : [];
+  const openEnded = !!series && series.repeat !== 'none' && series.repeat !== 'custom' && series.endDate === null;
+  const lastFuture = futureDates[futureDates.length - 1];
+  const futureText =
+    openEnded || !futureDates.length || futureDates.length > 400
+      ? `ทุกครั้งตั้งแต่ ${shortThai(date)} เป็นต้นไป`
+      : futureDates.length === 1
+        ? `1 ครั้ง · ${shortThai(date)}`
+        : `${futureDates.length} ครั้ง · ${shortThai(date)} – ${shortThai(lastFuture)}${lastFuture.slice(0, 4) !== date.slice(0, 4) ? ` ${beYear(Number(lastFuture.slice(0, 4)))}` : ''}`;
+  /** นัดนี้ถูกเลื่อนมาจากครั้งอื่น (นับทอดต่อกัน) — แสดงเป็นป้าย ไม่แก้ชื่อ */
+  const movedN = rescCounts[item.id] ?? 0;
   const caseContacts = item.contactIds
     .map((cid) => contacts.find((c) => c.id === cid))
     .filter((c): c is Contact => !!c);
@@ -249,7 +266,7 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
           ? a.contactIds.filter((cid) => cid !== from.id)
           : a.contactIds.map((cid) => (cid === from.id ? to.id : cid)),
       });
-      showToast(`เปลี่ยนเป็น ${to.name} แล้ว ✓`);
+      showToast(`เปลี่ยนเป็น ${to.name} แล้ว`);
     }
     setEditContact(to);
   };
@@ -261,7 +278,7 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
     setAdding(false);
     if (a.contactIds.includes(c.id)) return showToast(`${c.name} อยู่ในเคสนี้อยู่แล้ว`);
     update({ ...a, contactIds: [...a.contactIds, c.id] });
-    showToast(`เพิ่ม ${c.name} เข้าเคสแล้ว ✓`);
+    showToast(`เพิ่ม ${c.name} เข้าเคสแล้ว`);
   };
 
   /** ถอดรายชื่อออกจากเคสนี้ (ทั้งชุดถ้าเป็นกิจกรรมทำซ้ำ) — ตัวรายชื่อในสมุดยังอยู่ครบ */
@@ -301,6 +318,8 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
       }}>
       {/* ไม่มีฉากหลังมืด — โปร่งใส แตะพื้นที่ว่างเพื่อปิดได้เหมือนเดิม */}
       <Pressable style={{ flex: 1 }} onPress={closing ? undefined : requestClose} />
+      {/* toast ของแผ่นนี้ — ลอยเหนือขอบบนของแผ่น (ตัวหลักของแอปอยู่ใต้ Modal กดไม่ถึง) */}
+      {closing ? null : <ToastHost docked />}
       <Animated.View
         // กำลังเล่นปิด — ไม่รับการแตะแล้ว
         pointerEvents={closing ? 'none' : 'auto'}
@@ -317,7 +336,7 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
           maxHeight: typing ? typingMax : undefined,
           gap: 12,
           // เงานุ่มแทน overlay — ให้แผ่นยังแยกจากเนื้อหาด้านหลังชัด
-          shadowColor: '#000',
+          shadowColor: t.shadow,
           shadowOpacity: 0.22,
           shadowRadius: 24,
           shadowOffset: { width: 0, height: -8 },
@@ -375,6 +394,11 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
               <Txt size={12} color={t.sub}>ชุดทำซ้ำ</Txt>
             </View>
           ) : null}
+          {movedN ? (
+            <View style={{ backgroundColor: t.track, borderRadius: 99, paddingHorizontal: 9, paddingVertical: 4 }}>
+              <Txt size={12} weight="med" color={t.sub}>{movedN > 1 ? `เลื่อนมา ${movedN} ครั้ง` : 'เลื่อนมา'}</Txt>
+            </View>
+          ) : null}
           <View style={{ flex: 1 }} />
           <Pressable accessibilityRole="button" accessibilityLabel="ปิด" onPress={requestClose} hitSlop={6} style={pressFade({ width: 40, height: 40, borderRadius: 20, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' })}>
             <SvgIcon name="x" size={16} color={t.sub} strokeWidth={2.4} />
@@ -383,7 +407,7 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
 
         {typing ? null : state === 'overdue' ? (
           <Txt size={12.5} weight="bold" color={t.warn}>
-            ค้างบันทึก · เลยเวลามา {date < now.date ? 'ตั้งแต่วันก่อน' : durText(now.min - item.endMin)}
+            ยังไม่ได้บันทึกผล · เลยเวลามา {date < now.date ? 'ตั้งแต่วันก่อน' : durText(now.min - item.endMin)}
           </Txt>
         ) : state === 'current' ? (
           <Txt size={12.5} weight="bold" color={t.accentInk}>
@@ -392,7 +416,7 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
         ) : item.ostatus === 'rescheduled' ? (
           <Txt size={12.5} weight="bold" color={t.accentInk}>เลื่อนไปแล้ว</Txt>
         ) : null}
-        <Txt size={typing ? 17 : 21} weight="bold" numberOfLines={typing ? 1 : undefined} style={{ lineHeight: typing ? 24 : 29, flexShrink: 0 }}>{item.title}</Txt>
+        <Txt size={typing ? 17 : 21} weight="bold" numberOfLines={typing ? 1 : undefined} style={{ lineHeight: typing ? 24 : 29, flexShrink: 0 }}>{movedN ? plainTitle(item.title) : item.title}</Txt>
         {tight ? null : (
           <Txt size={14} num color={t.sub}>
             {thaiDate(date)} · {fmtRange(item.startMin, item.endMin)} ({durText(item.endMin - item.startMin)})
@@ -424,11 +448,11 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
                   ))}
                 </ScrollView>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                  <Pressable onPress={() => setAdding(true)} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 5 })} hitSlop={6}>
+                  <Pressable accessibilityRole="button" onPress={() => setAdding(true)} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 36 })} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                     <Icon name="plus" size={14} color={t.accent} />
                     <Txt size={12.5} weight="med" color={t.accent}>เพิ่มรายชื่ออีกคน</Txt>
                   </Pressable>
-                  <Pressable onPress={openContactBook} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 5 })} hitSlop={6}>
+                  <Pressable accessibilityRole="button" onPress={openContactBook} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 36 })} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                     <Icon name="user" size={14} color={t.accent} />
                     <Txt size={12.5} weight="med" color={t.accent}>สมุดรายชื่อ</Txt>
                     <Icon name="chevR" size={13} color={t.accent} />
@@ -465,26 +489,11 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
             {canResc && !typing ? (
               <View style={{ gap: 6 }}>
                 <Txt size={12.5} weight="bold" color={t.sub}>สถานะครั้งนี้</Txt>
-                <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', backgroundColor: t.track, borderRadius: 14, padding: 3, gap: 2 }}>
-                  {([
-                    ['done', 'ทำแล้ว', 'done'],
-                    ['skipped', 'ข้าม', 'skipped'],
-                    [null, 'ยังไม่ทำ', state === 'overdue' || state === 'current' ? state : 'planned'],
-                  ] as const).map(([st, label, dot]) => {
-                    const on = (item.ostatus === 'planned' ? null : item.ostatus) === st;
-                    return (
-                      <Pressable
-                        key={label}
-                        accessibilityRole="radio"
-                        accessibilityState={{ checked: on }}
-                        onPress={() => pickStatus(st)}
-                        style={pressFade({ flex: 1, height: 46, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: on ? t.card : 'transparent' })}>
-                        <StatusDot state={dot} size={20} />
-                        <Txt size={13.5} weight={on ? 'bold' : 'med'} color={on ? t.ink : t.sub}>{label}</Txt>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                <StatusPicker
+                  value={item.ostatus === 'planned' ? null : item.ostatus}
+                  idleDot={state === 'overdue' || state === 'current' ? state : 'planned'}
+                  onPick={pickStatus}
+                />
               </View>
             ) : null}
 
@@ -533,7 +542,7 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
                   placeholderTextColor={t.faint}
                   multiline
                   accessibilityLabel="โน้ตของครั้งนี้"
-                  style={{ minHeight: 64, maxHeight: 120, flexShrink: 1, borderRadius: 12, borderWidth: 1, borderColor: notePending === 'delete' ? DANGER : notePending ? t.accent : t.rail, backgroundColor: t.card, paddingLeft: 12, paddingRight: 40, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
+                  style={{ minHeight: 64, maxHeight: 120, flexShrink: 1, borderRadius: 12, borderWidth: 1, borderColor: notePending === 'delete' ? t.warn : notePending ? t.accent : t.rail, backgroundColor: t.card, paddingLeft: 12, paddingRight: 40, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
                 />
                 {/* ✕ ล้างข้อความทั้งหมดในช่อง — มีโน้ตเดิมแล้วปล่อยว่าง = ร่างการลบ (ยังไม่ลบจนกด "ยืนยันลบ") */}
                 {noteText ? (
@@ -545,7 +554,7 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
               {/* มีการแก้ไขค้าง → สถานะ + ยกเลิก / บันทึก (ยืนยันลบ) · ไม่มี → ✓ บันทึกแล้ว + ลบโน้ต · โหมดจดโน้ต: ย้ายไปแถบเหนือคีย์บอร์ด */}
               {typing ? null : notePending ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 34 }}>
-                  <Txt size={11.5} weight="bold" color={notePending === 'delete' ? DANGER : t.accentInk} style={{ flex: 1 }} numberOfLines={2}>
+                  <Txt size={11.5} weight="bold" color={notePending === 'delete' ? t.warn : t.accentInk} style={{ flex: 1 }} numberOfLines={2}>
                     {notePending === 'delete' ? 'จะลบโน้ตนี้ — ยืนยันเพื่อลบ' : notePending === 'add' ? 'โน้ตใหม่ · ยังไม่บันทึก' : 'แก้ไขแล้ว · ยังไม่บันทึก'}
                   </Txt>
                   <NoteBtn label="ยกเลิก" onPress={discardNote} />
@@ -557,17 +566,17 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
                   />
                 </View>
               ) : savedNote ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 34 }}>
+                <FadeInView duration={240} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 34 }}>
                   <Txt size={11.5} color={t.greenInk} style={{ flex: 1 }} numberOfLines={1}>
                     ✓ บันทึกแล้ว
                   </Txt>
-                  <Pressable accessibilityRole="button" onPress={deleteNote} hitSlop={6} style={({ pressed }) => ({ height: 32, paddingHorizontal: 10, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: pressed ? DANGER + '22' : 'transparent' })}>
-                    <SvgIcon name="trash" size={13} color={DANGER} />
-                    <Txt size={12.5} weight="med" color={DANGER}>
+                  <Pressable accessibilityRole="button" onPress={deleteNote} hitSlop={6} style={({ pressed }) => ({ height: 32, paddingHorizontal: 10, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: pressed ? t.warn + '22' : 'transparent' })}>
+                    <SvgIcon name="trash" size={13} color={t.warn} />
+                    <Txt size={12.5} weight="med" color={t.warn}>
                       ลบโน้ต
                     </Txt>
                   </Pressable>
-                </View>
+                </FadeInView>
               ) : null}
             </View>
 
@@ -622,16 +631,20 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
             ) : null}
           </View>
         ) : (
-          <View style={{ gap: 8 }}>
-            <Txt size={13} color={t.sub}>
-              {item.repeat !== 'none' ? 'กิจกรรมนี้เป็นชุดทำซ้ำ — ลบแบบไหน? (ครั้งก่อนหน้าและสถิติคงเดิมทั้งสองแบบ)' : 'ยืนยันการลบ?'}
+          // กล่องยืนยันลบ — ลอยเข้ามาแทนส่วนสถานะ/โน้ต · ทุกแบบกด "เลิกทำ" ได้หลังลบ
+          <FadeInView rise={6} duration={200} style={{ gap: 10 }}>
+            <Txt size={15} weight="bold">
+              {item.repeat !== 'none' ? 'ลบกิจกรรมที่ทำซ้ำ — ลบแค่ไหน?' : 'ลบกิจกรรมนี้ใช่ไหม'}
+            </Txt>
+            <Txt size={12.5} color={t.sub} style={{ lineHeight: 18 }}>
+              {item.repeat !== 'none' ? 'ครั้งก่อนหน้านี้และสถิติยังอยู่ครบทั้งสองแบบ · ลบแล้วกด “เลิกทำ” ได้' : `${plainTitle(item.title)} · ${shortThai(date)} · ลบแล้วกด “เลิกทำ” ได้`}
             </Txt>
             {item.repeat !== 'none' ? (
-              <View style={{ flexDirection: 'row', gap: 8 }}>
+              <>
                 <Btn
-                  style={{ flex: 1 }}
-                  kind="danger"
-                  label="เฉพาะครั้งนี้"
+                  kind="dangerSoft"
+                  label={`เฉพาะ ${shortThai(date)}`}
+                  sub="ลบ 1 ครั้ง · ครั้งอื่นในชุดยังอยู่"
                   onPress={() => {
                     const undo = deleteMany([item]);
                     closeSheet();
@@ -639,17 +652,17 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
                   }}
                 />
                 <Btn
-                  style={{ flex: 1 }}
                   kind="danger"
                   // ตัดชุดให้จบเมื่อวาน — ตรงกับที่ระบบทำจริง (เดิมป้ายเขียนว่า "ทั้งชุด")
-                  label="ตั้งแต่ครั้งนี้ไป"
+                  label="ตั้งแต่ครั้งนี้เป็นต้นไป"
+                  sub={`ลบ ${futureText}`}
                   onPress={() => {
-                    deleteSeries(item);
+                    const undo = deleteSeries(item);
                     closeSheet();
-                    showToast('ลบตั้งแต่ครั้งนี้เป็นต้นไปแล้ว');
+                    showToast('ลบตั้งแต่ครั้งนี้เป็นต้นไปแล้ว', { label: 'เลิกทำ', run: undo });
                   }}
                 />
-              </View>
+              </>
             ) : (
               <Btn
                 kind="danger"
@@ -662,8 +675,8 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
                 }}
               />
             )}
-            <Btn kind="ghost" label="ยกเลิก" onPress={() => setConfirm(false)} />
-          </View>
+            <Btn kind="ghost" label="ไม่ลบ" onPress={() => setConfirm(false)} />
+          </FadeInView>
         )}
         </>
         )}
@@ -673,7 +686,7 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
           <NoteKeyboardBar
             bleed={20}
             strong={!!notePending}
-            color={notePending === 'delete' ? DANGER : notePending ? t.accentInk : savedNote ? t.greenInk : t.faint}
+            color={notePending === 'delete' ? t.warn : notePending ? t.accentInk : savedNote ? t.greenInk : t.faint}
             text={
               notePending === 'delete'
                 ? 'จะลบโน้ตนี้ — ยืนยันเพื่อลบ'
@@ -706,15 +719,61 @@ function SheetBody({ id, date, focusNote, closing, onClosed }: { id: number; dat
   );
 }
 
+const STATUS_OPTS = [
+  ['done', 'ทำแล้ว'],
+  ['skipped', 'ข้าม'],
+  [null, 'ยังไม่ทำ'],
+] as const;
+const PICK_PAD = 3;
+const PICK_GAP = 2;
+
+/**
+ * ตัวเลือกสถานะ 3 ทาง (ทำแล้ว · ข้าม · ยังไม่ทำ) — แผ่นขาวเลื่อนไปหาตัวที่เลือก (ภาษาเดียวกับ Segmented)
+ * idleDot = หน้าตาวงกลมของ "ยังไม่ทำ" ตามสถานะจริงบนราง (ค้างบันทึก/กำลังทำ/รอ)
+ */
+function StatusPicker({ value, idleDot, onPick }: { value: OccStatus | null; idleDot: 'overdue' | 'current' | 'planned'; onPick: (st: OccStatus | null) => void }) {
+  const t = useTokens();
+  const [w, setW] = useState(0);
+  const seg = w ? (w - PICK_PAD * 2 - PICK_GAP * 2) / 3 : 0;
+  const idx = Math.max(STATUS_OPTS.findIndex(([st]) => st === value), 0);
+  const pos = useEased(idx, 200);
+  const step = seg + PICK_GAP;
+  const thumb = useAnimatedStyle(() => ({ transform: [{ translateX: pos.value * step }] }));
+  return (
+    <View accessibilityRole="radiogroup" onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ flexDirection: 'row', backgroundColor: t.track, borderRadius: 14, padding: PICK_PAD, gap: PICK_GAP }}>
+      {seg > 0 ? (
+        <Reanimated.View
+          pointerEvents="none"
+          style={[{ position: 'absolute', left: PICK_PAD, top: PICK_PAD, bottom: PICK_PAD, width: seg, borderRadius: 11, backgroundColor: t.card, shadowColor: t.shadow, shadowOpacity: 0.12, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 }, thumb]}
+        />
+      ) : null}
+      {STATUS_OPTS.map(([st, label]) => {
+        const on = value === st;
+        return (
+          <Pressable
+            key={label}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: on }}
+            onPress={() => onPick(st)}
+            style={pressFade({ flex: 1, height: 46, borderRadius: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: on && !seg ? t.card : 'transparent' })}>
+            <StatusDot state={st ?? idleDot} size={20} />
+            <Txt size={13.5} weight={on ? 'bold' : 'med'} color={on ? t.ink : t.sub}>{label}</Txt>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 /** แถบถามก่อนปิดแผ่น/ไปหน้าอื่น ขณะโน้ตยังไม่บันทึก — กลับไปแก้ต่อ · ทิ้งการแก้ไข · บันทึกแล้วไปต่อ */
 function LeaveNoteAsk({ pending, onBack, onDiscard, onSave }: { pending: 'add' | 'edit' | 'delete'; onBack: () => void; onDiscard: () => void; onSave: () => void }) {
   const t = useTokens();
   const del = pending === 'delete';
   return (
-    <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: del ? DANGER : ATTN, padding: 12, gap: 10 }}>
+    <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: del ? t.warn : ATTN, padding: 12, gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
         <View style={{ paddingTop: 2 }}>
-          <SvgIcon name="note" size={15} color={del ? DANGER : t.accentInk} />
+          <SvgIcon name="note" size={15} color={del ? t.warn : t.accentInk} />
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <Txt size={13.5} weight="bold">
@@ -736,11 +795,6 @@ function LeaveNoteAsk({ pending, onBack, onDiscard, onSave }: { pending: 'add' |
   );
 }
 
-/** "อ 3 พ.ย." — วันที่ย่อสำหรับป้ายโน้ตครั้งก่อน */
-function shortThai(iso: string): string {
-  const d = fromISO(iso);
-  return `${WD_TH[wdMon(iso)]} ${d.getDate()} ${MONTH_TH[d.getMonth()]}`;
-}
 
 /**
  * การ์ดข้อมูลผู้ติดต่อของเคส — แต่ละช่องทาง (โทร/LINE/อีเมล/Zoom/Meet) มี 2 ปุ่ม: คัดลอก + เปิดแอป
@@ -765,7 +819,7 @@ function ContactCard({
 
   const copy = async (label: string, value: string) => {
     await Clipboard.setStringAsync(value);
-    showToast(`คัดลอก${label}แล้ว ✓`);
+    showToast(`คัดลอก${label}แล้ว`);
   };
   /** เปิดช่องทางนั้น — คืน false เมื่อเปิดไม่ได้ ให้ปุ่มขึ้นสถานะ "เปิดไม่ได้" เอง */
   const open = async (m: ContactMethod) => {
@@ -804,10 +858,12 @@ function ContactCard({
         </Pressable>
         {onRemove ? (
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`ถอด ${c.name} ออกจากนัดนี้`}
             onPress={() => setConfirmDel(true)}
             hitSlop={6}
-            style={pressFade({ width: 28, height: 28, borderRadius: 8, backgroundColor: confirmDel ? DANGER + '22' : t.chip, alignItems: 'center', justifyContent: 'center' })}>
-            <SvgIcon name="trash" size={14} color={confirmDel ? DANGER : t.sub} />
+            style={pressFade({ width: 36, height: 36, borderRadius: 18, backgroundColor: confirmDel ? t.warn + '22' : t.chip, alignItems: 'center', justifyContent: 'center' })}>
+            <SvgIcon name="trash" size={14} color={confirmDel ? t.warn : t.sub} />
           </Pressable>
         ) : null}
       </View>
@@ -907,7 +963,7 @@ function ContactEditForm({
         note: d.note || null,
         org: d.org || null,
       });
-      showToast('บันทึกรายชื่อแล้ว ✓');
+      showToast('บันทึกรายชื่อแล้ว');
       onClose();
     } finally {
       setSaving(false);
@@ -928,7 +984,7 @@ function ContactEditForm({
           onRename: (name) => {
             setD({ ...d, name });
             setPicking(false);
-            showToast('เปลี่ยนชื่อแล้ว — กด "ยืนยัน" เพื่อบันทึก');
+            showToast('เปลี่ยนชื่อแล้ว — กด “บันทึก” เพื่อเก็บ');
           },
         }}
         onCancel={() => setPicking(false)}
@@ -949,6 +1005,8 @@ function ContactEditForm({
         contentContainerStyle={{ gap: 8, paddingBottom: 2 }}>
         {/* ชื่อ — เลือกจากรายการรายชื่อทั้งหมด (แตะเพื่อเปลี่ยนเป็นคนอื่น / เปลี่ยนชื่อคนนี้) */}
         <Pressable
+          accessibilityRole="button"
+          accessibilityHint="เลือกรายชื่ออื่น หรือเปลี่ยนชื่อ"
           onPress={() => setPicking(true)}
           style={pressFade({
             flexDirection: 'row',
@@ -999,7 +1057,7 @@ function ContactEditForm({
 
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" disabled={saving} onPress={onClose} />
-        <Btn style={{ flex: 1 }} renderIcon={(c2, s) => <SvgIcon name="check" size={s} color={c2} />} label={saving ? 'กำลังบันทึก…' : 'ยืนยัน'} disabled={saving} onPress={save} />
+        <Btn style={{ flex: 1 }} renderIcon={(c2, s) => <SvgIcon name="check" size={s} color={c2} />} label={saving ? 'กำลังบันทึก…' : 'บันทึก'} disabled={saving} onPress={save} />
       </View>
     </View>
   );
@@ -1050,10 +1108,12 @@ function ContactPicker({
     <View style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="กลับ"
           onPress={onCancel}
           hitSlop={6}
-          style={pressFade({ width: 28, height: 28, borderRadius: 8, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' })}>
-          <Icon name="chevL" size={15} color={t.sub} />
+          style={pressFade({ width: 36, height: 36, borderRadius: 18, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' })}>
+          <Icon name="chevL" size={16} color={t.sub} />
         </Pressable>
         <Txt size={16} weight="bold" style={{ flex: 1 }} numberOfLines={1}>{title}</Txt>
         <Txt size={12} num color={t.faint}>{all.length} รายชื่อ</Txt>
@@ -1066,12 +1126,14 @@ function ContactPicker({
           onChangeText={setQ}
           placeholder="ค้นหาชื่อ / เบอร์ / LINE…"
           placeholderTextColor={t.faint}
+          accessibilityLabel="ค้นหารายชื่อ"
+          returnKeyType="search"
           autoCorrect={false}
           style={{ flex: 1, paddingVertical: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
         />
         {q ? (
-          <Pressable style={pressFade()} onPress={() => setQ('')} hitSlop={6}>
-            <SvgIcon name="x" size={14} color={t.faint} />
+          <Pressable accessibilityRole="button" accessibilityLabel="ล้างคำค้น" style={pressFade({ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' })} onPress={() => setQ('')} hitSlop={8}>
+            <SvgIcon name="x" size={14} color={t.sub} />
           </Pressable>
         ) : null}
       </View>
@@ -1129,11 +1191,14 @@ function PickRow({ c, active, onPress }: { c: Contact; active: boolean; onPress:
   const sub = [c.phone, c.line, c.email].filter(Boolean).join(' · ');
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!active }}
       onPress={onPress}
       style={pressFade({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+        minHeight: 44,
         borderRadius: 12,
         borderWidth: 1,
         borderColor: active ? t.accent : t.line,
@@ -1173,7 +1238,7 @@ function Field({
     const txt = await Clipboard.getStringAsync();
     if (!txt) return showToast('คลิปบอร์ดว่าง');
     onChange(multiline ? txt : txt.replace(/\s+/g, ' ').trim());
-    showToast('วางข้อความแล้ว ✓');
+    showToast('วางข้อความแล้ว');
   };
 
   return (
@@ -1202,7 +1267,7 @@ function Field({
         }}
       />
       <View style={{ flexDirection: 'row', gap: 6, paddingTop: multiline ? 4 : 0 }}>
-        <FieldBtn icon="x" label="ลบ" disabled={!value} onPress={() => onChange('')} />
+        <FieldBtn icon="x" label="ล้าง" disabled={!value} onPress={() => onChange('')} />
         <FieldBtn icon="clipboard" label="วาง" onPress={paste} />
       </View>
     </View>
@@ -1214,23 +1279,25 @@ function FieldBtn({ icon, label, disabled, onPress }: { icon: string; label: str
   const t = useTokens();
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
       onPress={onPress}
       disabled={disabled}
-      hitSlop={4}
+      hitSlop={6}
       style={pressFade({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 3,
-        minWidth: 52,
-        paddingHorizontal: 8,
-        paddingVertical: 6,
-        borderRadius: 9,
+        minWidth: 56,
+        minHeight: 34,
+        paddingHorizontal: 10,
+        borderRadius: 17,
         backgroundColor: t.chip,
         opacity: disabled ? 0.4 : 1,
       })}>
       <SvgIcon name={icon} size={12} color={t.sub} />
-      <Txt size={11} weight="med" color={t.sub}>{label}</Txt>
+      <Txt size={12} weight="med" color={t.sub}>{label}</Txt>
     </Pressable>
   );
 }
@@ -1279,14 +1346,15 @@ function MiniBtn({
     if (next !== 'idle') timer.current = setTimeout(() => setState('idle'), 1400);
   };
 
-  const bg = state === 'done' ? GREEN : state === 'error' ? DANGER : primary || state === 'busy' ? t.accent : t.chip;
+  const bg = state === 'done' ? GREEN : state === 'error' ? t.warnFill : primary || state === 'busy' ? t.accent : t.chip;
   const fg = state === 'idle' && !primary ? t.sub : '#FFFFFF';
   const text = state === 'busy' ? busyLabel ?? 'กำลังเปิด…' : state === 'done' ? feedbackLabel : state === 'error' ? errorLabel : label;
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={handle}
-      hitSlop={4}
-      style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9, backgroundColor: bg, opacity: state === 'busy' ? 0.85 : 1 })}>
+      hitSlop={6}
+      style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: bg, opacity: state === 'busy' ? 0.85 : 1 })}>
       {state === 'busy' ? (
         <ActivityIndicator size="small" color={fg} style={{ width: 12, height: 12, transform: [{ scale: 0.7 }] }} />
       ) : (

@@ -1,9 +1,6 @@
-// ชิ้นส่วนร่วมของแท็บวันนี้ — ชื่อคนในนัดเคส / ช่องทางติดต่อ / ปุ่ม ‹ › (หัวและตัวสลับมุมมองย้ายไป components/b1)
-import React, { useMemo } from 'react';
-import { Pressable } from 'react-native';
+// ชิ้นส่วนร่วมของแท็บวันนี้ — ชื่อคนในนัดเคส / ช่องทางติดต่อ (หัวและตัวสลับมุมมองย้ายไป components/b1 · ปุ่ม ‹ › = NavCircle ใน components/ui)
+import { useMemo } from 'react';
 
-import { Icon } from '@/components/icon';
-import { pressFade, useTokens } from '@/components/ui';
 import type { Contact, DayItem } from '@/lib/types';
 import { useContacts } from '@/stores/contacts';
 
@@ -43,26 +40,4 @@ export function contactLine(c: Contact): string {
   return [c.phone && `โทร ${c.phone}`, c.line && `LINE ${c.line}`, c.email, c.zoom && 'ห้อง Zoom', c.googlemeet && 'ห้อง Meet']
     .filter(Boolean)
     .join(' · ');
-}
-
-/** ปุ่มกลม ‹ › สำหรับเลื่อนช่วง (ปี/เดือน) */
-export function StepBtn({ icon, onPress, disabled }: { icon: 'chevL' | 'chevR'; onPress: () => void; disabled?: boolean }) {
-  const t = useTokens();
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      hitSlop={8}
-      style={pressFade({
-        width: 34,
-        height: 34,
-        borderRadius: 17,
-        backgroundColor: t.chip,
-        alignItems: 'center',
-        justifyContent: 'center',
-        opacity: disabled ? 0.3 : 1,
-      })}>
-      <Icon name={icon} size={18} color={t.sub} />
-    </Pressable>
-  );
 }

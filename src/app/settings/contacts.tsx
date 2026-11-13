@@ -9,6 +9,7 @@ import { Linking, Pressable, ScrollView, TextInput, View, type ScrollViewInstanc
 
 import { Field } from '@/components/field';
 import { Icon } from '@/components/icon';
+import { FadeInView } from '@/components/motion';
 import { EmptyState } from '@/components/empty-state';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
@@ -64,6 +65,9 @@ export default function ContactsScreen() {
   const [fromParam] = useState(() => (edit ? list.find((x) => x.id === Number(edit)) ?? null : null));
   const [editing, setEditing] = useState<Draft | null>(fromParam);
   const [returnAfterEdit, setReturnAfterEdit] = useState(!!fromParam);
+  // ตัวกรองของรายการเก็บไว้ที่นี่ — แก้ไขคนที่ค้นเจอแล้วกลับมา คำค้น/ระดับยังอยู่ (เดิมรายการถูกสร้างใหม่ ตัวกรองหาย)
+  const [priFilter, setPriFilter] = useState<PriorityId | null>(null);
+  const [query, setQuery] = useState('');
 
   // ปิดหน้าแก้ไข — ถ้าเปิดตรงมาจากที่อื่น กลับไปที่นั่นเลย (ไม่ค้างที่รายการ)
   const closeEdit = () => {
@@ -80,16 +84,30 @@ export default function ContactsScreen() {
   return editing ? (
     <ContactEdit key={editing.id ?? 'new'} draft={editing} linked={editing.id ? links.get(editing.id) ?? null : null} onClose={closeEdit} />
   ) : (
-    <ContactList list={list} links={links} onEdit={setEditing} />
+    <ContactList list={list} links={links} onEdit={setEditing} priFilter={priFilter} setPriFilter={setPriFilter} query={query} setQuery={setQuery} />
   );
 }
 
 // ---------- รายการ ----------
 
-function ContactList({ list, links, onEdit }: { list: Contact[]; links: ReturnType<typeof useLinks>; onEdit: (c: Draft) => void }) {
+function ContactList({
+  list,
+  links,
+  onEdit,
+  priFilter,
+  setPriFilter,
+  query,
+  setQuery,
+}: {
+  list: Contact[];
+  links: ReturnType<typeof useLinks>;
+  onEdit: (c: Draft) => void;
+  priFilter: PriorityId | null;
+  setPriFilter: (p: PriorityId | null) => void;
+  query: string;
+  setQuery: (q: string) => void;
+}) {
   const t = useTokens();
-  const [priFilter, setPriFilter] = useState<PriorityId | null>(null);
-  const [query, setQuery] = useState('');
 
   const countByPri = useMemo(() => {
     const m = {} as Record<PriorityId, number>;
@@ -134,6 +152,8 @@ function ContactList({ list, links, onEdit }: { list: Contact[]; links: ReturnTy
                 placeholder="ชื่อ องค์กร เบอร์ หรือ LINE"
                 placeholderTextColor={t.faint}
                 accessibilityLabel="ค้นหารายชื่อ"
+                returnKeyType="search"
+                autoCorrect={false}
                 style={{ flex: 1, minWidth: 0, color: t.ink, fontFamily: FONT.ui, fontSize: 15, paddingVertical: 0 }}
               />
               {query ? (
@@ -269,6 +289,10 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
   const showToast = useUI((s) => s.showToast);
   const [d, setD] = useState<Draft>(draft);
   const [confirmDel, setConfirmDel] = useState(false);
+  /** กำลังบันทึก — กันแตะซ้ำแล้วได้รายชื่อใหม่สองรายการ */
+  const [saving, setSaving] = useState(false);
+  /** กดบันทึกแล้วหรือยัง — ข้อความผิดพลาดใต้ช่องขึ้นหลังพยายามบันทึกครั้งแรก (ไม่ขึ้นระหว่างพิมพ์ครั้งแรก) */
+  const [tried, setTried] = useState(false);
   const scrollRef = useRef<ScrollViewInstance>(null);
   // กล่องยืนยันลบอยู่ท้ายหน้า — เลื่อนลงไปให้เห็นทันทีที่กด
   useEffect(() => {
@@ -281,10 +305,18 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
   const set = (p: Draft) => setD((x) => ({ ...x, ...p }));
   const pri = (d.priority ?? 'P6') as PriorityId;
 
+  const emailBad = !!d.email?.trim() && !isEmail(d.email);
   const save = async () => {
+    if (saving) return;
     const name = d.name?.trim();
-    if (!name) return showToast('ใส่ชื่อก่อน');
-    if (d.email?.trim() && !isEmail(d.email)) return showToast('อีเมลไม่ถูกต้อง — ตัวอย่าง name@example.com');
+    setTried(true);
+    if (!name) return scrollRef.current?.scrollTo({ y: 0, animated: true });
+    if (emailBad) {
+      setMore(true);
+      return;
+    }
+    setSaving(true);
+    try {
     await upsert({
       id: d.id,
       name,
@@ -297,7 +329,11 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
       note: d.note?.trim() || null,
       org: d.org?.trim() || null,
     });
-    showToast('บันทึกรายชื่อแล้ว ✓');
+    } catch {
+      setSaving(false);
+      return showToast('บันทึกรายชื่อไม่สำเร็จ — ลองอีกครั้ง');
+    }
+    showToast('บันทึกรายชื่อแล้ว');
     onClose();
   };
 
@@ -314,9 +350,9 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
       variant="sub"
       scrollRef={scrollRef}
       onBack={onClose}
-      action={{ label: 'บันทึก', icon: 'check', onPress: save }}>
+      action={{ label: saving ? 'กำลังบันทึก…' : 'บันทึก', icon: 'check', onPress: save, disabled: saving || !d.name?.trim() }}>
       <FieldGroup title="ข้อมูลหลัก">
-        <Field label="ชื่อ-นามสกุล" value={d.name ?? ''} onChange={(name) => set({ name })} autoFocus={!d.id} />
+        <Field label="ชื่อ-นามสกุล" value={d.name ?? ''} onChange={(name) => set({ name })} autoFocus={!d.id} error={tried && !d.name?.trim() ? 'ใส่ชื่อก่อนบันทึก' : undefined} />
         <Field label="องค์กร / บริษัท" optional value={d.org ?? ''} onChange={(org) => set({ org })} placeholder="เช่น บริษัท … จำกัด" />
       </FieldGroup>
 
@@ -333,7 +369,7 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
         <Field label="LINE ID" value={d.line ?? ''} onChange={(line) => set({ line })} onPaste={() => paste('line')} />
         {more ? (
           <>
-            <Field label="อีเมล" optional value={d.email ?? ''} onChange={(email) => set({ email })} keyboard="email-address" onPaste={() => paste('email')} />
+            <Field label="อีเมล" optional value={d.email ?? ''} onChange={(email) => set({ email })} keyboard="email-address" onPaste={() => paste('email')} error={tried && emailBad ? 'รูปแบบอีเมลไม่ถูกต้อง — เช่น name@example.com' : undefined} />
             <Field label="Zoom" optional value={d.zoom ?? ''} onChange={(zoom) => set({ zoom })} placeholder="ลิงก์ หรือ Meeting ID" onPaste={() => paste('zoom')} />
             <Field label="Google Meet" optional value={d.googlemeet ?? ''} onChange={(googlemeet) => set({ googlemeet })} placeholder="ลิงก์ หรือรหัสห้อง" onPaste={() => paste('googlemeet')} />
             <Field label="หมายเหตุ" optional value={d.note ?? ''} onChange={(note) => set({ note })} multiline />
@@ -349,13 +385,13 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
 
       {d.id ? (
         confirmDel ? (
-          <View style={{ backgroundColor: t.card, borderRadius: 20, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 10 }}>
+          <FadeInView rise={6} style={{ backgroundColor: t.card, borderRadius: 20, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 10 }}>
             <Txt size={15} weight="bold">
               ลบ “{draft.name}” ออกจากสมุดรายชื่อ?
             </Txt>
             <Txt size={12.5} color={t.sub} style={{ lineHeight: 19 }}>
               {linked?.count ? `รายชื่อนี้ผูกอยู่กับ ${linked.count} นัด${linked.next ? ` (${nextText(linked.next).replace('นัดถัดไป', 'ถัดไป')})` : ''} — นัดทั้งหมดยังอยู่ แต่จะไม่มีชื่อคนนี้แล้ว · ` : ''}
-              ลบแล้วกู้คืนไม่ได้
+              ลบแล้วกด “เลิกทำ” ได้ทันทีหลังลบ
             </Txt>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Btn style={{ flex: 1 }} kind="ghost" label="ไม่ลบ" onPress={() => setConfirmDel(false)} />
@@ -364,13 +400,13 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
                 kind="danger"
                 label="ลบรายชื่อ"
                 onPress={() => {
-                  remove(d.id!);
-                  showToast('ลบรายชื่อแล้ว');
+                  const undo = remove(d.id!);
+                  showToast(`ลบ “${draft.name ?? ''}” แล้ว`, { label: 'เลิกทำ', run: undo });
                   onClose();
                 }}
               />
             </View>
-          </View>
+          </FadeInView>
         ) : (
           <Pressable accessibilityRole="button" onPress={() => setConfirmDel(true)} style={({ pressed }) => ({ alignSelf: 'center', minHeight: 44, paddingHorizontal: 14, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
             <Txt size={14} weight="bold" color={t.warn}>
@@ -392,7 +428,7 @@ function FieldGroup({ title, hint, children }: { title: string; hint?: string; c
       </Txt>
       <View style={{ backgroundColor: t.card, borderRadius: 20, padding: 14, gap: 12, shadowColor: t.shadow, shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
         {hint ? (
-          <Txt size={12} color={t.faint} style={{ marginTop: -4 }}>
+          <Txt size={12} color={t.sub} style={{ marginTop: -4 }}>
             {hint}
           </Txt>
         ) : null}

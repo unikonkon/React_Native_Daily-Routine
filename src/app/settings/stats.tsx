@@ -1,15 +1,18 @@
-// หน้าสถิติ — "ใบรายงาน" (Layout B): ฟิลเตอร์แท็บขีดเส้นใต้ + การ์ดรายงานใหญ่ (% เด่น + สปาร์กไลน์ + แถวตัวชี้วัด)
+// หน้าสถิติ — "ใบรายงาน" (Layout B): ตัวเลือกช่วง (Segmented) + ประโยคสรุป + การ์ดรายงานใหญ่ (% เด่น + สปาร์กไลน์ + แถวตัวชี้วัด)
 // เลือกช่วง: สัปดาห์/เดือน (เลื่อนช่วงได้) · ทั้งหมด — ดึงจาก store (series+occ) ผ่าน engine.rangeStats (pure)
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Svg, { Circle, Polygon, Polyline } from 'react-native-svg';
 
+import { EmptyState } from '@/components/empty-state';
 import { Icon } from '@/components/icon';
+import { Chevron, FadeInView, ProgressFill } from '@/components/motion';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
-import { Card, PriBadge, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
+import { Btn, Card, NavCircle, PriBadge, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
 import { ATTN, CATS, CAT_OPTIONS, FONT, GREEN, PRI, PRI_BY_ID, type CatId, type PriorityId } from '@/constants/theme';
-import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, nowMin, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
+import { MONTH_TH, MONTH_TH_FULL, WD_TH, WD_TH_FULL, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, nowMin, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
 import { rangeStats, type RangeStats } from '@/lib/engine';
 import { caseWho, inlineName } from '@/lib/case-contacts';
 import type { Contact, DayItem } from '@/lib/types';
@@ -60,6 +63,7 @@ interface CaseGroup {
 
 export default function StatsScreen() {
   const t = useTokens();
+  const router = useRouter();
   const acts = useActivities((s) => s.acts);
   const occ = useActivities((s) => s.occ);
 
@@ -162,6 +166,50 @@ export default function StatsScreen() {
     });
   }, [acts, occ, mode, range.from, range.to]);
 
+  // ช่วงก่อนหน้า (สัปดาห์ก่อน/เดือนก่อน) — ใช้เทียบในประโยคสรุป · "ทั้งหมด" ไม่มีช่วงให้เทียบ
+  const prev = useMemo(() => {
+    if (mode === 'week') {
+      const mon = addDays(range.from, -7);
+      return rangeStats(acts, occ, mon, addDays(mon, 6), 1440);
+    }
+    if (mode === 'month') {
+      const b = fromISO(range.from);
+      const m = new Date(b.getFullYear(), b.getMonth() - 1, 1);
+      return rangeStats(acts, occ, toISO(m), toISO(new Date(m.getFullYear(), m.getMonth() + 1, 0)), 1440);
+    }
+    return null;
+  }, [acts, occ, mode, range.from]);
+  /** กางกราฟแท่งรายช่วงย่อย (แตะแถว "ทำเสร็จราย…") */
+  const [barsOpen, setBarsOpen] = useState(false);
+
+  // ประโยคสรุปอ่านง่าย 1–2 ประโยคเหนือการ์ดตัวเลข — บอกภาพรวม · เทียบช่วงก่อน · ช่วงที่ทำได้มากสุด (โทนให้กำลังใจ ไม่ตำหนิ)
+  const insight = (() => {
+    if (!stats.scheduled) return [];
+    const unit = mode === 'week' ? 'สัปดาห์' : mode === 'month' ? 'เดือน' : '';
+    const pct = Math.round(stats.rate * 100);
+    const out: string[] = [];
+    out.push(
+      pct >= 80
+        ? `ทำได้ดีมาก — เสร็จ ${stats.done} จาก ${stats.scheduled} รายการ`
+        : pct >= 50
+          ? `ไปได้เกินครึ่งแล้ว — เสร็จ ${stats.done} จาก ${stats.scheduled} รายการ`
+          : stats.done
+            ? `เริ่มต้นได้แล้ว — เสร็จ ${stats.done} จาก ${stats.scheduled} รายการ ค่อย ๆ เพิ่มทีละอย่างก็พอ`
+            : `ยังไม่ได้ติ๊กรายการใน${unit ? `${unit}นี้` : 'ช่วงนี้'} — เริ่มจากรายการเล็ก ๆ สักอย่างก็ได้`,
+    );
+    if (prev && prev.scheduled && unit && (stats.done || prev.done)) {
+      const diff = pct - Math.round(prev.rate * 100);
+      if (diff >= 3) out.push(`ดีขึ้นจาก${unit}ก่อน ${diff} จุด`);
+      else if (diff <= -3) out.push(`${unit}ก่อนทำได้ ${Math.round(prev.rate * 100)}%`);
+      else out.push(`พอ ๆ กับ${unit}ก่อน`);
+    }
+    const best = series.reduce<{ label: string; done: number } | null>((a, b) => (b.done > (a?.done ?? 0) ? b : a), null);
+    if (best && best.done > 0 && series.filter((x) => x.done > 0).length > 1) {
+      out.push(mode === 'week' ? `วันที่ทำได้มากสุดคือวัน${WD_TH_FULL[WD_TH.indexOf(best.label)] ?? best.label} (${best.done} รายการ)` : mode === 'month' ? `สัปดาห์ที่ ${best.label} ทำได้มากสุด (${best.done} รายการ)` : `เดือน ${best.label} ทำได้มากสุด (${best.done} รายการ)`);
+    }
+    return out;
+  })();
+
   const priShown = PRI.filter((p) => stats.caseByPriority[p.id]);
   const casesFiltered = priFilter ? stats.caseItems.filter((i) => i.priority === priFilter) : stats.caseItems;
   const avgDone = stats.countedDays ? stats.done / stats.countedDays : 0;
@@ -255,48 +303,58 @@ export default function StatsScreen() {
     <Screen title="สถิติ" subtitle="นับเฉพาะรายการที่บันทึกแล้ว (ทำแล้ว / ข้าม)" variant="sub">
       {/* ฟิลเตอร์ + เลื่อนช่วง */}
       <View style={{ gap: 12 }}>
-        <View style={{ flexDirection: 'row', gap: 20, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.line2, paddingHorizontal: 2 }}>
-          {(['week', 'month', 'all'] as Mode[]).map((k) => {
-            const on = mode === k;
-            return (
-              <Pressable
-                key={k}
-                onPress={() => {
-                  setMode(k);
-                  setOffset(0);
-                  resetCaseView();
-                }}
-                style={pressFade({ paddingVertical: 8, borderBottomWidth: 2, borderBottomColor: on ? t.accent : 'transparent', marginBottom: -StyleSheet.hairlineWidth })}>
-                <Txt size={14.5} weight={on ? 'bold' : 'med'} color={on ? t.ink : t.sub}>
-                  {k === 'week' ? 'สัปดาห์' : k === 'month' ? 'เดือน' : 'ทั้งหมด'}
-                </Txt>
-              </Pressable>
-            );
-          })}
-        </View>
+        {/* ตัวเลือกช่วงแบบเดียวกับหน้าอื่น (Segmented) — แผ่นขาวเลื่อน + ตัวอ่านหน้าจออ่านว่าเป็นแท็บ */}
+        <Segmented<Mode>
+          options={[
+            { key: 'week', label: 'สัปดาห์' },
+            { key: 'month', label: 'เดือน' },
+            { key: 'all', label: 'ทั้งหมด' },
+          ]}
+          value={mode}
+          onChange={(k) => {
+            setMode(k);
+            setOffset(0);
+            setBarsOpen(false);
+            resetCaseView();
+          }}
+        />
 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {mode !== 'all' ? <NavBtn icon="chevL" onPress={() => { setOffset(offset + 1); resetCaseView(); }} /> : null}
+          {mode !== 'all' ? <NavCircle dir="prev" label="ช่วงก่อนหน้า" onPress={() => { setOffset(offset + 1); resetCaseView(); }} /> : null}
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Txt size={14} weight="bold">{range.label}</Txt>
             {mode !== 'all' && offset !== 0 ? (
-              <Pressable style={pressFade()} onPress={() => { setOffset(0); resetCaseView(); }} hitSlop={6}>
-                <Txt size={10} color={t.accent}>ย้อนหลัง · กลับปัจจุบัน</Txt>
+              <Pressable accessibilityRole="button" style={pressFade({ minHeight: 28, justifyContent: 'center', paddingHorizontal: 8 })} onPress={() => { setOffset(0); resetCaseView(); }} hitSlop={8}>
+                <Txt size={12} weight="med" color={t.accentInk}>ย้อนหลัง · กลับ{mode === 'week' ? 'สัปดาห์นี้' : 'เดือนนี้'}</Txt>
               </Pressable>
             ) : null}
           </View>
-          {mode !== 'all' ? <NavBtn icon="chevR" disabled={!range.canNext} onPress={() => { setOffset(offset - 1); resetCaseView(); }} /> : null}
+          {mode !== 'all' ? <NavCircle dir="next" label="ช่วงถัดไป" disabled={!range.canNext} onPress={() => { setOffset(offset - 1); resetCaseView(); }} /> : null}
         </View>
       </View>
 
       {noData ? (
-        <Card>
-          <Txt size={13} color={t.faint} style={{ textAlign: 'center', paddingVertical: 16 }}>
-            ยังไม่ถึงช่วงเวลานี้ — เลื่อนกลับด้วยลูกศรด้านบน
-          </Txt>
-        </Card>
+        <EmptyState icon="calendar" title="ยังไม่ถึงช่วงเวลานี้" sub="เลื่อนกลับด้วยลูกศรด้านบนเพื่อดูช่วงที่ผ่านมา" top={24} />
+      ) : !stats.scheduled && !stats.rescheduled ? (
+        // ช่วงนี้ยังไม่มีรายการที่ถึงเวลาเลย (เช่น เพิ่งเริ่มใช้) — ไม่โชว์การ์ด 0% ทั้งหน้า
+        <EmptyState icon="target" title="ยังไม่มีรายการในช่วงนี้" sub="เพิ่มกิจกรรมแล้วติ๊กเมื่อทำเสร็จ สถิติจะค่อย ๆ ขึ้นที่นี่" top={24}>
+          <Btn kind="ghost" label="ไปที่วันนี้" onPress={() => router.navigate('/')} />
+        </EmptyState>
       ) : (
-        <>
+        // เปลี่ยนช่วง/มุมมองแล้วการ์ดทั้งชุดค่อย ๆ ชัดขึ้น — บอกว่าตัวเลขเป็นของช่วงใหม่แล้ว
+        <FadeInView key={`${mode}:${offset}`} from={0.5} duration={240} style={{ gap: 14 }}>
+          {insight.length ? (
+            <View accessible accessibilityLabel={insight.join(' ')} style={{ backgroundColor: t.accent + '14', borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, gap: 3 }}>
+              <Txt size={14.5} weight="bold" style={{ lineHeight: 21 }}>
+                {insight[0]}
+              </Txt>
+              {insight.length > 1 ? (
+                <Txt size={12.5} color={t.sub} style={{ lineHeight: 19 }}>
+                  {insight.slice(1).join(' · ')}
+                </Txt>
+              ) : null}
+            </View>
+          ) : null}
           {/* การ์ดรายงานหลัก — % เด่น + ค่าย่อย + แถวตัวชี้วัด + สปาร์กไลน์ */}
           <Card style={{ gap: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
@@ -308,16 +366,30 @@ export default function StatsScreen() {
               </View>
               <View style={{ flex: 1, gap: 1 }}>
                 <HeroStat k="เสร็จแล้ว" v={`${stats.done} / ${stats.scheduled}`} first />
-                <HeroStat k="วันที่นำมาคิด" v={`${stats.countedDays} วัน`} />
-                <HeroStat k="เวลาว่างรวม" v={hoursText(stats.freeTotalMin)} />
+                <HeroStat k="นับถึงวันนี้" v={`${stats.countedDays} วัน`} />
+                <HeroStat k="เฉลี่ยต่อวัน" v={`${avgDone.toFixed(1)} รายการ`} />
               </View>
             </View>
 
             <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: t.line2 }} />
 
-            <ReportRow k={`ทำเสร็จ${PER_LABEL[mode]}`} sub={`เฉลี่ย ${avgDone.toFixed(1)} /วัน · จาก ${stats.countedDays} วัน`}>
-              <Spark data={series} color={t.accent} />
-            </ReportRow>
+            {/* แตะเพื่อกางกราฟแท่งพร้อมป้ายและตัวเลข (เส้นเล็ก ๆ อย่างเดียวอ่านค่าไม่ได้) */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: barsOpen }}
+              accessibilityLabel={`ทำเสร็จ${PER_LABEL[mode]}: ${series.map((x) => `${x.label} ${x.done}`).join(', ')}`}
+              onPress={() => setBarsOpen(!barsOpen)}
+              style={pressFade()}>
+              <ReportRow k={`ทำเสร็จ${PER_LABEL[mode]}`} sub={barsOpen ? 'แตะเพื่อย่อ' : 'แตะเพื่อดูทีละช่วง'}>
+                {barsOpen ? null : <Spark data={series} color={t.accent} />}
+                <Chevron open={barsOpen} size={15} color={t.faint} />
+              </ReportRow>
+            </Pressable>
+            {barsOpen ? (
+              <FadeInView rise={-6}>
+                <PeriodBars series={series} />
+              </FadeInView>
+            ) : null}
             <ReportRow k="ชั่วโมงลงมือรวม" sub="เฉพาะที่ทำเสร็จ" divider>
               <Txt size={22} num weight="bold">
                 {hoursText(stats.doneHours * 60)}
@@ -341,25 +413,6 @@ export default function StatsScreen() {
           {/* สรุปหมวดหมู่ — หมวดที่ใช้มากสุด + ทุกหมวด (แตะดูกิจกรรมยอดฮิต/ตัวเลือกย่อย) */}
           <Card style={{ gap: 10 }}>
             <CatSummary stats={stats} catOptions={catOptions} />
-
-            {/* เวลาว่างรวมของช่วง — หน้าต่าง 06:00–24:00 (เวลานอน 00:00–06:00 ไม่ถูกนับเป็นเวลาว่าง) */}
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 8,
-                borderTopWidth: StyleSheet.hairlineWidth,
-                borderTopColor: t.line,
-                paddingTop: 10,
-              }}>
-              <View style={{ flex: 1 }}>
-                <Txt size={12.5} weight="med">เวลาว่างรวม</Txt>
-                <Txt size={11} color={t.faint}>
-                  06:00–24:00 (ไม่นับ 00:00–06:00) · {stats.countedDays} วันที่นำมาคิด
-                </Txt>
-              </View>
-              <Txt size={16} num weight="bold" color={GREEN}>{hoursText(stats.freeTotalMin)}</Txt>
-            </View>
           </Card>
 
           {/* นัดเคส — 2 แท็บ: ตามความสำคัญ (ระดับ P1–P6) · รายชื่อคน (ชื่อไม่ซ้ำ · ค้นหาได้ · แตะดูรายละเอียด) */}
@@ -367,7 +420,7 @@ export default function StatsScreen() {
             <Card style={{ gap: 12 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Txt size={12} weight="bold" color={t.sub}>นัดเคส</Txt>
-                <Txt size={12} num color={t.faint}>
+                <Txt size={12} num color={t.sub}>
                   {stats.caseItems.length} นัด · {caseGroups.length} เคส · {people.list.length} คน
                 </Txt>
               </View>
@@ -393,7 +446,7 @@ export default function StatsScreen() {
                     {priShown.map((p) => {
                       const on = priFilter === p.id;
                       return (
-                        <Pressable
+                        <Pressable accessibilityRole="button"
                           key={p.id}
                           onPress={() => {
                             setPriFilter(on ? null : p.id);
@@ -403,9 +456,9 @@ export default function StatsScreen() {
                             flexDirection: 'row',
                             alignItems: 'center',
                             gap: 10,
-                            paddingVertical: 7,
+                            minHeight: 42,
                             paddingHorizontal: 8,
-                            borderRadius: 10,
+                            borderRadius: 12,
                             backgroundColor: on ? p.color + '1F' : 'transparent',
                           })}>
                           <View style={{ backgroundColor: p.color, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, minWidth: 28, alignItems: 'center' }}>
@@ -419,7 +472,7 @@ export default function StatsScreen() {
                   </View>
 
                   {/* ปุ่มเปิด/ปิดรายการเคสทั้งหมด */}
-                  <Pressable
+                  <Pressable accessibilityRole="button"
                     onPress={() => {
                       const next = !openCases;
                       setOpenCases(next);
@@ -433,7 +486,7 @@ export default function StatsScreen() {
                           : 'ซ่อนรายละเอียดเคส'
                         : `ดูรายละเอียดเคสทั้งหมด (${stats.caseItems.length})`}
                     </Txt>
-                    <Icon name={openCases ? 'chevD' : 'chevR'} size={16} color={t.accent} />
+                    <Chevron open={openCases} color={t.accent} />
                   </Pressable>
 
                   {/* รายการเคส — แตะเปิด bottom sheet รายละเอียดเต็ม */}
@@ -483,13 +536,13 @@ export default function StatsScreen() {
                     <Txt size={12} color={t.faint} style={{ paddingVertical: 6 }}>{q ? 'ไม่พบชื่อที่ตรงกับคำค้น — ลองล้างคำค้น' : 'ยังไม่มีเคสที่ระบุรายชื่อในช่วงนี้'}</Txt>
                   )}
                   {people.unnamed ? (
-                    <Txt size={11} color={t.faint}>อีก {people.unnamed} เคสในช่วงนี้ไม่ได้ระบุผู้ติดต่อ</Txt>
+                    <Txt size={11.5} color={t.sub}>อีก {people.unnamed} เคสในช่วงนี้ไม่ได้ระบุผู้ติดต่อ</Txt>
                   ) : null}
                 </>
               )}
             </Card>
           ) : null}
-        </>
+        </FadeInView>
       )}
     </Screen>
   );
@@ -542,7 +595,7 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
     <>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Txt size={12} weight="bold" color={t.sub}>สรุปหมวดหมู่</Txt>
-        <Txt size={12} num color={t.faint}>
+        <Txt size={12} num color={t.sub}>
           ใช้ {used.length}/{CATS.length} หมวด · {stats.scheduled} รายการ
         </Txt>
       </View>
@@ -576,7 +629,7 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
 
       {/* เกณฑ์ของแถบเทียบ — ชั่วโมงนับเฉพาะรายการที่ทำเสร็จ */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <Txt size={11} color={t.faint} style={{ flex: 1 }}>
+        <Txt size={11.5} color={t.sub} style={{ flex: 1 }}>
           {metric === 'count' ? 'แถบเทียบด้วยจำนวนรายการที่ถึงกำหนด' : `แถบเทียบด้วยชั่วโมงที่ทำเสร็จ · รวม ${hoursText(stats.doneHours * 60)}`}
         </Txt>
         {(['count', 'hours'] as const).map((k) => {
@@ -584,10 +637,13 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
           return (
             <Pressable
               key={k}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: on }}
+              accessibilityLabel={k === 'count' ? 'เทียบด้วยจำนวนรายการ' : 'เทียบด้วยชั่วโมง'}
               onPress={() => setMetric(k)}
-              hitSlop={4}
-              style={pressFade({ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 99, backgroundColor: on ? t.chip : 'transparent' })}>
-              <Txt size={11} weight={on ? 'bold' : 'med'} color={on ? t.accent : t.faint}>{k === 'count' ? 'จำนวน' : 'ชั่วโมง'}</Txt>
+              hitSlop={6}
+              style={pressFade({ height: 32, justifyContent: 'center', paddingHorizontal: 12, borderRadius: 16, backgroundColor: on ? t.ink : t.track })}>
+              <Txt size={12} weight={on ? 'bold' : 'med'} color={on ? t.bg : t.sub}>{k === 'count' ? 'จำนวน' : 'ชั่วโมง'}</Txt>
             </Pressable>
           );
         })}
@@ -605,7 +661,7 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
           const v = metric === 'hours' ? r.hours : r.count;
           return (
             <View key={r.c.id} style={{ borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: t.line }}>
-              <Pressable
+              <Pressable accessibilityRole="button"
                 disabled={!expandable}
                 onPress={() => setOpen(on ? null : r.c.id)}
                 style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, opacity: r.count ? 1 : 0.45 })}>
@@ -615,8 +671,8 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
                 <View style={{ width: 68 }}>
                   <Txt size={12} weight="med" numberOfLines={1}>{r.c.short}</Txt>
                 </View>
-                <View style={{ flex: 1, height: 8, borderRadius: 4, backgroundColor: t.chip }}>
-                  <View style={{ width: `${Math.min(100, (v / max) * 100)}%`, height: 8, borderRadius: 4, backgroundColor: r.c.color }} />
+                <View style={{ flex: 1, height: 8, borderRadius: 4, backgroundColor: t.chip, overflow: 'hidden' }}>
+                  <ProgressFill pct={Math.min(1, v / max)} color={r.c.color} height={8} />
                 </View>
                 <View style={{ width: 110, alignItems: 'flex-end' }}>
                   {r.count ? (
@@ -624,31 +680,31 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
                     metric === 'hours' ? (
                       <>
                         <Txt size={12} num weight="bold" color={r.hours ? t.ink : t.faint}>{hoursText(r.hours * 60)}</Txt>
-                        <Txt size={10} num color={t.faint} numberOfLines={1}>
+                        <Txt size={11} num color={t.sub} numberOfLines={1}>
                           {r.count} รายการ · เสร็จ {r.done}
                         </Txt>
                       </>
                     ) : (
                       <>
                         <Txt size={12} num weight="bold">{r.count} รายการ</Txt>
-                        <Txt size={10} num color={t.faint} numberOfLines={1}>
+                        <Txt size={11} num color={t.sub} numberOfLines={1}>
                           เสร็จ {r.done}{r.hours ? ` · ${hoursText(r.hours * 60)}` : ''}
                         </Txt>
                       </>
                     )
                   ) : (
-                    <Txt size={10.5} color={t.faint}>ยังไม่ได้ใช้</Txt>
+                    <Txt size={11.5} color={t.sub}>ยังไม่ได้ใช้</Txt>
                   )}
                 </View>
-                {expandable ? <Icon name={on ? 'chevD' : 'chevR'} size={14} color={t.faint} /> : <View style={{ width: 14 }} />}
+                {expandable ? <Chevron open={on} size={14} color={t.faint} /> : <View style={{ width: 14 }} />}
               </Pressable>
 
               {on ? (
-                <View style={{ gap: 8, paddingBottom: 10, paddingLeft: 28 }}>
+                <FadeInView rise={-6} style={{ gap: 8, paddingBottom: 10, paddingLeft: 28 }}>
                   {r.titles.length ? (
                     /* กิจกรรมทุกชื่อในหมวดนี้ (ไม่ตัดรายการ) — เรียงตามเกณฑ์ที่เลือกอยู่ */
                     <View style={{ gap: 3 }}>
-                      <Txt size={10.5} color={t.faint}>
+                      <Txt size={11.5} color={t.sub}>
                         กิจกรรมในหมวดนี้ทั้งหมด ({r.titles.length} ชื่อ){metric === 'hours' ? ' · ชั่วโมงนับเฉพาะที่ทำเสร็จ' : ''}
                       </Txt>
                       {r.titles.map(({ name, n, hours }) => (
@@ -664,12 +720,12 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
                       ))}
                     </View>
                   ) : (
-                    <Txt size={11} color={t.faint}>ยังไม่มีกิจกรรมในหมวดนี้ในช่วงที่เลือก</Txt>
+                    <Txt size={11.5} color={t.sub}>ยังไม่มีกิจกรรมในหมวดนี้ในช่วงที่เลือก</Txt>
                   )}
 
                   {optSet ? (
                     <View style={{ gap: 4 }}>
-                      <Txt size={10.5} color={t.faint}>ตัวเลือกย่อย — {optSet.title} (ตั้งค่า › จัดการหมวดหมู่)</Txt>
+                      <Txt size={11.5} color={t.sub}>ตัวเลือกย่อย — {optSet.title} (ตั้งค่า › จัดการหมวดหมู่)</Txt>
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
                         {[...optList, ...extra].map((o) => {
                           const n = r.opts[o] ?? 0;
@@ -690,19 +746,19 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
                               }}>
                               <Txt size={11} color={n ? t.ink : t.faint}>{o}</Txt>
                               {/* เกณฑ์ชั่วโมง → ต่อท้ายชั่วโมงที่ทำเสร็จของตัวเลือกนั้น */}
-                              <Txt size={10} num color={n ? r.c.color : t.faint}>
+                              <Txt size={11} num color={n ? r.c.color : t.faint}>
                                 {n ? (metric === 'hours' ? `${n} · ${hoursText(oh * 60)}` : `${n}`) : 'ยังไม่ใช้'}
                               </Txt>
                             </View>
                           );
                         })}
                         {!optList.length && !extra.length ? (
-                          <Txt size={11} color={t.faint}>ยังไม่ได้ตั้งตัวเลือกย่อยของหมวดนี้</Txt>
+                          <Txt size={11.5} color={t.sub}>ยังไม่ได้ตั้งตัวเลือกย่อยของหมวดนี้</Txt>
                         ) : null}
                       </View>
                     </View>
                   ) : null}
-                </View>
+                </FadeInView>
               ) : null}
             </View>
           );
@@ -747,7 +803,7 @@ function ReportRow({ k, sub, divider, children }: { k: string; sub: string; divi
       }}>
       <View style={{ flex: 1 }}>
         <Txt size={13} weight="med">{k}</Txt>
-        <Txt size={11} color={t.faint}>{sub}</Txt>
+        <Txt size={11.5} color={t.sub}>{sub}</Txt>
       </View>
       {children}
     </View>
@@ -777,19 +833,22 @@ function Spark({ data, color }: { data: { done: number }[]; color: string }) {
   );
 }
 
-/** แท่งแนวตั้งของ series (ค่าบนแท่ง + ป้ายล่าง) */
+/** แท่งแนวตั้งของ series (ค่าบนแท่ง + ป้ายล่าง) — แท่งที่มากสุดสีเข้ม ที่เหลือจาง */
 function PeriodBars({ series }: { series: { label: string; done: number }[] }) {
   const t = useTokens();
   const mx = Math.max(...series.map((s) => s.done), 1);
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 78 }}>
-      {series.map((s, i) => (
-        <View key={i} style={{ flex: 1, alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' }}>
-          <Txt size={9} num color={t.faint}>{s.done || ''}</Txt>
-          <View style={{ width: '100%', minHeight: 3, height: Math.max(3, (s.done / mx) * 46), borderRadius: 4, backgroundColor: t.accent }} />
-          <Txt size={9} color={t.faint} numberOfLines={1}>{s.label}</Txt>
-        </View>
-      ))}
+    <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 96 }}>
+      {series.map((s, i) => {
+        const best = s.done === mx && s.done > 0;
+        return (
+          <View key={i} style={{ flex: 1, alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' }}>
+            <Txt size={11} num weight={best ? 'bold' : 'reg'} color={best ? t.accentInk : t.sub}>{s.done || ''}</Txt>
+            <View style={{ width: '100%', maxWidth: 34, minHeight: 3, height: Math.max(3, (s.done / mx) * 54), borderRadius: 5, backgroundColor: best ? t.accent : t.accent + '59' }} />
+            <Txt size={11} weight={best ? 'bold' : 'reg'} color={best ? t.ink : t.sub} numberOfLines={1}>{s.label}</Txt>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -806,11 +865,13 @@ function SearchBox({ value, onChange, placeholder }: { value: string; onChange: 
         placeholder={placeholder}
         placeholderTextColor={t.faint}
         autoCorrect={false}
+        accessibilityLabel={placeholder.replace('…', '')}
+        returnKeyType="search"
         style={{ flex: 1, paddingVertical: 10, color: t.ink, fontFamily: FONT.ui, fontSize: 14 }}
       />
       {value ? (
-        <Pressable style={pressFade()} onPress={() => onChange('')} hitSlop={6}>
-          <Icon name="x" size={16} color={t.faint} />
+        <Pressable accessibilityRole="button" accessibilityLabel="ล้างคำค้น" style={pressFade({ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' })} onPress={() => onChange('')} hitSlop={8}>
+          <Icon name="x" size={16} color={t.sub} />
         </Pressable>
       ) : null}
     </View>
@@ -831,7 +892,7 @@ function PersonRow({ p, first, onPress }: { p: Person; first: boolean; onPress: 
     .filter(Boolean)
     .join(' · ');
   return (
-    <Pressable
+    <Pressable accessibilityRole="button"
       onPress={onPress}
       style={pressFade({
         flexDirection: 'row',
@@ -868,8 +929,8 @@ function PersonDetail({
   const rate = p.items.length ? p.done / p.items.length : 0;
   return (
     <View style={{ gap: 12 }}>
-      <Pressable onPress={onBack} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 8 })}>
-        <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
+      <Pressable accessibilityRole="button" accessibilityLabel="กลับไปรายการ" onPress={onBack} hitSlop={6} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 40 })}>
+        <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="chevL" size={16} color={t.sub} />
         </View>
         <Txt size={15} weight="bold" style={{ flex: 1 }} numberOfLines={1}>{p.name}</Txt>
@@ -922,7 +983,7 @@ function CaseGroupRow({ g, first, nameById, onPress }: { g: CaseGroup; first: bo
     .filter(Boolean)
     .join(' · ');
   return (
-    <Pressable
+    <Pressable accessibilityRole="button"
       onPress={onPress}
       style={pressFade({
         flexDirection: 'row',
@@ -959,8 +1020,8 @@ function CaseGroupDetail({ g, nameById, onBack }: { g: CaseGroup; nameById: Reco
   const channel = [g.online ? `ออนไลน์ ${g.online}` : null, g.inperson ? `พบตัว ${g.inperson}` : null].filter(Boolean).join(' · ');
   return (
     <View style={{ gap: 12 }}>
-      <Pressable onPress={onBack} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 8 })}>
-        <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
+      <Pressable accessibilityRole="button" accessibilityLabel="กลับไปรายการ" onPress={onBack} hitSlop={6} style={pressFade({ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 40 })}>
+        <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="chevL" size={16} color={t.sub} />
         </View>
         <Txt size={15} weight="bold" style={{ flex: 1 }} numberOfLines={2}>{g.title}</Txt>
@@ -1050,7 +1111,7 @@ function ContactMethods({ contacts, showToast }: { contacts: Contact[]; showToas
         const key = `${m.label}:${m.display}`;
         const busy = opening === key;
         return (
-          <Pressable
+          <Pressable accessibilityRole="button"
             key={key}
             disabled={busy}
             onPress={() => open(key, m.label, m.url, m.fallback)}
@@ -1093,7 +1154,7 @@ function CaseRow({ it, first, nameById }: { it: DayItem; first: boolean; nameByI
   const names = caseWho(it, nameById).join(', ');
   const done = it.ostatus === 'done';
   return (
-    <Pressable
+    <Pressable accessibilityRole="button"
       onPress={() => useUI.getState().openSheet(it.id, it.date)}
       style={pressFade({
         flexDirection: 'row',
@@ -1105,13 +1166,13 @@ function CaseRow({ it, first, nameById }: { it: DayItem; first: boolean; nameByI
       })}>
       <View style={{ width: 34, alignItems: 'center' }}>
         <Txt size={14} num weight="bold" color={done ? t.faint : t.ink}>{d.getDate()}</Txt>
-        <Txt size={9} color={t.faint}>{MONTH_TH[d.getMonth()]}</Txt>
+        <Txt size={11.5} color={t.sub}>{MONTH_TH[d.getMonth()]}</Txt>
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           {p ? (
             <View style={{ backgroundColor: p.color, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
-              <Txt size={9} weight="bold" color="#FFFFFF">{p.id}</Txt>
+              <Txt size={11} weight="bold" color="#FFFFFF">{p.id}</Txt>
             </View>
           ) : null}
           <Txt size={13} weight="med" numberOfLines={1} color={done ? t.faint : t.ink} style={{ flex: 1, textDecorationLine: done ? 'line-through' : 'none' }}>
@@ -1123,7 +1184,7 @@ function CaseRow({ it, first, nameById }: { it: DayItem; first: boolean; nameByI
           {it.channel ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
               <Icon name={it.channel === 'online' ? 'video' : 'mappin'} size={11} color={t.faint} />
-              <Txt size={11} color={t.faint}>{it.channel === 'online' ? 'ออนไลน์' : 'พบตัว'}</Txt>
+              <Txt size={11.5} color={t.sub}>{it.channel === 'online' ? 'ออนไลน์' : 'พบตัว'}</Txt>
             </View>
           ) : null}
           {names ? (
@@ -1136,16 +1197,3 @@ function CaseRow({ it, first, nameById }: { it: DayItem; first: boolean; nameByI
   );
 }
 
-/** ปุ่มเลื่อนช่วง (◀ ย้อนหลัง / ▶ ไปข้างหน้า) */
-function NavBtn({ icon, disabled, onPress }: { icon: string; disabled?: boolean; onPress: () => void }) {
-  const t = useTokens();
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      hitSlop={6}
-      style={pressFade({ width: 34, height: 34, borderRadius: 10, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 })}>
-      <Icon name={icon} size={16} color={t.sub} />
-    </Pressable>
-  );
-}

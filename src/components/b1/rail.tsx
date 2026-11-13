@@ -18,8 +18,10 @@ import { useCaseContacts } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
 import { CAT_BY_ID } from '@/constants/theme';
 import { durText, fmtMin, hoursText } from '@/lib/dates';
+import { plainTitle } from '@/lib/engine';
 import { nextItemId, railState, type NowRef, type RailState } from '@/lib/progress';
 import type { DayItem, FreeSlot } from '@/lib/types';
+import { useActivities } from '@/stores/activities';
 import { useSettings } from '@/stores/settings';
 
 const TIME_W = 42;
@@ -139,6 +141,8 @@ function VDash({ color }: { color: string }) {
 function RailImpl({ items, now, free = EMPTY_FREE, showNow, onPressItem, onToggle, onPressSlot, noteOf, renderRight, nextCardBg, onNowLayout }: RailProps) {
   const t = useTokens();
   const noteShow = useSettings((s) => s.noteDisplay.rail);
+  // นัดที่เลื่อนมาจากครั้งอื่น — ขึ้นคำว่า "เลื่อนมา" ในบรรทัดรายละเอียด (ไม่แก้ชื่อรายการ) · เปลี่ยนเฉพาะตอนเลื่อนนัด
+  const rescCounts = useActivities((s) => s.rescCounts);
   const noteLines = useSettings((s) => s.noteDisplay.railLines);
   const caseContactsOf = useCaseContacts();
   const nextId = nextItemId(items, now);
@@ -275,7 +279,7 @@ function RailImpl({ items, now, free = EMPTY_FREE, showNow, onPressItem, onToggl
               borderWidth: 1.5,
               borderStyle: 'dashed',
               borderColor: t.freeLine,
-              backgroundColor: pressed ? 'rgba(76,154,106,0.08)' : 'transparent',
+              backgroundColor: pressed ? t.greenInk + '14' : 'transparent',
               flexDirection: 'row',
               alignItems: 'center',
               gap: 8,
@@ -309,10 +313,11 @@ function RailImpl({ items, now, free = EMPTY_FREE, showNow, onPressItem, onToggl
     // นัดเคส: ป้ายบอกประเภทผู้ติดต่อที่เลือก (คนที่นัด / ช่องทางติดต่อ) แทนชื่อหมวด "นัดเคส"
     // นัดที่ไม่ได้ระบุผู้ติดต่อเลย (เช่น นำเข้าจาก Time Table) แสดงชื่อหมวดตามเดิม ไม่ขึ้น "คนที่นัด" ลอย ๆ
     const kind = cat.isCase ? (it.inlineContact ? 'ช่องทางติดต่อ' : people.length ? 'คนที่นัด' : cat.short) : cat.short;
-    const meta = [until, st === 'skipped' ? 'ข้าม' : kind, where].filter(Boolean).join(' · ');
+    const moved = (rescCounts[it.id] ?? 0) > 0;
+    const meta = [until, st === 'skipped' ? 'ข้าม' : kind, moved ? 'เลื่อนมา' : '', where].filter(Boolean).join(' · ');
     const tag =
       st === 'overdue'
-        ? 'ค้างบันทึก — แตะวงกลมเพื่อบันทึก'
+        ? 'ยังไม่ได้บันทึกผล — แตะวงกลมเพื่อบันทึก'
         : live
           ? `กำลังทำ · เหลืออีก ${durText(it.endMin - now.min)}`
           : next && it.date === now.date
@@ -397,7 +402,7 @@ function RailImpl({ items, now, free = EMPTY_FREE, showNow, onPressItem, onToggl
                 numberOfLines={3}
                 color={muted ? t.muted : t.ink}
                 style={{ lineHeight: 21, textDecorationLine: st === 'done' ? 'line-through' : 'none' }}>
-                {it.title}
+                {moved ? plainTitle(it.title) : it.title}
               </Txt>
             </SettleIn>
             {meta ? (
@@ -574,7 +579,7 @@ function OverlapBar({ cluster, now }: { cluster: Cluster; now: number | null }) 
           return (
             <Txt
               key={m}
-              size={10.5}
+              size={11}
               num
               weight={inOv ? 'med' : 'reg'}
               color={inOv ? t.accentInk : t.muted}

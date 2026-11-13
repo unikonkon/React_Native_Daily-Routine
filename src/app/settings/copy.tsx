@@ -6,14 +6,14 @@
 // การวาง = สร้าง Activity ใหม่แบบครั้งเดียว (repeat 'none') ที่วันปลายทาง — ไม่แตะของเดิม
 // และไม่สืบทอดสถานะรายวัน (done/skipped อยู่คนละตาราง) ของใหม่จึงเริ่มที่ planned เสมอ
 // โหมดวางแบบ "แทนที่ทั้งวัน" จะลบกิจกรรมเดิมของวันปลายทางก่อน (deleteOne เดียวกับที่แผ่นรายละเอียดใช้)
-import React, { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, View, type ScrollViewInstance } from 'react-native';
 
 import { Icon } from '@/components/icon';
+import { FadeInView } from '@/components/motion';
 import { Screen } from '@/components/screen';
-import { StepBtn } from '@/components/today/parts';
-import { Card, Chip, ChipRow, PriBadge, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
-import { CAT_BY_ID, DANGER, GREEN, type CatId } from '@/constants/theme';
+import { Btn, Card, Chip, ChipRow, NavCircle, PriBadge, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
+import { CAT_BY_ID, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
 import { conflictsOn } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
@@ -51,7 +51,8 @@ export default function CopyScreen() {
   const t = useTokens();
   const getDay = useDayReader(); // อ่านหลายวันแบบ cache — อัปเดตเองเมื่อข้อมูลเปลี่ยน
   const add = useActivities((s) => s.add);
-  const deleteOne = useActivities((s) => s.deleteOne);
+  const deleteMany = useActivities((s) => s.deleteMany);
+  const removeActs = useActivities((s) => s.removeActs);
   const showToast = useUI((s) => s.showToast);
 
   const [copyMode, setCopyMode] = useState<CopyMode>('item');
@@ -68,6 +69,13 @@ export default function CopyScreen() {
   const [startDay, setStartDay] = useState<string | null>(null); // โหมดวัน: วันเริ่มวางของบล็อก
   const [excluded, setExcluded] = useState<string[]>([]); // โหมดวัน: กิจกรรมที่เอาออก (ค่าเริ่มต้น = เอาทุกกิจกรรมของวันนั้น)
   const [busy, setBusy] = useState(false);
+  /** ยืนยันการแทนที่แล้วสำหรับ "แผนการวาง" ชุดไหน — แก้ปลายทาง/ต้นทางแล้วต้องยืนยันใหม่ (เทียบด้วยลายเซ็นของแผน) */
+  const [confirmedFor, setConfirmedFor] = useState<string | null>(null);
+  const scRef = useRef<ScrollViewInstance>(null);
+  // เปลี่ยนขั้น → เลื่อนกลับขึ้นบนสุด: ตารางเดือนตัวเดิมเปลี่ยนความหมาย (ต้นทาง → ปลายทาง) ต้องเห็นหัวขั้นตอนกับตาราง
+  useEffect(() => {
+    scRef.current?.scrollTo({ y: 0, animated: true });
+  }, [step]);
 
   /** รายการของวันที่คัดลอกได้ — ข้ามตัวที่ถูกเลื่อนออกไปวันอื่นแล้ว (เป็นแค่เงาของนัดที่ย้ายไป) */
   const copyableOf = (d: string) => getDay(d).filter((i) => i.ostatus !== 'rescheduled');
@@ -173,18 +181,32 @@ export default function CopyScreen() {
           })
           .map((p) => p.date);
 
+  // แทนที่ = ลบของเดิมในวันปลายทาง — ต้องกดยืนยันอีกครั้งก่อน (แตะเดียวลบทั้งวันไม่ได้)
+  const planSig = `${pasteMode}|${targetDates.join(',')}|${total}|${replaceCount}`;
+  const needConfirm = pasteMode === 'replace' && replaceCount > 0;
+  const confirming = needConfirm && confirmedFor === planSig;
+
   const onPaste = async () => {
     if (!total || busy) return;
+    if (needConfirm && !confirming) {
+      setConfirmedFor(planSig);
+      // กล่องยืนยันอยู่ท้ายหน้า — เลื่อนลงไปให้เห็นว่าจะลบอะไร
+      requestAnimationFrame(() => scRef.current?.scrollToEnd({ animated: true }));
+      return;
+    }
     setBusy(true);
+    let undoDelete: (() => void) | null = null;
+    const addedIds: number[] = [];
     try {
       // ① ลบของเดิมก่อน (เฉพาะโหมดแทนที่) — plan อ่านต้นทางไว้เรียบร้อยแล้ว ลบทับวันต้นทางเองก็ไม่กระทบ
       if (pasteMode === 'replace') {
-        for (const date of [...new Set(targetDates)]) for (const old of getDay(date)) deleteOne(old);
+        const olds = [...new Set(targetDates)].flatMap((date) => getDay(date));
+        if (olds.length) undoDelete = deleteMany(olds);
       }
       // ② วางของใหม่
       for (const p of plan) {
         for (const it of [...p.items].sort((a, b) => a.startMin - b.startMin)) {
-          await add({
+          const made = await add({
             title: it.title,
             cat: it.cat,
             sub: it.sub,
@@ -206,19 +228,30 @@ export default function CopyScreen() {
             inlineContact: it.inlineContact, // ช่องทางติดต่อที่กรอกไว้ในนัด — ตามไปด้วย
             color: it.color, // สีที่จำมาจากไฟล์ Time Table (ถ้ามี)
           });
+          addedIds.push(made.id);
         }
       }
       const n = total;
       const days = new Set(targetDates).size;
+      const replaced = replaceCount;
       setPicked([]);
       setTargets([]);
       setSrcDays([]);
       setStartDay(null);
       setExcluded([]);
+      setConfirmedFor(null);
       setStep(1);
-      showToast(`คัดลอกแล้ว ${n} รายการ ลง ${days} วัน ✓`);
+      // เลิกทำ = เอาของที่เพิ่งวางออก + คืนของเดิมที่ถูกแทนที่
+      const undo = () => {
+        removeActs(addedIds);
+        undoDelete?.();
+      };
+      showToast(replaced ? `แทนที่แล้ว · วาง ${n} รายการ ลง ${days} วัน (ลบของเดิม ${replaced})` : `คัดลอกแล้ว ${n} รายการ ลง ${days} วัน`, { label: 'เลิกทำ', run: undo });
     } catch {
-      showToast('คัดลอกไม่สำเร็จ');
+      // วางไม่ครบ — ถอนที่ทำไปแล้วทั้งหมด ไม่ให้ค้างครึ่งทาง (ของเดิมที่ลบไปกลับมา)
+      removeActs(addedIds);
+      undoDelete?.();
+      showToast('คัดลอกไม่สำเร็จ — ข้อมูลเดิมยังอยู่ครบ ลองอีกครั้ง');
     } finally {
       setBusy(false);
     }
@@ -282,6 +315,7 @@ export default function CopyScreen() {
 
   return (
     <Screen
+      scrollRef={scRef}
       title="คัดลอกกิจกรรม"
       subtitle={step === 1 ? 'ขั้นที่ 1 จาก 2 · เลือกต้นทาง' : copyMode === 'item' ? 'ขั้นที่ 2 จาก 2 · เลือกวันปลายทาง' : 'ขั้นที่ 2 จาก 2 · เลือกวันเริ่มวาง'}
       variant="sub"
@@ -291,7 +325,7 @@ export default function CopyScreen() {
         step === 1
           ? { label: 'ถัดไป · เลือกปลายทาง', icon: 'chevR', onPress: () => setStep(2), disabled: !step1Done }
           : {
-              label: busy ? 'กำลังวาง…' : !total ? 'เลือกปลายทางก่อน' : pasteMode === 'replace' ? `แทนที่ ${total} รายการ` : `วาง ${total} รายการ`,
+              label: busy ? 'กำลังวาง…' : !total ? 'เลือกปลายทางก่อน' : confirming ? `ยืนยัน · ลบของเดิม ${replaceCount}` : pasteMode === 'replace' ? `แทนที่ ${total} รายการ` : `วาง ${total} รายการ`,
               icon: 'copy',
               tone: pasteMode === 'replace' ? 'danger' : 'accent',
               disabled: !total || busy,
@@ -308,7 +342,7 @@ export default function CopyScreen() {
           value={copyMode}
           onChange={switchMode}
         />
-        <Txt size={11.5} color={t.faint}>
+        <Txt size={12} color={t.sub}>
           {copyMode === 'item'
             ? 'ติ๊กกิจกรรมทีละรายการ แล้ววางรายการชุดเดียวกันลงได้หลายวัน'
             : 'เลือกทั้งวันหลายวัน แล้วแตะ "วันเริ่ม" — ระบบวางต่อกันตามรูปแบบวันต้นทาง (เลือกกี่วัน วางเท่านั้นวัน)'}
@@ -327,11 +361,11 @@ export default function CopyScreen() {
       {/* แถบเลื่อนเดือน + ตาราง — ใช้ร่วมกันทั้ง 2 ขั้น */}
       <Card style={{ gap: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <StepBtn icon="chevL" onPress={() => shiftMonth(-1)} />
+          <NavCircle dir="prev" label="เดือนก่อนหน้า" onPress={() => shiftMonth(-1)} />
           <Txt size={14} weight="bold" style={{ flex: 1, textAlign: 'center' }}>
             {rangeLabel}
           </Txt>
-          <StepBtn icon="chevR" onPress={() => shiftMonth(1)} />
+          <NavCircle dir="next" label="เดือนถัดไป" onPress={() => shiftMonth(1)} />
         </View>
 
         {/* หัววัน (จันทร์นำ, อาทิตย์สี accent) */}
@@ -396,7 +430,7 @@ export default function CopyScreen() {
               </View>
 
               {openInSet && openItems.length ? (
-                <Txt size={11.5} color={t.faint}>
+                <Txt size={12} color={t.sub}>
                   แตะรายการเพื่อเอาออก/ใส่กลับ · ตอนนี้เอา {openChosenCount} จาก {openItems.length} รายการ
                 </Txt>
               ) : null}
@@ -414,12 +448,16 @@ export default function CopyScreen() {
                   return (
                     <Pressable
                       key={keyOf(it)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on, disabled: !selectable }}
+                      accessibilityLabel={`${it.title} ${fmtRange(it.startMin, it.endMin)}`}
                       disabled={!selectable}
                       onPress={() => (copyMode === 'item' ? toggleItem(it) : toggleExclude(it))}
                       style={pressFade({
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 9,
+                        minHeight: 44,
                         paddingVertical: 8,
                         borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
                         borderTopColor: t.line,
@@ -466,7 +504,8 @@ export default function CopyScreen() {
           </Card>
         </>
       ) : (
-        <>
+        // ขั้น 2 ลอยเข้ามา — บอกว่าเนื้อหาใต้ตารางเปลี่ยนเป็นของขั้นใหม่แล้ว
+        <FadeInView rise={8} style={{ gap: 14 }}>
           {/* สรุปต้นทาง */}
           <Card style={{ gap: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -542,7 +581,7 @@ export default function CopyScreen() {
               ))}
               {copyMode === 'item' && targets.length ? <Chip small icon="x" label="ล้างวันที่เลือก" onPress={() => setTargets([])} /> : null}
             </ChipRow>
-            <Txt size={12} color={t.faint}>
+            <Txt size={12} color={t.sub}>
               {copyMode === 'item'
                 ? targets.length
                   ? `ปลายทาง: ${[...targets].sort().map(thaiDate).join(' · ')}`
@@ -560,19 +599,19 @@ export default function CopyScreen() {
             </Txt>
             <ChipRow>
               <Chip small icon="plus" label="วางเพิ่ม" active={pasteMode === 'add'} onPress={() => setPasteMode('add')} />
-              <Chip small icon="restore" label="แทนที่ทั้งวัน" color={DANGER} active={pasteMode === 'replace'} onPress={() => setPasteMode('replace')} />
+              <Chip small icon="restore" label="แทนที่ทั้งวัน" color={t.warnFill} active={pasteMode === 'replace'} onPress={() => setPasteMode('replace')} />
             </ChipRow>
             {pasteMode === 'replace' ? (
-              <Txt size={12} weight="med" color={DANGER}>
+              <Txt size={12.5} weight="med" color={t.warn}>
                 จะลบกิจกรรมเดิมของวันปลายทางทั้งหมดก่อนวาง{replaceCount ? ` (${replaceCount} รายการ)` : ''}
               </Txt>
             ) : null}
           </Card>
 
           {clashDays.length ? (
-            <Card style={{ borderColor: DANGER + '55', backgroundColor: DANGER + '14' }}>
-              <Txt size={13} weight="med" color={DANGER}>
-                ⚠ เวลาชนกับกิจกรรมเดิมใน {clashDays.length} วัน ({[...clashDays].sort().map(thaiDate).join(' · ')}) — วางต่อได้
+            <Card style={{ borderColor: t.warn + '55', backgroundColor: t.warn + '14' }}>
+              <Txt size={13} weight="med" color={t.warn}>
+                เวลาซ้อนกับกิจกรรมเดิมใน {clashDays.length} วัน ({[...clashDays].sort().map(thaiDate).join(' · ')}) — วางต่อได้
               </Txt>
             </Card>
           ) : null}
@@ -588,7 +627,25 @@ export default function CopyScreen() {
                   : 'ยังไม่ได้เลือกวันเริ่มวาง'}
             </Txt>
           </Card>
-        </>
+
+          {/* ยืนยันแทนที่ — ขึ้นหลังกดปุ่มหลักครั้งแรก บอกจำนวนที่จะหายก่อนลงมือ */}
+          {confirming ? (
+            <FadeInView rise={6}>
+              <Card style={{ gap: 10, borderWidth: 1.5, borderColor: t.warn }}>
+                <Txt size={14.5} weight="bold" color={t.warn}>
+                  ลบกิจกรรมเดิม {replaceCount} รายการ ใน {new Set(targetDates).size} วันปลายทาง?
+                </Txt>
+                <Txt size={12.5} color={t.sub} style={{ lineHeight: 18 }}>
+                  {[...new Set(targetDates)].sort().map(thaiDate).join(' · ')} — ของเดิมในวันเหล่านี้จะถูกแทนด้วย {total} รายการที่คัดลอกมา · วางแล้วยังกด “เลิกทำ” ได้
+                </Txt>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Btn style={{ flex: 1 }} kind="ghost" label="ไม่แทนที่" disabled={busy} onPress={() => setConfirmedFor(null)} />
+                  <Btn style={{ flex: 1 }} kind="danger" label={busy ? 'กำลังวาง…' : 'ยืนยันแทนที่'} disabled={busy} onPress={onPaste} />
+                </View>
+              </Card>
+            </FadeInView>
+          ) : null}
+        </FadeInView>
       )}
     </Screen>
   );
@@ -631,6 +688,9 @@ function DayCell({ date, cats, inRange, fill, ring, label, labelColor, dim, onPr
 
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!fill, disabled: !inRange }}
+      accessibilityLabel={`${thaiDate(date)}${label ? ` ${label}` : ''}`}
       disabled={!inRange}
       onPress={onPress}
       style={pressFade({
@@ -660,7 +720,7 @@ function DayCell({ date, cats, inRange, fill, ring, label, labelColor, dim, onPr
       </View>
 
       {label ? (
-        <Txt size={9} num weight="bold" color={labelColor}>
+        <Txt size={11} num weight="bold" color={labelColor}>
           {label}
         </Txt>
       ) : (

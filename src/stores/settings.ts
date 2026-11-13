@@ -68,6 +68,8 @@ interface SettingsState {
   themeDark: DarkThemeId;
   notifMaster: boolean;
   morning: boolean;
+  /** เวลาของแจ้งเตือนสรุปตอนเช้า (นาทีของวัน · ค่าเริ่มต้น 06:00) */
+  morningAt: number;
   /** quick-pick chips ต่อหมวด — เริ่มจาก QUICK_PICKS แก้ไขได้ใน settings/categories */
   quickPicks: Record<CatId, string[]>;
   /** ตัวเลือกย่อยต่อหมวด (สถานที่/ประเภท/สื่อ) — เริ่มจาก CAT_OPTIONS แก้ไขได้ใน settings/categories */
@@ -80,6 +82,8 @@ interface SettingsState {
   sheetsUrl: string;
   /** รายการ URL ที่เคยบันทึก ใหม่ → เก่า (สูงสุด 5, ไม่ซ้ำ) — คงอยู่แม้ยกเลิกการเชื่อมต่อ ไว้สลับ/เชื่อมต่อใหม่ */
   sheetsUrls: string[];
+  /** การส่งขึ้น Google Sheets ครั้งล่าสุดที่สำเร็จ — โชว์ใต้แถว "เชื่อมต่อแล้ว" ให้รู้ว่าส่งไปเมื่อไร (null = ยังไม่เคยส่ง) */
+  sheetsLast: SheetsLast | null;
   /** ผ่านหน้าต้อนรับ (เลือกโทนสี + คำแนะนำการใช้) แล้ว — false = เปิดแอปครั้งแรก */
   welcomed: boolean;
   setWelcomed: (v: boolean) => void;
@@ -89,6 +93,7 @@ interface SettingsState {
   setThemeDark: (id: DarkThemeId) => void;
   setNotifMaster: (v: boolean) => void;
   setMorning: (v: boolean) => void;
+  setMorningAt: (min: number) => void;
   setQuickPicks: (cat: CatId, list: string[]) => void;
   setCatOptions: (cat: CatId, list: string[]) => void;
   setNoteCfg: (cat: CatId, patch: Partial<NoteCfg>) => void;
@@ -97,11 +102,35 @@ interface SettingsState {
   /** เลื่อนลำดับโน้ตที่ปักหมุด (สลับกับตัวปักหมุดถัดไปทางขึ้น/ลง) */
   moveSnippet: (id: string, dir: -1 | 1) => void;
   removeSnippet: (id: string) => void;
+  /** คืนคลังโน้ตสำเร็จรูปทั้งชุด (เลิกทำการลบ) */
+  restoreSnippets: (list: NoteSnippet[]) => void;
   /** นับการใช้ชิป (ไว้เรียงที่ใช้บ่อยก่อน) */
   countSnippet: (id: string) => void;
   setNoteDisplay: (patch: Partial<NoteDisplay>) => void;
   setSheetsUrl: (url: string) => void;
   removeSheetsUrl: (url: string) => void;
+  /** คืนรายการ URL ทั้งชุด (เลิกทำการลบ) */
+  restoreSheetsUrls: (list: string[]) => void;
+  setSheetsLast: (v: SheetsLast) => void;
+}
+
+export interface SheetsLast {
+  /** เวลาที่ส่งสำเร็จ (ms) */
+  at: number;
+  tabs: number;
+  url: string;
+}
+
+/** เวลาสรุปตอนเช้าที่เลือกได้ (นาทีของวัน) */
+export const MORNING_TIMES = [300, 360, 420, 480] as const;
+
+function parseSheetsLast(raw: string | undefined): SheetsLast | null {
+  try {
+    const o = raw ? (JSON.parse(raw) as Partial<SheetsLast>) : null;
+    return o && typeof o.at === 'number' && typeof o.tabs === 'number' && typeof o.url === 'string' ? { at: o.at, tabs: o.tabs, url: o.url } : null;
+  } catch {
+    return null;
+  }
 }
 
 /** อ่านรายการ URL ที่บันทึกไว้ — รองรับข้อมูลรุ่นเก่า (sheets_url_last ตัวเดียว) */
@@ -222,6 +251,7 @@ export const useSettings = create<SettingsState>((set, get) => {
   themeDark: DEFAULT_DARK_THEME,
   notifMaster: true,
   morning: true,
+  morningAt: 360,
   quickPicks: QUICK_PICKS,
   catOptions: DEFAULT_CAT_OPTIONS,
   noteCfg: NOTE_DEFAULTS,
@@ -229,6 +259,7 @@ export const useSettings = create<SettingsState>((set, get) => {
   noteDisplay: NOTE_DISPLAY_DEFAULTS,
   sheetsUrl: '',
   sheetsUrls: [],
+  sheetsLast: null,
   welcomed: true, // ยังไม่ได้โหลดค่า = ไม่โชว์หน้าต้อนรับ (boot ตั้งค่าจริง)
 
   boot: async () => {
@@ -241,6 +272,7 @@ export const useSettings = create<SettingsState>((set, get) => {
       themeDark: isDarkThemeId(s.theme_dark) ? s.theme_dark : DEFAULT_DARK_THEME,
       notifMaster: s.notif_master !== '0',
       morning: s.morning_summary !== '0',
+      morningAt: (MORNING_TIMES as readonly number[]).includes(Number(s.morning_at)) ? Number(s.morning_at) : 360,
       quickPicks: parseCatLists(s.quick_picks, QUICK_PICKS),
       catOptions: parseCatLists(s.cat_options, DEFAULT_CAT_OPTIONS),
       noteCfg: parseNoteCfg(s.note_cfg),
@@ -248,6 +280,7 @@ export const useSettings = create<SettingsState>((set, get) => {
       noteDisplay: parseNoteDisplay(s.note_display),
       sheetsUrl: s.sheets_url ?? '',
       sheetsUrls: parseSheetsUrls(s),
+      sheetsLast: parseSheetsLast(s.sheets_last),
       welcomed: s.welcomed === '1',
     });
   },
@@ -276,6 +309,10 @@ export const useSettings = create<SettingsState>((set, get) => {
   setMorning: (v) => {
     set({ morning: v });
     db.saveSetting('morning_summary', v ? '1' : '0');
+  },
+  setMorningAt: (morningAt) => {
+    set({ morningAt });
+    db.saveSetting('morning_at', String(morningAt));
   },
   setQuickPicks: (cat, list) => {
     const quickPicks = { ...get().quickPicks, [cat]: list };
@@ -324,6 +361,7 @@ export const useSettings = create<SettingsState>((set, get) => {
     saveSnippets(list);
   },
   removeSnippet: (id) => saveSnippets(get().noteSnippets.filter((x) => x.id !== id)),
+  restoreSnippets: (list) => saveSnippets(list),
   countSnippet: (id) => saveSnippets(get().noteSnippets.map((x) => (x.id === id ? { ...x, uses: x.uses + 1 } : x))),
   setNoteDisplay: (patch) => {
     const noteDisplay = parseNoteDisplay(JSON.stringify({ ...get().noteDisplay, ...patch }));
@@ -344,6 +382,14 @@ export const useSettings = create<SettingsState>((set, get) => {
     const sheetsUrls = get().sheetsUrls.filter((u) => u !== url);
     set({ sheetsUrls });
     db.saveSetting('sheets_urls', JSON.stringify(sheetsUrls));
+  },
+  restoreSheetsUrls: (sheetsUrls) => {
+    set({ sheetsUrls });
+    db.saveSetting('sheets_urls', JSON.stringify(sheetsUrls));
+  },
+  setSheetsLast: (sheetsLast) => {
+    set({ sheetsLast });
+    db.saveSetting('sheets_last', JSON.stringify(sheetsLast));
   },
   };
 });

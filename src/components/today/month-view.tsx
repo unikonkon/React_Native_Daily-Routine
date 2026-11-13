@@ -358,7 +358,7 @@ const MonthCell = memo(function MonthCell({ d, day, isToday, isSel, live, count,
       </View>
       {freeMode ? (
         freeMin > 0 ? (
-          <Txt size={10.5} num weight="med" color={GREEN}>
+          <Txt size={11} num weight="med" color={GREEN}>
             {hoursText(freeMin)}
           </Txt>
         ) : null
@@ -420,7 +420,7 @@ const DayCard = memo(function DayCard({
           </Txt>
           <Txt size={12.5} color={t.sub}>
             {items.length ? `${items.length} รายการ · ทำแล้ว ${dp.done}` : catFilter ? `ไม่มีรายการหมวด${CAT_BY_ID[catFilter].short}` : 'ไม่มีรายการ'}
-            {dp.overdue ? <Txt size={12.5} weight="bold" color={t.warn}>{` · ค้างบันทึก ${dp.overdue}`}</Txt> : null}
+            {dp.overdue ? <Txt size={12.5} weight="bold" color={t.warn}>{` · ยังไม่ได้บันทึก ${dp.overdue}`}</Txt> : null}
           </Txt>
         </View>
         <Pressable

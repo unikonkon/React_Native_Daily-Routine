@@ -5,18 +5,24 @@
 // ทุกค่าในหน้านี้เป็นการตั้งค่า — โน้ตที่จดไปแล้วเก็บแยก (occ_notes) จึงไม่ถูกแก้/ลบจากหน้านี้
 import React, { useState } from 'react';
 import { Pressable, TextInput, View } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 
 import { StatusDot } from '@/components/b1/status-circle';
 import { Icon } from '@/components/icon';
+import { Chevron, EASE_OUT, FadeInView } from '@/components/motion';
 import { NoteEditor } from '@/components/note-editor';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Card, Chip, ChipRow, Row, Toggle, Txt, useTokens } from '@/components/ui';
-import { CATS, CAT_BY_ID, DANGER, FONT, NOTE_DEFAULTS, type CatId } from '@/constants/theme';
+import { CATS, CAT_BY_ID, FONT, NOTE_DEFAULTS, type CatId } from '@/constants/theme';
+import { fmtMin } from '@/lib/dates';
 import { snippetsFor } from '@/lib/notes';
 import { resyncNotifications, useActivities } from '@/stores/activities';
 import { NOTE_DISPLAY_DEFAULTS, NOTE_LIMITS, useSettings, type NoteDisplay, type NoteSnippet } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
+
+/** ปักหมุด/ซ่อน/เลื่อน ↑↓ แล้วการ์ดเลื่อนไปตำแหน่งใหม่ให้ตามทัน (เดิมกระโดดไปอยู่ท่ามกลางการ์ดหน้าตาคล้ายกัน) */
+const CARD_MOVE = LinearTransition.duration(220).easing(EASE_OUT);
 
 /** โน้ตตัวอย่างในพรีวิวการ์ด — ยาวกว่าจำนวนบรรทัดสูงสุด (7) 1 บรรทัด ให้เห็นผลของ "จำนวนบรรทัด" และการตัด … ทุกค่า */
 const SAMPLE_NOTE =
@@ -27,6 +33,7 @@ export default function NotesScreen() {
   const showToast = useUI((s) => s.showToast);
   const notes = useActivities((s) => s.notes);
   const morningOn = useSettings((s) => s.morning);
+  const morningAt = useSettings((s) => s.morningAt);
   const display = useSettings((s) => s.noteDisplay);
   const setDisplay = useSettings((s) => s.setNoteDisplay);
   const snippets = useSettings((s) => s.noteSnippets);
@@ -64,7 +71,7 @@ export default function NotesScreen() {
           <Txt size={14} weight="bold">
             จดโน้ตไว้แล้ว {written} ครั้ง · โน้ตสำเร็จรูป {snippets.length}
           </Txt>
-          <Txt size={11.5} color={t.faint}>
+          <Txt size={11.5} color={t.sub}>
             ค่าในหน้านี้เปลี่ยนแค่การแสดงผล — โน้ตที่จดไปแล้วไม่ถูกแก้หรือลบ (แก้ได้ที่แผ่นรายละเอียด หรือฟอร์มแก้ไขรายการ)
           </Txt>
         </View>
@@ -160,7 +167,7 @@ export default function NotesScreen() {
         />
         <Row
           icon="bell"
-          label="แนบในสรุปตอนเช้า 06:00"
+          label={`แนบในสรุปตอนเช้า ${fmtMin(morningAt)}`}
           sub={!morningOn ? 'ต้องเปิด “สรุปตอนเช้า” ที่หน้าตั้งค่าก่อน' : display.morning ? 'ใต้นัดเคส: “↳ ครั้งก่อน: …” บรรทัดแรกของโน้ต' : 'ไม่แนบโน้ต'}
           subColor={!morningOn && display.morning ? t.warn : undefined}
           right={<Toggle value={display.morning} onChange={(morning) => set({ morning })} label="แนบโน้ตครั้งก่อนในสรุปตอนเช้า" />}
@@ -173,8 +180,9 @@ export default function NotesScreen() {
           kind="ghost"
           label="คืนค่าเริ่มต้นของการแสดงโน้ตทั้งหมด (① – ④)"
           onPress={() => {
+            const before = display;
             set(NOTE_DISPLAY_DEFAULTS);
-            showToast('คืนค่าเริ่มต้นแล้ว ✓');
+            showToast('คืนค่าเริ่มต้นของการแสดงโน้ตแล้ว', { label: 'เลิกทำ', run: () => set(before) });
           }}
         />
       ) : null}
@@ -186,7 +194,7 @@ export default function NotesScreen() {
             <Txt size={14} weight="bold">
               ⑤ โน้ตสำเร็จรูป ({snippets.length})
             </Txt>
-            <Txt size={11.5} color={t.faint}>
+            <Txt size={11.5} color={t.sub}>
               ข้อความที่จดบ่อย แตะชิปเพื่อแทรก · เรียงตามลำดับชิปจริง: 📌 ปักหมุดก่อน (เลื่อน ↑↓ ได้) → ใช้บ่อย · ซ่อน = ไม่ขึ้นเป็นชิปแต่ยังอยู่ในคลัง
             </Txt>
           </View>
@@ -210,7 +218,7 @@ export default function NotesScreen() {
             onSubmit={(text, cats) => {
               addSnippet(text, cats);
               setAdding(false);
-              showToast('เพิ่มโน้ตสำเร็จรูปแล้ว ✓');
+              showToast('เพิ่มโน้ตสำเร็จรูปแล้ว');
             }}
           />
         ) : null}
@@ -219,28 +227,29 @@ export default function NotesScreen() {
           libraryOrder.map((sn) =>
             editing === sn.id ? (
               <SnippetForm
-                key={sn.id}
+                key={`edit-${sn.id}`}
                 initial={sn}
                 submitLabel="บันทึก"
                 onCancel={() => setEditing(null)}
                 onSubmit={(text, cats) => {
                   useSettings.getState().updateSnippet(sn.id, { text, cats });
                   setEditing(null);
-                  showToast('บันทึกการแก้ไขแล้ว ✓');
+                  showToast('บันทึกการแก้ไขแล้ว');
                 }}
               />
             ) : (
-              <SnippetItem
-                key={sn.id}
-                sn={sn}
-                order={sn.hidden ? null : chipOrder.indexOf(sn) + 1}
-                canUp={sn.pinned && pinnedIds.indexOf(sn.id) > 0}
-                canDown={sn.pinned && pinnedIds.indexOf(sn.id) < pinnedIds.length - 1}
-                onEdit={() => {
-                  setAdding(false);
-                  setEditing(sn.id);
-                }}
-              />
+              <Animated.View key={sn.id} layout={CARD_MOVE}>
+                <SnippetItem
+                  sn={sn}
+                  order={sn.hidden ? null : chipOrder.indexOf(sn) + 1}
+                  canUp={sn.pinned && pinnedIds.indexOf(sn.id) > 0}
+                  canDown={sn.pinned && pinnedIds.indexOf(sn.id) < pinnedIds.length - 1}
+                  onEdit={() => {
+                    setAdding(false);
+                    setEditing(sn.id);
+                  }}
+                />
+              </Animated.View>
             ),
           )
         ) : !adding ? (
@@ -255,7 +264,7 @@ export default function NotesScreen() {
         <Txt size={14} weight="bold">
           ⑥ ค่าโน้ตต่อหมวด
         </Txt>
-        <Txt size={11.5} color={t.faint} style={{ marginBottom: 4 }}>
+        <Txt size={11.5} color={t.sub} style={{ marginBottom: 4 }}>
           ข้อความตัวอย่างในช่อง · แม่แบบ (เติมให้เมื่อแตะช่องว่าง) · ถามโน้ตเมื่อติ๊กเสร็จ — ใช้ทั้งแผ่นรายละเอียดและฟอร์ม
         </Txt>
         {CATS.map((c, i) => {
@@ -271,7 +280,7 @@ export default function NotesScreen() {
                 onPress={() => setOpenCat(opened ? null : c.id)}
                 right={
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Icon name={opened ? 'chevD' : 'chevR'} size={16} color={t.faint} />
+                    <Chevron open={opened} color={t.faint} />
                     <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: c.color + '22', alignItems: 'center', justifyContent: 'center' }}>
                       <Icon name={c.icon} size={17} color={c.color} />
                     </View>
@@ -279,17 +288,17 @@ export default function NotesScreen() {
                 }
               />
               {opened ? (
-                <View style={{ marginBottom: 10 }}>
+                <FadeInView rise={-6} style={{ marginBottom: 10 }}>
                   <NoteEditor key={`note-${c.id}`} cfg={cfg} defaults={NOTE_DEFAULTS[c.id]} onChange={(patch) => setNoteCfg(c.id, patch)} />
-                </View>
+                </FadeInView>
               ) : null}
             </View>
           );
         })}
       </Card>
 
-      <Txt size={11} color={t.faint} style={{ textAlign: 'center' }}>
-        ค่าในหน้านี้ไปกับไฟล์สำรอง JSON ด้วย — ย้ายเครื่องแล้วไม่ต้องตั้งใหม่
+      <Txt size={12} color={t.sub} style={{ textAlign: 'center' }}>
+        ค่าในหน้านี้อยู่ในไฟล์สำรองด้วย — ย้ายเครื่องแล้วไม่ต้องตั้งใหม่
       </Txt>
     </Screen>
   );
@@ -305,7 +314,7 @@ function Section({ n, title, where, right, children }: { n: number; title: strin
           <Txt size={14} weight="bold">
             {'①②③④'[n - 1]} {title}
           </Txt>
-          <Txt size={11.5} color={t.faint}>
+          <Txt size={11.5} color={t.sub}>
             {where}
           </Txt>
         </View>
@@ -407,14 +416,14 @@ function ChipsPreview({ list, limit }: { list: NoteSnippet[]; limit: number }) {
   const t = useTokens();
   if (!limit) {
     return (
-      <Txt size={11.5} color={t.faint}>
+      <Txt size={11.5} color={t.sub}>
         ไม่แสดงชิปโน้ตสำเร็จรูป
       </Txt>
     );
   }
   if (!list.length) {
     return (
-      <Txt size={11.5} color={t.faint}>
+      <Txt size={11.5} color={t.sub}>
         ยังไม่มีโน้ตสำเร็จรูปที่แสดงได้ — เพิ่มที่ ⑤ ด้านล่าง
       </Txt>
     );
@@ -478,7 +487,7 @@ function StepRow({
       disabled={disabled}
       onPress={() => onChange(next)}
       hitSlop={6}
-      style={({ pressed }) => ({ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? t.rail : t.track, opacity: disabled ? 0.35 : 1 })}>
+      style={({ pressed }) => ({ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? t.rail : t.track, opacity: disabled ? 0.35 : 1 })}>
       <SvgIcon name={icon} size={15} color={t.sub} strokeWidth={2.6} />
     </Pressable>
   );
@@ -488,7 +497,7 @@ function StepRow({
         <Txt size={14} weight="med">
           {label}
         </Txt>
-        <Txt size={11.5} color={t.faint}>
+        <Txt size={11.5} color={t.sub}>
           {sub}
         </Txt>
       </View>
@@ -513,9 +522,14 @@ function SnippetItem({ sn, order, canUp, canDown, onEdit }: { sn: NoteSnippet; o
   const showToast = useUI((s) => s.showToast);
   const update = useSettings((s) => s.updateSnippet);
   const move = useSettings((s) => s.moveSnippet);
-  const [confirmDel, setConfirmDel] = useState(false);
+  // ลบ = ทำทันที + "เลิกทำ" (คืนคลังทั้งชุดตามลำดับเดิม) — โน้ตที่เคยแทรกไปแล้วไม่เกี่ยว
+  const remove = () => {
+    const before = useSettings.getState().noteSnippets;
+    useSettings.getState().removeSnippet(sn.id);
+    showToast('ลบโน้ตสำเร็จรูปแล้ว · โน้ตที่เคยแทรกไปยังอยู่ครบ', { label: 'เลิกทำ', run: () => useSettings.getState().restoreSnippets(before) });
+  };
   return (
-    <View style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: confirmDel ? DANGER : sn.pinned ? t.line2 : t.line, padding: 10, gap: 8, opacity: sn.hidden && !confirmDel ? 0.62 : 1 }}>
+    <View style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: sn.pinned ? t.line2 : t.line, padding: 10, gap: 8, opacity: sn.hidden ? 0.62 : 1 }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
         <View style={{ minWidth: 26, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: sn.pinned ? t.accent + '22' : t.track }}>
           <Txt size={11} num weight="bold" color={sn.pinned ? t.accentInk : t.sub}>
@@ -526,30 +540,12 @@ function SnippetItem({ sn, order, canUp, canDown, onEdit }: { sn: NoteSnippet; o
           <Txt size={13.5} color={t.ink} numberOfLines={3} style={{ lineHeight: 19 }}>
             {sn.text}
           </Txt>
-          <Txt size={11.5} color={t.faint}>
+          <Txt size={11.5} color={t.sub}>
             {[sn.pinned ? '📌 ปักหมุด' : '', sn.hidden ? 'ซ่อนอยู่' : '', catsLabel(sn.cats), `ใช้ ${sn.uses} ครั้ง`].filter(Boolean).join(' · ')}
           </Txt>
         </View>
       </View>
-      {confirmDel ? (
-        <View style={{ gap: 8 }}>
-          <Txt size={12} color={t.sub}>
-            ลบออกจากคลัง? โน้ตที่เคยแทรกไปแล้วยังอยู่ครบ
-          </Txt>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={() => setConfirmDel(false)} />
-            <Btn
-              style={{ flex: 1 }}
-              kind="danger"
-              label="ลบจากคลัง"
-              onPress={() => {
-                useSettings.getState().removeSnippet(sn.id);
-                showToast('ลบโน้ตสำเร็จรูปแล้ว');
-              }}
-            />
-          </View>
-        </View>
-      ) : (
+      {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <ActBtn
             icon="pin"
@@ -557,7 +553,7 @@ function SnippetItem({ sn, order, canUp, canDown, onEdit }: { sn: NoteSnippet; o
             active={sn.pinned}
             onPress={() => {
               update(sn.id, { pinned: !sn.pinned, ...(sn.pinned ? {} : { hidden: false }) });
-              showToast(sn.pinned ? 'เลิกปักหมุดแล้ว' : 'ปักหมุดแล้ว — ขึ้นเป็นชิปแรก ๆ ✓');
+              showToast(sn.pinned ? 'เลิกปักหมุดแล้ว' : 'ปักหมุดแล้ว — ขึ้นเป็นชิปแรก ๆ');
             }}
           />
           {sn.pinned ? (
@@ -571,14 +567,16 @@ function SnippetItem({ sn, order, canUp, canDown, onEdit }: { sn: NoteSnippet; o
             label={sn.hidden ? 'แสดง' : 'ซ่อน'}
             onPress={() => {
               update(sn.id, { hidden: !sn.hidden, ...(sn.hidden ? {} : { pinned: false }) });
-              showToast(sn.hidden ? 'แสดงเป็นชิปแล้ว ✓' : 'ซ่อนแล้ว — ไม่ขึ้นเป็นชิป (ยังอยู่ในคลัง)');
+              showToast(sn.hidden ? 'แสดงเป็นชิปแล้ว' : 'ซ่อนแล้ว — ไม่ขึ้นเป็นชิป (ยังอยู่ในคลัง)');
             }}
           />
           <View style={{ flex: 1 }} />
           <ActBtn icon="edit" a11y="แก้ไขโน้ตสำเร็จรูป" onPress={onEdit} />
-          <ActBtn icon="trash" a11y="ลบโน้ตสำเร็จรูป" danger onPress={() => setConfirmDel(true)} />
+          {/* เว้นจากปุ่มแก้ไข — ไม่ให้นิ้วพลาดไปโดนปุ่มลบ */}
+          <View style={{ width: 6 }} />
+          <ActBtn icon="trash" a11y="ลบโน้ตสำเร็จรูป" danger onPress={remove} />
         </View>
-      )}
+      }
     </View>
   );
 }
@@ -586,7 +584,7 @@ function SnippetItem({ sn, order, canUp, canDown, onEdit }: { sn: NoteSnippet; o
 /** ปุ่มเล็กในแถวโน้ตสำเร็จรูป — มีป้าย (ปักหมุด/ซ่อน) หรือไอคอนล้วน */
 function ActBtn({ icon, label, a11y, active, danger, disabled, onPress }: { icon: string; label?: string; a11y?: string; active?: boolean; danger?: boolean; disabled?: boolean; onPress: () => void }) {
   const t = useTokens();
-  const color = danger ? DANGER : active ? t.accentInk : t.sub;
+  const color = danger ? t.warn : active ? t.accentInk : t.sub;
   return (
     <Pressable
       accessibilityRole="button"
@@ -596,10 +594,10 @@ function ActBtn({ icon, label, a11y, active, danger, disabled, onPress }: { icon
       onPress={onPress}
       hitSlop={4}
       style={({ pressed }) => ({
-        height: 30,
-        minWidth: 30,
-        paddingHorizontal: label ? 10 : 0,
-        borderRadius: 15,
+        height: 36,
+        minWidth: 36,
+        paddingHorizontal: label ? 12 : 0,
+        borderRadius: 18,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',

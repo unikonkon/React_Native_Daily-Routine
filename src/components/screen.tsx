@@ -14,6 +14,7 @@ import { SvgIcon } from '@/components/svg-icon';
 import { Icon } from '@/components/icon';
 import { Txt, pressFade, useTokens } from '@/components/ui';
 import { GREEN } from '@/constants/theme';
+import { useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
 
 interface ScreenProps {
@@ -131,6 +132,8 @@ function TabStrip() {
   const router = useRouter();
   const pathname = usePathname();
   const activeName = activeTabName(pathname);
+  // มีร่าง/การแก้ไขค้างอยู่ในฟอร์มเพิ่ม → จุดเล็กที่แท็บ "เพิ่ม" (ตอนอยู่แท็บอื่น) บอกว่ายังมีของทำค้างไว้ กลับไปทำต่อได้
+  const hasDraft = useDraft((s) => !!s.cat || !!s.title.trim() || !!s.editId);
   return (
     <View accessibilityRole="tablist" style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
       {TABS.map((tab) => {
@@ -141,6 +144,7 @@ function TabStrip() {
             layout={PILL_SPRING}
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
+            accessibilityLabel={tab.name === 'add' && hasDraft && !active ? `${tab.label} — มีร่างที่ทำค้างไว้` : tab.label}
             onPress={() => {
               if (!active) router.navigate(tab.href);
             }}
@@ -162,6 +166,9 @@ function TabStrip() {
             <Txt size={13.5} weight={active ? 'bold' : 'reg'} color={active ? t.ink : t.sub}>
               {tab.label}
             </Txt>
+            {tab.name === 'add' && hasDraft && !active ? (
+              <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(120)} style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.accent, marginLeft: -1 }} />
+            ) : null}
           </AnimatedPressable>
         );
       })}

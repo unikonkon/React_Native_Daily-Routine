@@ -13,11 +13,11 @@ import { Layer } from '@/components/today/keep-alive';
 import { TodayMonthView } from '@/components/today/month-view';
 import { TodayWeekView } from '@/components/today/week-view';
 import { TodayYearView } from '@/components/today/year-view';
-import { addDays, beYear, fromISO, mondayOf, MONTH_TH, MONTH_TH_FULL, todayISO, toISO, VIEW_MAX_Y, VIEW_MIN_Y } from '@/lib/dates';
+import { addDays, beYear, fmtRange, fromISO, mondayOf, MONTH_TH, MONTH_TH_FULL, todayISO, toISO, VIEW_MAX_Y, VIEW_MIN_Y } from '@/lib/dates';
 import { dayProgress, type NowRef } from '@/lib/progress';
 import type { DayItem } from '@/lib/types';
 import { useDayReader } from '@/stores/activities';
-import { useDraft } from '@/stores/draft';
+import { isNewDraft, useDraft } from '@/stores/draft';
 import { useUI } from '@/stores/ui';
 
 /** รวมความคืบหน้าของช่วงวัน (ถึงวันนี้) — ใช้บรรทัดสรุปของหัวสัปดาห์/เดือน/ปี */
@@ -64,14 +64,14 @@ const PeriodHeader = memo(function PeriodHeader({ kind, monday, y, m, picked, on
       const b = fromISO(addDays(monday, 6));
       const p = rangeProgress(getDay, monday, addDays(monday, 6), now);
       const title = a.getMonth() === b.getMonth() ? `${a.getDate()}–${b.getDate()} ${MONTH_TH[a.getMonth()]}` : `${a.getDate()} ${MONTH_TH[a.getMonth()]} – ${b.getDate()} ${MONTH_TH[b.getMonth()]}`;
-      return { title, summary: `${beYear(b.getFullYear())}${p.total ? ` · เสร็จ ${p.done}/${p.total}` : ''}${p.overdue ? ` · ค้าง ${p.overdue}` : ''}` };
+      return { title, summary: `${beYear(b.getFullYear())}${p.total ? ` · เสร็จ ${p.done}/${p.total}` : ''}${p.overdue ? ` · ยังไม่บันทึก ${p.overdue}` : ''}` };
     }
     if (kind === 'month') {
       const from = toISO(new Date(ym.y, ym.m, 1));
       const p = rangeProgress(getDay, from, toISO(new Date(ym.y, ym.m + 1, 0)), now);
       return {
         title: `${MONTH_TH_FULL[ym.m]} ${beYear(ym.y)}`,
-        summary: from > now.date ? 'ยังไม่ถึง' : p.total ? `เสร็จ ${Math.round(p.rate * 100)}%${p.overdue ? ` · ค้าง ${p.overdue}` : ''}` : 'ยังไม่มีรายการ',
+        summary: from > now.date ? 'ยังไม่ถึง' : p.total ? `เสร็จ ${Math.round(p.rate * 100)}%${p.overdue ? ` · ยังไม่บันทึก ${p.overdue}` : ''}` : 'ยังไม่มีรายการ',
       };
     }
     const p = rangeProgress(getDay, `${ym.y}-01-01`, `${ym.y}-12-31`, now);
@@ -156,7 +156,12 @@ export default function TodayScreen() {
   // แตะช่วงเวลาว่าง → เปิดฟอร์มเพิ่ม พร้อม prefill วันและช่วงเวลา
   // แตะช่วงว่าง (โหมดเวลาว่าง — วัน/สัปดาห์/เดือน) → ฟอร์มเพิ่มลงวันและช่วงเวลานั้น (ล็อกไว้ ไม่ให้เวลาตั้งต้นทับ)
   const openSlot = (date: string, start: number, end: number) => {
-    useDraft.getState().loadSlot(date, start, end);
+    const dr = useDraft.getState();
+    if (isNewDraft(dr)) {
+      // มีร่างที่กรอกค้างไว้ → ไม่ทับ: ใส่ช่วงเวลานี้ให้ร่างเดิม (ร่างครั้งเดียวย้ายวันตามด้วย · ร่างทำซ้ำคงวันที่เลือกไว้)
+      dr.set({ start, end, pinned: true, ...(dr.repeat === 'none' ? { dates: [date] } : {}) });
+      useUI.getState().showToast(`ใส่เวลา ${fmtRange(start, end)} ให้ร่างที่ทำค้างไว้`, { label: 'เริ่มใหม่', run: () => useDraft.getState().loadSlot(date, start, end) });
+    } else dr.loadSlot(date, start, end);
     router.push('/add');
   };
 
@@ -170,8 +175,15 @@ export default function TodayScreen() {
   };
 
   const openAdd = () => {
-    // ร่างใหม่ของวันที่ดูอยู่ — เวลาตั้งต้น = ช่วงว่าง 1 ชม. แรกหลังตอนนี้ของวันนั้น
-    useDraft.getState().reset(view === 'day' ? focus : todayISO());
+    const dr = useDraft.getState();
+    const day = view === 'day' ? focus : todayISO();
+    if (isNewDraft(dr) || dr.editId) {
+      // มีร่าง/การแก้ไขค้างอยู่ → พาไปทำต่อ ไม่ล้างทิ้งเงียบ ๆ (เดิมกด ＋ แล้วที่กรอกไว้หายหมด) · อยากเริ่มใหม่กดในแถบแจ้ง
+      useUI.getState().showToast(dr.editId ? 'ยังแก้ไขกิจกรรมค้างอยู่ — ทำต่อได้เลย' : 'มีร่างที่ทำค้างไว้ — ทำต่อได้เลย', { label: 'เริ่มใหม่', run: () => useDraft.getState().reset(day) });
+    } else {
+      // ร่างใหม่ของวันที่ดูอยู่ — เวลาตั้งต้น = ช่วงว่าง 1 ชม. แรกหลังตอนนี้ของวันนั้น
+      dr.reset(day);
+    }
     router.push('/add');
   };
 

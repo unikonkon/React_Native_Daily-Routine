@@ -304,6 +304,30 @@ export async function pushToSheets(url: string, tabs: SheetTab[]): Promise<void>
   }
 }
 
+/**
+ * ทดสอบว่า URL นี้คือตัวรับของแอปจริงและเปิดสิทธิ์ถูกต้อง — เรียก doGet ของสคริปต์ (ตอบ {"ok":true})
+ * ใช้ก่อนบันทึก URL: เดิมบันทึกแล้วขึ้น "เชื่อมต่อแล้ว" ทั้งที่ยังไม่เคยติดต่อสคริปต์ กว่าจะรู้ว่าผิดก็ตอนกดส่งครั้งแรก
+ */
+export async function pingSheets(url: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'GET' });
+  } catch {
+    throw new Error('เชื่อมต่อไม่ได้ — เช็คอินเทอร์เน็ตแล้วลองอีกครั้ง');
+  }
+  if (res.status === 401 || res.status === 403 || res.url.includes('accounts.google.com')) {
+    throw new Error('ชีตยังไม่เปิดสิทธิ์ — ตอน Deploy ต้องตั้ง Who has access เป็น Anyone (ขั้นที่ 4)');
+  }
+  if (res.status === 404) throw new Error('ไม่พบสคริปต์ — เช็คว่า URL ลงท้าย /exec และยังไม่ได้ลบ deployment');
+  const text = await res.text();
+  try {
+    if ((JSON.parse(text) as { ok?: boolean })?.ok === true) return;
+  } catch {
+    // ตอบเป็นหน้าเว็บ (ไม่ใช่ JSON) = ไม่ใช่ตัวรับของแอป
+  }
+  throw new Error('URL นี้ยังไม่ตอบกลับแบบที่แอปใช้ — เช็คว่าวางโค้ดครบ แล้ว Deploy แบบ Web app (ขั้นที่ 3–4)');
+}
+
 /** ตรวจ URL ของ Apps Script Web App แบบหลวม ๆ */
 export function isSheetsUrl(url: string): boolean {
   return /^https:\/\/script\.google(?:usercontent)?\.com\/.+/.test(url.trim());

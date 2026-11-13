@@ -5,7 +5,6 @@ import { Keyboard, Platform, Pressable, View } from 'react-native';
 
 import { SvgIcon } from '@/components/svg-icon';
 import { Txt, useTokens } from '@/components/ui';
-import { DANGER } from '@/constants/theme';
 
 /** ความสูงคีย์บอร์ดปัจจุบัน (0 = ปิด) — รองรับทั้ง iOS (will) และ Android (did) */
 export function useKeyboardHeight() {
@@ -26,7 +25,7 @@ export function useKeyboardHeight() {
 /** ปุ่มเล็กของแถวโน้ต — ghost (ยกเลิก) · primary (บันทึก) · danger (ยืนยันลบ) · big = ในแถบเหนือคีย์บอร์ด */
 export function NoteBtn({ label, icon, tone, big, a11y, onPress }: { label: string; icon?: string; tone?: 'primary' | 'danger'; big?: boolean; a11y?: string; onPress: () => void }) {
   const t = useTokens();
-  const bg = tone === 'danger' ? [DANGER, '#A33A2E'] : tone === 'primary' ? [t.primary, t.primaryDown] : null;
+  const bg = tone === 'danger' ? [t.warnFill, t.warnFill] : tone === 'primary' ? [t.primary, t.primaryDown] : null;
   return (
     <Pressable
       accessibilityRole="button"
@@ -41,6 +40,7 @@ export function NoteBtn({ label, icon, tone, big, a11y, onPress }: { label: stri
         alignItems: 'center',
         gap: 4,
         backgroundColor: bg ? (pressed ? bg[1] : bg[0]) : pressed ? t.rail : t.track,
+        opacity: pressed && tone === 'danger' ? 0.85 : 1,
       })}>
       {icon ? <SvgIcon name={icon} size={big ? 14 : 13} color={bg ? '#FFFFFF' : t.sub} strokeWidth={2.6} /> : null}
       <Txt size={big ? 13.5 : 12.5} weight="bold" color={bg ? '#FFFFFF' : t.sub}>

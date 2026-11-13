@@ -3,13 +3,13 @@ import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Linking, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, TextInput, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { Btn, Card, Chip, Txt, useTokens } from '@/components/ui';
 import { FONT, GREEN } from '@/constants/theme';
-import { APPS_SCRIPT_CODE, isSheetsUrl } from '@/lib/sheets';
+import { APPS_SCRIPT_CODE, isSheetsUrl, pingSheets } from '@/lib/sheets';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
@@ -40,7 +40,7 @@ export default function SheetsSetupScreen() {
   const copyCode = async () => {
     await Clipboard.setStringAsync(APPS_SCRIPT_CODE);
     setCopied(true);
-    showToast('คัดลอกโค้ดแล้ว ✓ ไปวางใน Apps Script ได้เลย');
+    showToast('คัดลอกโค้ดแล้ว — ไปวางใน Apps Script ได้เลย');
   };
 
   const pasteUrl = async () => {
@@ -49,12 +49,29 @@ export default function SheetsSetupScreen() {
     setUrlDraft(s);
   };
 
-  const saveUrl = () => {
-    const url = urlDraft.trim();
-    if (!isSheetsUrl(url)) return showToast('URL ไม่ถูกต้อง — ต้องเป็นลิงก์ script.google.com ลงท้าย /exec');
+  // ทดสอบการเชื่อมต่อก่อนบันทึก — เดิมตรวจแค่รูปแบบ URL แล้วขึ้น "เชื่อมต่อแล้ว" กว่าจะรู้ว่าตั้งค่าผิดก็ตอนกดส่งครั้งแรก
+  const [testing, setTesting] = useState(false);
+  const [testErr, setTestErr] = useState<string | null>(null);
+  const urlOk = isSheetsUrl(urlDraft.trim());
+  const connect = (url: string, verified: boolean) => {
     setSheetsUrl(url);
-    showToast('เชื่อมต่อแล้ว ✓ กลับไปกดส่งได้เลย');
+    showToast(verified ? 'ทดสอบผ่าน เชื่อมต่อแล้ว — กลับไปกดส่งได้เลย' : 'บันทึก URL แล้ว (ยังไม่ได้ทดสอบ)');
     router.back();
+  };
+  const saveUrl = async () => {
+    const url = urlDraft.trim();
+    if (testing) return;
+    if (!isSheetsUrl(url)) return setTestErr('URL ไม่ถูกต้อง — ต้องเป็นลิงก์ script.google.com ที่ลงท้ายด้วย /exec');
+    setTesting(true);
+    setTestErr(null);
+    try {
+      await pingSheets(url);
+      connect(url, true);
+    } catch (err) {
+      setTestErr(err instanceof Error ? err.message : 'ทดสอบการเชื่อมต่อไม่ผ่าน');
+    } finally {
+      setTesting(false);
+    }
   };
 
   return (
@@ -62,7 +79,7 @@ export default function SheetsSetupScreen() {
       title="เชื่อม Google Sheets"
       subtitle="ติดตั้งครั้งเดียว · ทีละขั้น · ใช้เวลาราว 5 นาที"
       variant="sub"
-      action={{ label: sheetsUrl ? 'บันทึก URL ใหม่' : 'บันทึก & เชื่อมต่อ', icon: 'check', onPress: saveUrl, disabled: !urlDraft.trim() }}>
+      action={{ label: testing ? 'กำลังทดสอบ…' : sheetsUrl ? 'ทดสอบ & บันทึก URL ใหม่' : 'ทดสอบ & เชื่อมต่อ', icon: 'check', onPress: saveUrl, disabled: !urlDraft.trim() || testing }}>
       {sheetsUrl ? (
         <Card tone="card2" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <Icon name="check" size={18} color={GREEN} />
@@ -112,8 +129,8 @@ export default function SheetsSetupScreen() {
             maxHeight: 180,
             overflow: 'hidden',
           }}>
-          <Txt size={10} color={t.faint} numberOfLines={12}>{APPS_SCRIPT_CODE}</Txt>
-          <Txt size={10} color={t.faint}>… (ปุ่มด้านล่างคัดลอกให้ครบทั้งไฟล์)</Txt>
+          <Txt size={11} color={t.sub} numberOfLines={12}>{APPS_SCRIPT_CODE}</Txt>
+          <Txt size={11.5} color={t.sub}>… (ปุ่มด้านล่างคัดลอกให้ครบทั้งไฟล์)</Txt>
         </View>
         <Btn
           kind={copied ? 'green' : 'primary'}
@@ -159,7 +176,13 @@ export default function SheetsSetupScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <TextInput
             value={urlDraft}
-            onChangeText={setUrlDraft}
+            onChangeText={(v) => {
+              setUrlDraft(v);
+              setTestErr(null);
+            }}
+            accessibilityLabel="URL ของ Web app"
+            keyboardType="url"
+            returnKeyType="done"
             placeholder="https://script.google.com/macros/s/…/exec"
             placeholderTextColor={t.faint}
             autoCapitalize="none"
@@ -168,8 +191,8 @@ export default function SheetsSetupScreen() {
               flex: 1,
               backgroundColor: t.card2,
               borderRadius: 12,
-              borderWidth: 1,
-              borderColor: t.line,
+              borderWidth: testErr ? 1.5 : 1,
+              borderColor: testErr ? t.warn : urlOk ? GREEN : t.line,
               padding: 12,
               color: t.ink,
               fontFamily: FONT.ui,
@@ -181,24 +204,45 @@ export default function SheetsSetupScreen() {
             {urlDraft ? <Chip small icon="x" label="ลบ" onPress={() => setUrlDraft('')} /> : null}
           </View>
         </View>
-        <Txt size={12} color={t.faint}>วาง URL แล้วกดปุ่ม “{sheetsUrl ? 'บันทึก URL ใหม่' : 'บันทึก & เชื่อมต่อ'}” ที่แถบล่าง</Txt>
+        {testing ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <ActivityIndicator size="small" color={t.sub} />
+            <Txt size={12.5} color={t.sub}>กำลังทดสอบการเชื่อมต่อกับชีต…</Txt>
+          </View>
+        ) : testErr ? (
+          // ทดสอบไม่ผ่าน — บอกสาเหตุค้างไว้ใต้ช่อง + ทางเลือกบันทึกไว้ก่อน (เผื่อเครือข่ายขัดข้องชั่วคราว)
+          <View style={{ borderRadius: 12, borderWidth: 1, borderColor: t.warn, backgroundColor: t.warn + '12', padding: 12, gap: 8 }}>
+            <Txt size={13} weight="bold" color={t.warn}>ยังเชื่อมต่อไม่ได้</Txt>
+            <Txt size={12.5} color={t.sub} style={{ lineHeight: 18 }}>{testErr}</Txt>
+            {urlOk ? (
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Btn style={{ flex: 1 }} kind="ghost" label="บันทึกไว้ก่อน" onPress={() => connect(urlDraft.trim(), false)} />
+                <Btn style={{ flex: 1 }} label="ทดสอบอีกครั้ง" onPress={saveUrl} />
+              </View>
+            ) : null}
+          </View>
+        ) : (
+          <Txt size={12} color={t.sub}>
+            {urlOk ? 'รูปแบบ URL ถูกต้อง — ' : 'วาง URL แล้ว'}กดปุ่ม “{sheetsUrl ? 'ทดสอบ & บันทึก URL ใหม่' : 'ทดสอบ & เชื่อมต่อ'}” ที่แถบล่าง แอปจะลองติดต่อชีตให้ก่อนบันทึก
+          </Txt>
+        )}
       </Step>
 
       <Card tone="card2" style={{ gap: 6 }}>
         <Txt size={12} weight="bold" color={t.sub}>ถ้าติดปัญหา</Txt>
-        <Txt size={12} color={t.faint}>• ส่งไม่สำเร็จ → เช็คว่า Who has access = Anyone และ URL ลงท้าย /exec (ไม่ใช่ /dev)</Txt>
-        <Txt size={12} color={t.faint}>
+        <Txt size={12} color={t.sub}>• ส่งไม่สำเร็จ → เช็คว่า Who has access = Anyone และ URL ลงท้าย /exec (ไม่ใช่ /dev)</Txt>
+        <Txt size={12} color={t.sub}>
           • ทดสอบเร็ว ๆ: เปิด URL /exec ใน browser แบบไม่ล็อกอิน (หน้าต่างไม่ระบุตัวตน) — ถ้าเห็น {'{"ok":true}'} =
           สิทธิ์ถูกต้อง ถ้าเด้งหน้า login = ยังไม่ได้ตั้ง Anyone
         </Txt>
-        <Txt size={12} color={t.faint}>
+        <Txt size={12} color={t.sub}>
           • บัญชีองค์กร (Google Workspace) บางที่ถูกแอดมินบล็อกตัวเลือก Anyone — ถ้าไม่มีให้เลือก ให้สร้างชีตด้วยบัญชี
           Gmail ส่วนตัวแทน
         </Txt>
-        <Txt size={12} color={t.faint}>
+        <Txt size={12} color={t.sub}>
           • แก้โค้ดสคริปต์ทีหลัง → Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy (URL เดิมใช้ต่อได้)
         </Txt>
-        <Txt size={12} color={t.faint}>
+        <Txt size={12} color={t.sub}>
           • ข้อมูลแท็บของแอปถูกเขียนทับทุกครั้งที่ส่ง — โน้ตส่วนตัวให้สร้างแท็บแยก สคริปต์จะไม่แตะ
         </Txt>
       </Card>

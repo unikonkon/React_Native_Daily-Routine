@@ -4,7 +4,9 @@ import React, { useMemo } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
 import { useNow } from '@/components/b1/use-now';
+import { FadeInView } from '@/components/motion';
 import { Txt, useTokens } from '@/components/ui';
+import { GREEN } from '@/constants/theme';
 import { MONTH_TH, addDays, fromISO, mondayOf, toISO } from '@/lib/dates';
 import { dayProgress, type NowRef } from '@/lib/progress';
 import type { DayItem } from '@/lib/types';
@@ -16,14 +18,19 @@ interface YearViewProps {
   bottomPad: number;
 }
 
-/** สีช่องวันตาม % ทำเสร็จ — ไม่มีรายการ/อนาคต = undefined (ใช้สีราง) */
-const LEVELS = ['#F2C7B4', '#D9E8DD', '#A9CDB4', '#6FAE85', '#4C9A6A'];
-function levelOf(rate: number): string {
-  if (rate >= 1) return LEVELS[4];
-  if (rate >= 0.75) return LEVELS[3];
-  if (rate >= 0.5) return LEVELS[2];
-  if (rate >= 0.25) return LEVELS[1];
-  return LEVELS[0];
+/**
+ * สีช่องวันตาม % ทำเสร็จ — ไล่ความเข้มของเขียว "ทำแล้ว" (โปร่งบนพื้นการ์ด จึงกลืนกับทุกธีมทั้งสว่าง/มืด)
+ * ต่ำกว่า 25% = สีเตือนของธีมแบบจาง · เดิมฝังสีพาสเทล 5 สีตายตัว ซึ่งสว่างจ้าบนธีมมืด
+ */
+function levelsOf(warn: string): string[] {
+  return [warn + '59', GREEN + '47', GREEN + '80', GREEN + 'BF', GREEN];
+}
+function levelOf(rate: number, levels: string[]): string {
+  if (rate >= 1) return levels[4];
+  if (rate >= 0.75) return levels[3];
+  if (rate >= 0.5) return levels[2];
+  if (rate >= 0.25) return levels[1];
+  return levels[0];
 }
 
 interface DayCell {
@@ -90,6 +97,7 @@ export function TodayYearView({ year, onPressMonth, bottomPad }: YearViewProps) 
   const past = useMemo(() => yearPast(getDay, year, today), [getDay, year, today]);
   const data = useMemo(() => yearData(past, getDay, year, now), [past, getDay, year, now]);
   const nowD = fromISO(now.date);
+  const levels = levelsOf(t.warn);
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 10, paddingBottom: bottomPad, gap: 12 }}>
@@ -108,7 +116,7 @@ export function TodayYearView({ year, onPressMonth, bottomPad }: YearViewProps) 
         <Txt size={11.5} color={t.sub}>
           น้อย{' '}
         </Txt>
-        {LEVELS.map((c) => (
+        {levels.map((c) => (
           <View key={c} style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: c, marginLeft: 2 }} />
         ))}
         <Txt size={11.5} color={t.sub}>
@@ -116,7 +124,8 @@ export function TodayYearView({ year, onPressMonth, bottomPad }: YearViewProps) 
         </Txt>
       </View>
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 }}>
+      {/* เปลี่ยนปีแล้วตาราง 12 เดือนค่อย ๆ ชัดขึ้น — บอกว่าเป็นข้อมูลของปีใหม่ */}
+      <FadeInView key={year} from={0.5} duration={220} style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 }}>
         {Array.from({ length: 12 }, (_, m) => {
           const cur = year === nowD.getFullYear() && m === nowD.getMonth();
           const mm = data.months[m];
@@ -132,8 +141,9 @@ export function TodayYearView({ year, onPressMonth, bottomPad }: YearViewProps) 
                   borderRadius: 14,
                   padding: 10,
                   gap: 6,
-                  borderWidth: cur ? 2 : 0,
-                  borderColor: t.ink,
+                  // เดือนปัจจุบัน: กรอบสีเน้นของธีมเส้นบาง (เดิมกรอบดำหนา 2px ดูแข็ง) · เดือนอื่นกรอบโปร่งหนาเท่ากัน ขนาดการ์ดไม่ขยับ
+                  borderWidth: 1.5,
+                  borderColor: cur ? t.accent : 'transparent',
                   opacity: pressed ? 0.7 : 1,
                 })}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
@@ -144,12 +154,12 @@ export function TodayYearView({ year, onPressMonth, bottomPad }: YearViewProps) 
                     {future || !mm.total ? '—' : `${Math.round((mm.done / mm.total) * 100)}%`}
                   </Txt>
                 </View>
-                <MiniGrid year={year} month={m} days={data.days} today={now.date} />
+                <MiniGrid year={year} month={m} days={data.days} today={now.date} levels={levels} />
               </Pressable>
             </View>
           );
         })}
-      </View>
+      </FadeInView>
     </ScrollView>
   );
 }
@@ -168,7 +178,7 @@ function Stat({ value, label, color }: { value: string; label: string; color?: s
   );
 }
 
-function MiniGrid({ year, month, days, today }: { year: number; month: number; days: Record<string, DayCell>; today: string }) {
+function MiniGrid({ year, month, days, today, levels }: { year: number; month: number; days: Record<string, DayCell>; today: string; levels: string[] }) {
   const t = useTokens();
   const first = toISO(new Date(year, month, 1));
   const ym = first.slice(0, 7);
@@ -181,7 +191,7 @@ function MiniGrid({ year, month, days, today }: { year: number; month: number; d
             const d = addDays(start, r * 7 + c);
             const inMonth = d.slice(0, 7) === ym;
             const cell = days[d];
-            const bg = !inMonth ? 'transparent' : cell?.rate != null ? levelOf(cell.rate) : t.track;
+            const bg = !inMonth ? 'transparent' : cell?.rate != null ? levelOf(cell.rate, levels) : t.track;
             return (
               <View
                 key={d}

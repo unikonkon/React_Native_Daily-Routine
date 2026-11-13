@@ -125,7 +125,7 @@ export default function ThemeScreen() {
 
       <View style={{ gap: 10, paddingHorizontal: 2 }}>
         <Txt size={11.5} color={t.faint} style={{ lineHeight: 17 }}>
-          สีหมวดกิจกรรม สีเขียว (ทำแล้ว · เวลาว่าง) และสีส้ม/แดง (ค้างบันทึก · ลบ) เหมือนกันทุกธีม เพื่อให้อ่านตารางได้เหมือนเดิม · ไฟล์ที่ส่งออกใช้ชุดสีของตัวเอง ไม่เปลี่ยนตามธีมแอป
+          สีหมวดกิจกรรม สีเขียว (ทำแล้ว · เวลาว่าง) และสีส้ม/แดง (ยังไม่ได้บันทึก · ลบ) เหมือนกันทุกธีม เพื่อให้อ่านตารางได้เหมือนเดิม · ไฟล์ที่ส่งออกใช้ชุดสีของตัวเอง ไม่เปลี่ยนตามธีมแอป
         </Txt>
         {!isDefault ? (
           <Pressable accessibilityRole="button" onPress={reset} hitSlop={6} style={({ pressed }) => ({ alignSelf: 'flex-start', minHeight: 36, paddingHorizontal: 14, borderRadius: 18, justifyContent: 'center', backgroundColor: pressed ? t.rail : t.track })}>

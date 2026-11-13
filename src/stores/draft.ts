@@ -4,11 +4,12 @@
 import { create } from 'zustand';
 
 import { LEGACY_SUB, type CatId, type PriorityId } from '@/constants/theme';
-import { daysBetween, todayISO } from '@/lib/dates';
+import { addDays, daysBetween, todayISO, wdMon } from '@/lib/dates';
 import { computeDates, seriesDates, suggestStart } from '@/lib/engine';
 import { nowRef } from '@/lib/progress';
 import { HORIZON_DAYS, type Activity, type Channel, type EditScope, type Horizon, type InlineContact, type RepeatRule } from '@/lib/types';
 import { getDay, useActivities } from '@/stores/activities';
+import { useUI } from '@/stores/ui';
 
 /** ความยาวตั้งต้นของกิจกรรมใหม่ */
 const DEFAULT_DUR = 60;
@@ -58,6 +59,13 @@ interface DraftState {
   repeat: RepeatRule;
   horizon: Horizon;
   dates: string[];
+  /**
+   * วันในสัปดาห์ที่เลือกจากชิป จ–อา (bit 0 = จันทร์) เมื่อไม่ตรงกับ ทุกวัน/จ–ศ/ส–อา — ชุดถูกเก็บเป็น "เลือกเอง" แต่ยังปรับระยะเวลาได้
+   * null = ไม่ได้มาจากชิป (กฎสำเร็จรูป หรือแตะเลือกวันบนปฏิทินเอง)
+   */
+  weekMask: number | null;
+  /** วันเริ่มที่ผู้ใช้เลือกไว้ก่อนใช้ชิปวันในสัปดาห์ — วันแรกของชุดอาจเลื่อนไปวันที่ตรงชิป แต่ปรับชิปใหม่ต้องนับจากวันนี้เสมอ */
+  weekBase: string | null;
   notify: boolean;
   before: number;
   /**
@@ -73,10 +81,19 @@ interface DraftState {
   pinned: boolean;
   /** นับครั้งที่ "โหลด draft ชุดใหม่" (reset / loadActivity / loadSlot) — ฟอร์มใช้ซิงก์ state ภายในของตัวเอง */
   loadRev: number;
+  /**
+   * ร่างกิจกรรมใหม่ที่ทำค้างไว้ตอนถูกสลับไป "แก้ไขรายการอื่น" — เก็บไว้ชั่วคราว
+   * จบการแก้ไข (บันทึก/ยกเลิก/กลับ) แล้วร่างนี้กลับมาเอง (เดิมถูกทับหายเงียบ ๆ)
+   */
+  stash: DraftData | null;
 
   set: (p: Partial<DraftState>) => void;
   setRepeat: (r: RepeatRule) => void;
   setHorizon: (h: Horizon) => void;
+  /** เลือกวันในสัปดาห์ที่ทำซ้ำ (bit 0 = จันทร์) — ตรงกฎสำเร็จรูปก็ใช้กฎนั้น ไม่ตรง = สร้างวันให้ตามระยะเวลาที่เลือก */
+  setWeekdays: (mask: number) => void;
+  /** วันสิ้นสุดที่กำหนดเอง — null = ไม่มีวันสิ้นสุด (เฉพาะกฎสำเร็จรูป) */
+  setEnd: (endDate: string | null) => void;
   toggleDate: (iso: string) => void;
   /** ล้างเฉพาะขั้น "วันที่และการทำซ้ำ" — กลับไปวันนี้วันเดียว (ข้อมูลอื่นในฟอร์มคงไว้) */
   resetDates: () => void;
@@ -87,6 +104,55 @@ interface DraftState {
   /** date = วันของ occurrence ที่เปิดแก้ไข (ไม่ส่ง = แก้ทั้งชุด) */
   loadActivity: (a: Activity, date?: string) => void;
   loadSlot: (date: string, start: number, end: number) => void;
+  /** คืนร่างทั้งชุดจากภาพที่เก็บไว้ (เลิกทำการล้าง/ยกเลิก) */
+  restore: (data: DraftData) => void;
+}
+
+/** ข้อมูลของร่าง (ไม่รวมฟังก์ชันและตัวนับ) — ใช้เก็บ/คืนร่างทั้งชุด */
+export type DraftData = Pick<
+  DraftState,
+  | 'editId' | 'editDate' | 'scope' | 'keepEnd' | 'cat' | 'title' | 'loc' | 'sub' | 'channel' | 'priority' | 'contactIds' | 'contactMode'
+  | 'inline' | 'start' | 'end' | 'repeat' | 'horizon' | 'dates' | 'weekMask' | 'weekBase' | 'notify' | 'before' | 'note' | 'noteOrig' | 'noteAll' | 'pinned' | 'stash'
+>;
+
+/** ภาพของร่างตอนนี้ — เก็บไว้ก่อนล้าง/ทับ เพื่อให้ "เลิกทำ" คืนได้ */
+export function draftData(s: DraftState): DraftData {
+  const { editId, editDate, scope, keepEnd, cat, title, loc, sub, channel, priority, contactIds, contactMode, inline, start, end, repeat, horizon, dates, weekMask, weekBase, notify, before, note, noteOrig, noteAll, pinned, stash } = s;
+  return { editId, editDate, scope, keepEnd, cat, title, loc, sub, channel, priority, contactIds, contactMode, inline, start, end, repeat, horizon, dates, weekMask, weekBase, notify, before, note, noteOrig, noteAll, pinned, stash };
+}
+
+/** วันที่ตรงกับวันในสัปดาห์ (mask) ตั้งแต่ anchor ไป days วัน — ไม่มีสักวัน = วันแรกที่ตรงถัดจาก anchor */
+function datesByMask(mask: number, anchor: string, days: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < days; i++) {
+    const d = addDays(anchor, i);
+    if ((mask >> wdMon(d)) & 1) out.push(d);
+  }
+  if (out.length) return out;
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(anchor, i);
+    if ((mask >> wdMon(d)) & 1) return [d];
+  }
+  return [anchor];
+}
+
+/** มีร่างกิจกรรมใหม่ที่เริ่มกรอกแล้ว (เลือกหมวดหรือใส่ชื่อ) — ไม่นับโหมดแก้ไข */
+export const isNewDraft = (s: Pick<DraftState, 'editId' | 'cat' | 'title'>) => !s.editId && (!!s.cat || !!s.title.trim());
+
+/**
+ * ล้าง/ทิ้งร่างปัจจุบันด้วย run แล้วขึ้น toast ให้ "เลิกทำ" ได้ — ใช้กับปุ่ม ล้างค่า · ยกเลิกแก้ไข
+ * (เดิมแตะเดียวหายหมดทั้งชื่อ โน้ต และช่องทางติดต่อที่กรอกไว้)
+ */
+export function discardDraft(msg: string, run: () => void, undoLabel = 'เลิกทำ', afterUndo?: () => void) {
+  const before = draftData(useDraft.getState());
+  run();
+  useUI.getState().showToast(msg, {
+    label: undoLabel,
+    run: () => {
+      useDraft.getState().restore(before);
+      afterUndo?.();
+    },
+  });
 }
 
 const initial = {
@@ -107,6 +173,8 @@ const initial = {
   end: 1170, // 19:30
   repeat: 'none' as RepeatRule,
   horizon: '1m' as Horizon,
+  weekMask: null as number | null,
+  weekBase: null as string | null,
   notify: false, // ค่าเริ่มต้น: ปิดแจ้งเตือน — เปิดเองเมื่อกิจกรรมนั้นต้องการจริง ๆ
   before: 30,
   note: '',
@@ -120,6 +188,7 @@ export const useDraft = create<DraftState>((set, get) => ({
   dates: [todayISO()],
   ...defaultTime(todayISO()), // ตอนเปิดแอปข้อมูลยังไม่โหลด — แท็บเพิ่มคำนวณใหม่ทุกครั้งที่เปิด (refreshDefaultTime)
   loadRev: 0, // อยู่นอก initial — การ set({ ...initial }) จึงไม่รีเซ็ตตัวนับกลับเป็น 0
+  stash: null,
 
   set: (p) => set(p),
 
@@ -129,12 +198,44 @@ export const useDraft = create<DraftState>((set, get) => ({
     // แก้ไขชุดเดิม: เปลี่ยนกฎแล้วยังจบวันเดิม (keepEnd) จนกว่าจะเลือกระยะเวลาใหม่เอง
     const keep = get().keepEnd;
     const dates = repeat === 'custom' ? get().dates : computeDates(repeat, get().horizon, anchor, keep ? keep.endDate : undefined);
-    set({ repeat, dates: dates.length ? dates : [anchor] });
+    set({ repeat, weekMask: null, weekBase: null, dates: dates.length ? dates : [anchor] });
+  },
+
+  setWeekdays: (mask) => {
+    if (!mask) return; // ต้องเหลืออย่างน้อย 1 วัน
+    const s = get();
+    const base = s.weekBase ?? s.dates[0] ?? todayISO();
+    const rule: RepeatRule = mask === 127 ? 'daily' : mask === 31 ? 'weekday' : mask === 96 ? 'weekend' : 'custom';
+    if (rule !== 'custom') {
+      // ตรงกฎสำเร็จรูป → ใช้กฎนั้น นับจากวันเริ่มเดิมที่ผู้ใช้เลือก (ไม่ใช่วันแรกที่ถูกเลื่อนไปตามชิป)
+      // คง weekBase ไว้ — ปรับชิปต่อ (เช่น จ–ศ แล้วเพิ่มเสาร์) ยังนับจากวันเดิม
+      const dates = computeDates(rule, s.horizon, base, s.keepEnd ? s.keepEnd.endDate : undefined);
+      set({ repeat: rule, weekMask: null, weekBase: base, dates: dates.length ? dates : [base] });
+      return;
+    }
+    // "เลือกเอง" ต้องมีวันสิ้นสุด — ชุดที่ตั้งไว้ไม่มีวันสิ้นสุดกลับไปใช้ระยะเวลาตามชิป
+    const until = s.keepEnd?.endDate ?? null;
+    const days = until ? Math.max(daysBetween(base, until) + 1, 1) : HORIZON_DAYS[s.horizon];
+    set({ repeat: 'custom', weekMask: mask, weekBase: base, keepEnd: until ? s.keepEnd : null, dates: datesByMask(mask, base, days) });
+  },
+
+  setEnd: (endDate) => {
+    const s = get();
+    if (s.repeat === 'custom') {
+      if (!endDate || !s.weekMask) return;
+      const base = s.weekBase ?? s.dates[0] ?? todayISO();
+      set({ keepEnd: { endDate }, dates: datesByMask(s.weekMask, base, Math.max(daysBetween(base, endDate) + 1, 1)) });
+      return;
+    }
+    const anchor = s.dates[0] ?? todayISO();
+    const dates = computeDates(s.repeat, s.horizon, anchor, endDate);
+    set({ keepEnd: { endDate }, dates: dates.length ? dates : [anchor] });
   },
 
   setHorizon: (horizon) => {
-    const anchor = get().dates[0] ?? todayISO();
-    const dates = computeDates(get().repeat, horizon, anchor);
+    const mask = get().repeat === 'custom' ? get().weekMask : null;
+    const anchor = (mask ? get().weekBase : null) ?? get().dates[0] ?? todayISO();
+    const dates = mask ? datesByMask(mask, anchor, HORIZON_DAYS[horizon]) : computeDates(get().repeat, horizon, anchor);
     set({ horizon, keepEnd: null, dates: dates.length ? dates : [anchor] }); // เลือกระยะเวลาเอง → เลิกใช้วันสิ้นสุดเดิม
   },
 
@@ -142,15 +243,23 @@ export const useDraft = create<DraftState>((set, get) => ({
     const has = get().dates.includes(iso);
     const dates = has ? get().dates.filter((d) => d !== iso) : [...get().dates, iso].sort();
     // แตะแก้ปฏิทินเอง → กลายเป็น "เลือกเอง" (ตาม prototype)
-    set({ dates: dates.length ? dates : [todayISO()], repeat: dates.length > 1 ? 'custom' : get().repeat === 'none' ? 'none' : 'custom' });
+    set({ dates: dates.length ? dates : [todayISO()], weekMask: null, weekBase: null, repeat: dates.length > 1 ? 'custom' : get().repeat === 'none' ? 'none' : 'custom' });
   },
 
-  resetDates: () => set({ dates: [todayISO()], repeat: initial.repeat, horizon: initial.horizon, keepEnd: null }),
+  resetDates: () => set({ dates: [todayISO()], repeat: initial.repeat, horizon: initial.horizon, keepEnd: null, weekMask: null, weekBase: null }),
 
   reset: (date) => {
+    const cur = get();
+    // จบการแก้ไข และมีร่างกิจกรรมใหม่พักไว้ → คืนร่างนั้น (ไม่เริ่มฟอร์มเปล่า) · ระบุวันมา = ตั้งใจเริ่มใหม่ ไม่คืน
+    if (cur.editId && cur.stash && !date) {
+      set((s) => ({ ...cur.stash!, stash: null, loadRev: s.loadRev + 1 }));
+      return;
+    }
     const d = date ?? todayISO();
-    set((s) => ({ ...initial, dates: [d], ...defaultTime(d), loadRev: s.loadRev + 1 }));
+    set((s) => ({ ...initial, stash: null, dates: [d], ...defaultTime(d), loadRev: s.loadRev + 1 }));
   },
+
+  restore: (data) => set((s) => ({ ...data, loadRev: s.loadRev + 1 })),
 
   refreshDefaultTime: () => {
     const s = get();
@@ -169,8 +278,12 @@ export const useDraft = create<DraftState>((set, get) => ({
     const keepEnd = computed && !horizon ? { endDate: a.endDate } : null;
     const repeating = a.repeat !== 'none';
     const note = useActivities.getState().notes[date ?? a.startDate]?.[a.id] ?? '';
+    // ร่างกิจกรรมใหม่ที่ทำค้างอยู่ → พักไว้ก่อน (แก้ไขรายการอื่นจบแล้วกลับมาเอง) · กำลังแก้ไขรายการอื่นอยู่ = คงของที่พักไว้เดิม
+    const cur = get();
+    const stash = isNewDraft(cur) ? { ...draftData(cur), stash: null } : cur.editId ? cur.stash : null;
     set((s) => ({
       ...initial,
+      stash,
       loadRev: s.loadRev + 1,
       editId: a.id,
       editDate: date ?? null,
@@ -200,6 +313,6 @@ export const useDraft = create<DraftState>((set, get) => ({
   },
 
   loadSlot: (date, start, end) => {
-    set((s) => ({ ...initial, dates: [date], start, end, pinned: true, loadRev: s.loadRev + 1 }));
+    set((s) => ({ ...initial, stash: null, dates: [date], start, end, pinned: true, loadRev: s.loadRev + 1 }));
   },
 }));

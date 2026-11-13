@@ -9,6 +9,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { SvgIcon } from '@/components/svg-icon';
 import { Txt, pressFade, useTokens } from '@/components/ui';
+import { ATTN } from '@/constants/theme';
 
 /** ระยะที่เนื้อหาควรเว้นล่างให้พ้นแถบ (ไม่รวม safe area) — ใช้กับ paddingBottom ของ ScrollView และตำแหน่ง toast */
 export const BOTTOM_BAR_SPACE = 92;
@@ -82,7 +83,7 @@ export function CalendarBar({ onPrev, onNext, onToday, onCalendar, onAdd, prevLa
               gap: 7,
               transform: [{ scale: pressed ? 0.95 : 1 }],
             })}>
-            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: atToday ? t.accent : '#FF6B3D' }} />
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: atToday ? t.accent : ATTN }} />
             <Txt size={14} weight="bold" color={t.bg}>
               วันนี้
             </Txt>
@@ -169,7 +170,7 @@ export function SubBar({ onBack, backLabel = 'กลับ', action }: { onBack:
                 height: 52,
                 paddingHorizontal: 22,
                 borderRadius: 26,
-                backgroundColor: action.tone === 'danger' ? t.warn : t.primary,
+                backgroundColor: action.tone === 'danger' ? t.warnFill : t.primary,
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',

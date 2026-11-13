@@ -2,9 +2,8 @@
 import React from 'react';
 import { Modal, Pressable, View } from 'react-native';
 
-import { Icon } from '@/components/icon';
-import { Txt, pressFade, useTokens } from '@/components/ui';
-import { MONTH_TH, SCHED_MAX_Y, SCHED_MIN_Y, beYear } from '@/lib/dates';
+import { NavCircle, Txt, pressFade, useTokens } from '@/components/ui';
+import { MONTH_TH, MONTH_TH_FULL, SCHED_MAX_Y, SCHED_MIN_Y, beYear } from '@/lib/dates';
 
 interface Props {
   visible: boolean;
@@ -24,20 +23,19 @@ export function MonthYearPicker({ visible, year, month, onClose, onPick, minYear
     <Modal transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={{ flex: 1, backgroundColor: t.overlay, alignItems: 'center', justifyContent: 'center' }} onPress={onClose}>
         <Pressable style={{ backgroundColor: t.sheet, borderRadius: 22, padding: 18, width: 300, gap: 12 }} onPress={() => {}}>
-          <Txt size={16} weight="bold" style={{ textAlign: 'center' }}>เลือกเดือน & ปี</Txt>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
-            <Pressable disabled={year <= minYear} onPress={() => onPick(year - 1, month)} style={pressFade({ opacity: year <= minYear ? 0.3 : 1 })}>
-              <Icon name="chevL" size={22} color={t.sub} />
-            </Pressable>
-            <Txt size={18} num weight="bold">{beYear(year)}</Txt>
-            <Pressable disabled={year >= maxYear} onPress={() => onPick(year + 1, month)} style={pressFade({ opacity: year >= maxYear ? 0.3 : 1 })}>
-              <Icon name="chevR" size={22} color={t.sub} />
-            </Pressable>
+          <Txt size={16} weight="bold" style={{ textAlign: 'center' }}>เลือกเดือนและปี</Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+            <NavCircle dir="prev" label="ปีก่อนหน้า" disabled={year <= minYear} onPress={() => onPick(year - 1, month)} />
+            <Txt size={18} num weight="bold" style={{ minWidth: 64, textAlign: 'center' }}>{beYear(year)}</Txt>
+            <NavCircle dir="next" label="ปีถัดไป" disabled={year >= maxYear} onPress={() => onPick(year + 1, month)} />
           </View>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
             {MONTH_TH.map((m, i) => (
               <Pressable
                 key={m}
+                accessibilityRole="button"
+                accessibilityState={{ selected: i === month }}
+                accessibilityLabel={`${MONTH_TH_FULL[i]} ${beYear(year)}`}
                 onPress={() => {
                   onPick(year, i);
                   onClose();

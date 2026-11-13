@@ -1,5 +1,5 @@
 // แท็บ 2 — เพิ่ม/แก้ไขกิจกรรม (ระบบ B1): ฟอร์ม 4 ขั้น เปิดทีละขั้น · ขั้นที่เสร็จพับเป็นแถวสรุป (แตะ "แก้" เพื่อเปิด)
-// ① หมวด+รายละเอียด → ② วันที่+ทำซ้ำ → ③ เวลา (เตือนชน + เสนอช่วงว่างที่ใกล้ที่สุด) → ④ แจ้งเตือน
+// ① หมวด+รายละเอียด → ② วันที่+ทำซ้ำ → ③ เวลา (เตือนเวลาซ้อน + เสนอช่วงว่างที่ใกล้ที่สุด) → ④ แจ้งเตือน
 // แก้ไข: แถบ "กำลังแก้ไข" + ป้าย "เปลี่ยนแล้ว" ต่อขั้น + การ์ดขอบเขตชุดทำซ้ำ (มีผล n ครั้ง)
 // แถบล่าง: ‹ กลับ (เพิ่ม = เก็บร่างไว้ · แก้ไข = ทิ้งการแก้ไข) + บันทึก / บันทึกการแก้ไข
 // โน้ตของครั้งนั้น (ขั้น ① · ไม่บังคับ): บันทึกพร้อมกิจกรรม — ชุดเดียวกับโน้ตในแผ่นรายละเอียด (ตั้งค่าที่ ตั้งค่า › จัดการโน้ต)
@@ -7,27 +7,28 @@
 import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { Keyboard, Pressable, ScrollView, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type ScrollViewInstance, type TextInputInstance } from 'react-native';
+import { Keyboard, Linking, Pressable, ScrollView, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type ScrollViewInstance, type TextInputInstance } from 'react-native';
 
 import { Field } from '@/components/field';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
-import { FadeInView, Pop, useBurst } from '@/components/motion';
 import { MonthYearPicker } from '@/components/month-year-picker';
+import { FadeInView, Pop, useBurst } from '@/components/motion';
 import { NoteBtn, NoteKeyboardBar, useKeyboardHeight } from '@/components/note-bar';
 import { Screen } from '@/components/screen';
 import { SnippetChips } from '@/components/snippet-chips';
 import { SvgIcon } from '@/components/svg-icon';
 import { TimeDragBar, TimeDragRail } from '@/components/time-drag';
-import { Btn, Card, Chip, ChipRow, PriBadge, Segmented, Toggle, Txt, pressFade, useTokens } from '@/components/ui';
+import { Btn, Card, Chip, ChipRow, NavCircle, PriBadge, Segmented, Toggle, Txt, pressFade, useTokens } from '@/components/ui';
 import { ATTN, CATS, CAT_BY_ID, CAT_OPTIONS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, durText, fmtMin, fromISO, hoursText, thaiDate, todayISO, wdMon } from '@/lib/dates';
 import { FREE_WINDOW_END, conflictsOn, freeSlots, maskFromDates, seriesDates } from '@/lib/engine';
 import { appendNote, stripTemplate } from '@/lib/notes';
+import { notifPermissionState, requestNotifPermission } from '@/lib/notifications';
 import { HORIZON_DAYS, type Activity, type Contact, type Horizon, type InlineContact, type RepeatRule } from '@/lib/types';
-import { getDay, useActivities, useDayReader } from '@/stores/activities';
+import { getDay, resyncNotifications, useActivities, useDayReader } from '@/stores/activities';
 import { contactChannels, isEmail, useContacts } from '@/stores/contacts';
-import { cleanInline, useDraft, type ContactMode } from '@/stores/draft';
+import { cleanInline, discardDraft, useDraft, type ContactMode } from '@/stores/draft';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
@@ -35,6 +36,8 @@ type Step = 1 | 2 | 3 | 4;
 type Draft = ReturnType<typeof useDraft.getState>;
 /** รอบการพิมพ์โน้ต (ตั้งแต่แตะช่องจนคีย์บอร์ดหุบ) — before = ข้อความตอนแตะช่อง ไว้ให้ "ยกเลิก" ย้อนกลับ */
 type NoteSession = { before: string };
+/** ช่องที่ทำให้บันทึกไม่ได้ — ฟอร์มพาไปที่ขั้นนั้น ขึ้นขอบเตือน + ข้อความใต้ช่อง (หายเองเมื่อแก้แล้ว) */
+type ErrField = 'cat' | 'title' | 'inline' | 'email' | 'time';
 /** ความสูงโดยประมาณของแถบเหนือคีย์บอร์ด — ใช้เลื่อนช่องโน้ตให้พ้นแถบ */
 const NOTE_BAR_H = 56;
 
@@ -50,11 +53,14 @@ const REPEAT_LABEL: Record<RepeatRule, string> = { none: 'ครั้งเด�
 // ช่วงเวลาสำเร็จรูป — แตะแล้วตั้งเวลาเริ่ม (สิ้นสุด = เริ่ม + ระยะเวลาที่เลือกอยู่)
 // 02:00 = 1560 นาที (ตี 2 ของวันถัดไป — หน้าต่างวันคือ 06:00–30:00)
 const PERIOD_PRESETS = [
-  { label: '06:00', start: 360 },
+  { label: 'เช้า 06:00', start: 360 },
   { label: '13:00', start: 780 },
   { label: '17:00', start: 1020 },
-  { label: '20:00', start: 1200 },
+  { label: 'ค่ำ 20:00', start: 1200 },
 ];
+/** ระยะเวลาสำเร็จรูป (นาที) — มีช่วงสั้นสำหรับกิจวัตรไม่ถึงชั่วโมง */
+const DURATIONS = [15, 30, 45, 60, 90, 120, 180, 240];
+const durChip = (m: number) => (m < 60 ? `${m} น.` : `${m / 60} ชม.`);
 
 // จุดแบ่ง "ช่วงดึก" — 01:00 ของวันถัดไป (นาทีในหน้าต่าง 06:00–30:00)
 const NIGHT_START = 1500;
@@ -88,6 +94,8 @@ const HORIZONS: { key: Horizon; label: string }[] = [
   { key: '6m', label: '6 เดือน' },
   { key: '1y', label: '1 ปี' },
 ];
+
+const WD_FULL = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์'];
 
 /** "พฤ 5 พ.ย." — วันสั้นในแถวสรุป */
 function shortDate(iso: string): string {
@@ -211,17 +219,6 @@ export default function AddScreen() {
       <NoteBtn big label="เสร็จ" icon="check" tone="primary" a11y="เสร็จ เก็บโน้ตไว้ในฟอร์มและหุบคีย์บอร์ด" onPress={() => Keyboard.dismiss()} />
     </NoteKeyboardBar>
   ) : null;
-  const onSave = useSave(editing, askScope, () => setOpen(1));
-
-  const dirty = !!d.cat || !!d.title || !!d.editId;
-  const goBack = () => {
-    if (d.editId) d.reset(); // แก้ไข: กลับ = ไม่บันทึกการแก้ไข
-    else if (dirty) showToast('เก็บร่างไว้แล้ว — กลับมาทำต่อได้ที่แท็บเพิ่ม');
-    if (router.canGoBack()) router.back();
-    else router.navigate('/');
-    useUI.getState().restoreSheet(); // เปิดจากแผ่นรายละเอียด → เปิดแผ่นคืน
-  };
-
   const snap = cur.snap;
   const changed = (n: Step) =>
     !!d.editId &&
@@ -233,22 +230,44 @@ export default function AddScreen() {
           ? d.start !== snap.start || d.end !== snap.end
           : snapOf(d).s4 !== snap.s4);
 
+  // บันทึกไม่ผ่าน → เปิดขั้นของช่องนั้น เลื่อนไปหา โฟกัสช่องชื่อ และขึ้นข้อความใต้ช่อง (เดิมมีแค่ toast 2 วินาที)
+  const titleRef = useRef<TextInputInstance>(null);
+  const [errAt, setErrAt] = useState<{ field: ErrField; rev: number } | null>(null);
+  const err = errAt && errAt.rev === d.loadRev ? errAt.field : null;
+  const fail = (field: ErrField, msg: string) => {
+    setErrAt({ field, rev: d.loadRev });
+    showToast(msg);
+    if (field === 'time') return setOpen(3); // ขั้น 3 เลื่อนเข้าจอเองตอนเปิด
+    setOpen(1);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+    if (field === 'title') setTimeout(() => titleRef.current?.focus(), 260);
+  };
+  const onSave = useSave(editing, askScope, fail);
+
+  const dirty = !!d.cat || !!d.title || !!d.editId;
+  const goBack = () => {
+    const leave = () => {
+      if (router.canGoBack()) router.back();
+      else router.navigate('/');
+      useUI.getState().restoreSheet(); // เปิดจากแผ่นรายละเอียด → เปิดแผ่นคืน
+    };
+    if (d.editId) {
+      // แก้ไข: กลับ = ไม่บันทึกการแก้ไข — ถ้าแก้ไปแล้วให้ "แก้ต่อ" ได้ (เดิมทิ้งเงียบ ๆ)
+      const edited = ([1, 2, 3, 4] as Step[]).some(changed);
+      if (edited) {
+        discardDraft('ยังไม่ได้บันทึกการแก้ไข — ทิ้งแล้ว', () => d.reset(), 'แก้ต่อ', () => {
+          useUI.getState().closeSheet();
+          router.navigate('/add');
+        });
+      } else d.reset();
+    } else if (dirty) showToast('เก็บร่างไว้ให้แล้ว — กลับมาทำต่อได้ที่แท็บเพิ่ม');
+    leave();
+  };
+
   const headerRight = d.editId ? (
-    <HeaderPill
-      label="ยกเลิกแก้ไข"
-      onPress={() => {
-        d.reset();
-        showToast('ยกเลิกการแก้ไขแล้ว');
-      }}
-    />
+    <HeaderPill label="ยกเลิกแก้ไข" onPress={() => discardDraft('ยกเลิกการแก้ไขแล้ว', () => d.reset())} />
   ) : dirty ? (
-    <HeaderPill
-      label="ล้างค่า"
-      onPress={() => {
-        d.reset();
-        showToast('ล้างค่าฟอร์มแล้ว');
-      }}
-    />
+    <HeaderPill label="ล้างค่า" onPress={() => discardDraft('ล้างค่าฟอร์มแล้ว', () => d.reset())} />
   ) : undefined;
 
   const cat = d.cat ? CAT_BY_ID[d.cat] : null;
@@ -266,11 +285,30 @@ export default function AddScreen() {
   const noteGone = noteOn && !!d.editId && !!d.noteOrig && !noteNow;
   const noteLine = noteGone ? 'จะลบโน้ตของวันนี้เมื่อบันทึก' : noteNow ? `โน้ต: ${noteNow.replace(/\s*\n\s*/g, ' · ')}` : '';
   const last = d.dates[d.dates.length - 1];
+  // ชุดไม่มีวันสิ้นสุด: ไม่นับจำนวนวัน (วันที่ในร่างเป็นแค่ตัวอย่างล่วงหน้า 1 ปี)
+  const endless = d.repeat !== 'none' && d.repeat !== 'custom' && !!d.keepEnd && d.keepEnd.endDate === null;
+  const repLabel = d.repeat === 'custom' && d.weekMask ? `ทุก ${WD_TH.filter((_, i) => (d.weekMask! >> i) & 1).join(' ')}` : REPEAT_LABEL[d.repeat];
   const s2Text =
     d.repeat === 'none'
       ? `ครั้งเดียว · ${thaiDate(d.dates[0])}`
-      : `${REPEAT_LABEL[d.repeat]} · ${d.dates.length} วัน · ${dateRange(d.dates[0], last)}`;
+      : endless
+        ? `${repLabel} · เริ่ม ${shortDate(d.dates[0])} · ไม่มีวันสิ้นสุด`
+        : `${repLabel} · ${d.dates.length} วัน · ${dateRange(d.dates[0], last)}`;
   const dur = d.end - d.start;
+  // ประโยคเดียวอ่านทวนสิ่งที่จะบันทึก (วัน/การทำซ้ำ · เวลา · จำนวนครั้ง) — อยู่ท้ายฟอร์มเหนือปุ่มบันทึก
+  const saveLine =
+    (d.repeat === 'none' ? thaiDate(d.dates[0]) : `${repLabel} ${endless ? 'ไม่มีวันสิ้นสุด' : `${d.dates.length} ครั้ง ถึง ${shortDate(last)}`}`) +
+    ` · ${fmtMin(d.start)}–${fmtMin(d.end)}`;
+  // แก้ไขชุดทำซ้ำ: ปุ่มบันทึกบอกขอบเขตที่เลือก (เดิมเขียน "บันทึกการแก้ไข" เหมือนกันทุกขอบเขต)
+  const saveLabel = !d.editId
+    ? 'บันทึก'
+    : !askScope
+      ? 'บันทึกการแก้ไข'
+      : d.scope === 'one'
+        ? `บันทึก · เฉพาะ ${d.editDate ? shortDate(d.editDate) : 'ครั้งนี้'}`
+        : d.scope === 'future'
+          ? 'บันทึก · ตั้งแต่ครั้งนี้'
+          : 'บันทึก · ทั้งชุด';
 
   return (
     <Screen
@@ -281,7 +319,7 @@ export default function AddScreen() {
       keyboardBar={noteBar}
       onScrollY={(y) => (scrollY.current = y)}
       onBack={goBack}
-      action={{ label: d.editId ? 'บันทึกการแก้ไข' : 'บันทึก', icon: 'check', onPress: onSave }}>
+      action={{ label: saveLabel, icon: 'check', onPress: onSave }}>
       {d.editId ? <EditBanner title={editing?.title ?? d.title} date={d.editDate} /> : null}
 
       <View onLayout={(e: LayoutChangeEvent) => (stepsTop.current = e.nativeEvent.layout.y)} style={{ gap: 8 }}>
@@ -289,8 +327,15 @@ export default function AddScreen() {
         <View onLayout={(e: LayoutChangeEvent) => (stepY.current[1] = e.nativeEvent.layout.y)}>
           {open === 1 ? (
             <StepOpen n={1} title="หมวดและรายละเอียด">
-              <DetailsBody noteInputRef={noteInputRef} onNoteSession={setNoteSession} />
-              <NextBtn label="ถัดไป · วันที่และการทำซ้ำ" disabled={!step1Done} hint={!d.cat ? 'เลือกหมวดก่อน' : !step1Done ? 'ใส่ชื่อกิจกรรม' : undefined} onPress={() => setOpen(2)} />
+              <DetailsBody noteInputRef={noteInputRef} onNoteSession={setNoteSession} titleRef={titleRef} err={err} />
+              <NextBtn
+                label="ถัดไป · วันที่และการทำซ้ำ"
+                disabled={!step1Done}
+                hint={!d.cat ? 'เลือกหมวดก่อน' : !step1Done ? 'ใส่ชื่อกิจกรรม' : undefined}
+                // ค่าเริ่มต้นของขั้นที่เหลือใช้ได้เลย — บอกให้รู้ว่าไม่ต้องเดินครบ 4 ขั้น
+                note={!d.editId && dur > 0 ? `หรือกด “บันทึก” ได้เลย · ${saveLine}` : undefined}
+                onPress={() => setOpen(2)}
+              />
             </StepOpen>
           ) : (
             <StepSummary n={1} label="หมวดและรายละเอียด" done={step1Done} changed={changed(1)} pop={cur.just === 1} onPress={() => setOpen(1)}>
@@ -352,7 +397,7 @@ export default function AddScreen() {
               n={3}
               label="เวลา"
               done={dur > 0}
-              warn={analysis.conflictDays > 0}
+              warn={analysis.conflictDays > 0 || dur <= 0}
               changed={changed(3)}
               pop={cur.just === 3}
               onPress={() => setOpen(3)}
@@ -361,8 +406,8 @@ export default function AddScreen() {
                 <Txt size={14.5} num weight="med">
                   {fmtMin(d.start)}–{fmtMin(d.end)}
                 </Txt>
-                <Txt size={14.5} color={t.sub}>
-                  {dur > 0 ? ` · ${durText(dur)}` : ' · เวลาไม่ถูกต้อง'}
+                <Txt size={14.5} weight={dur > 0 ? 'reg' : 'bold'} color={dur > 0 ? t.sub : t.warn}>
+                  {dur > 0 ? ` · ${durText(dur)}` : ' · เวลาสิ้นสุดต้องหลังเวลาเริ่ม'}
                 </Txt>
                 {changed(3) ? (
                   <>
@@ -400,6 +445,16 @@ export default function AddScreen() {
         </View>
 
         {askScope && editing && d.editDate ? <ScopeCard editing={editing} editDate={d.editDate} /> : null}
+
+        {/* อ่านทวนก่อนบันทึก — ครบแล้วกดปุ่มด้านล่าง */}
+        {step1Done && dur > 0 ? (
+          <View accessible accessibilityLabel={`พร้อมบันทึก ${saveLine}`} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingTop: 8, paddingHorizontal: 8 }}>
+            <SvgIcon name="check" size={14} color={t.greenInk} strokeWidth={2.6} />
+            <Txt size={12.5} color={t.sub} numberOfLines={2} style={{ flexShrink: 1, textAlign: 'center', lineHeight: 18 }}>
+              พร้อมบันทึก · <Txt size={12.5} weight="bold">{saveLine}</Txt>
+            </Txt>
+          </View>
+        ) : null}
       </View>
     </Screen>
   );
@@ -540,7 +595,7 @@ function StepSummary({
   );
 }
 
-function NextBtn({ label, onPress, disabled, hint }: { label: string; onPress: () => void; disabled?: boolean; hint?: string }) {
+function NextBtn({ label, onPress, disabled, hint, note }: { label: string; onPress: () => void; disabled?: boolean; hint?: string; note?: string }) {
   const t = useTokens();
   return (
     <View style={{ alignItems: 'flex-end', gap: 4, paddingTop: 2 }}>
@@ -549,15 +604,20 @@ function NextBtn({ label, onPress, disabled, hint }: { label: string; onPress: (
         accessibilityState={{ disabled: !!disabled }}
         disabled={disabled}
         onPress={onPress}
-        style={({ pressed }) => ({ height: 44, paddingLeft: 18, paddingRight: 12, borderRadius: 22, backgroundColor: disabled ? t.track : pressed ? '#000000' : t.ink, flexDirection: 'row', alignItems: 'center', gap: 4, opacity: disabled ? 0.7 : 1 })}>
+        style={({ pressed }) => ({ height: 44, paddingLeft: 18, paddingRight: 12, borderRadius: 22, backgroundColor: disabled ? t.track : t.ink, flexDirection: 'row', alignItems: 'center', gap: 4, opacity: disabled ? 0.7 : pressed ? 0.8 : 1 })}>
         <Txt size={14} weight="bold" color={disabled ? t.faint : t.bg}>
           {label}
         </Txt>
         <SvgIcon name="chevR" size={16} color={disabled ? t.faint : t.bg} strokeWidth={2.4} />
       </Pressable>
       {disabled && hint ? (
-        <Txt size={12} color={t.faint}>
+        <Txt size={12} color={t.sub}>
           {hint}
+        </Txt>
+      ) : null}
+      {!disabled && note ? (
+        <Txt size={12} color={t.sub} numberOfLines={2} style={{ textAlign: 'right', lineHeight: 17 }}>
+          {note}
         </Txt>
       ) : null}
     </View>
@@ -568,8 +628,8 @@ function EditBanner({ title, date }: { title: string; date: string | null }) {
   const t = useTokens();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingHorizontal: 2 }}>
-      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(90,126,168,0.14)', alignItems: 'center', justifyContent: 'center' }}>
-        <SvgIcon name="edit" size={16} color="#3F5E82" strokeWidth={2} />
+      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: t.accent + '24', alignItems: 'center', justifyContent: 'center' }}>
+        <SvgIcon name="edit" size={16} color={t.accentInk} strokeWidth={2} />
       </View>
       <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
         <Txt size={12.5} color={t.sub}>
@@ -627,8 +687,8 @@ function useScheduleAnalysis(): Analysis {
     const text = !ranked.length
       ? ''
       : ranked.length === 1
-        ? `ชน “${short(ranked[0].title)}” ${fmtMin(ranked[0].start)}–${fmtMin(ranked[0].end)}${days}`
-        : `ชนกับ ${ranked.length} กิจกรรม เช่น “${short(ranked[0].title)}”${days}`;
+        ? `เวลาซ้อนกับ “${short(ranked[0].title)}” ${fmtMin(ranked[0].start)}–${fmtMin(ranked[0].end)}${days}`
+        : `เวลาซ้อนกับ ${ranked.length} กิจกรรม เช่น “${short(ranked[0].title)}”${days}`;
 
     let suggest: number | null = null;
     const dur = d.end - d.start;
@@ -690,27 +750,19 @@ function SuggestStrip({ analysis, inset }: { analysis: Analysis; inset?: boolean
 
 // ---------- บันทึก ----------
 
-function useSave(editing: Activity | undefined, askScope: boolean, openStep1: () => void) {
+function useSave(editing: Activity | undefined, askScope: boolean, fail: (field: ErrField, msg: string) => void) {
   const d = useDraft();
   const router = useRouter();
   const showToast = useUI((s) => s.showToast);
   const { add, editActivity, setNote, setNotes } = useActivities();
   return async () => {
-    if (!d.cat || !d.title.trim()) {
-      openStep1();
-      return showToast(!d.cat ? 'เลือกหมวดก่อน' : 'ใส่ชื่อกิจกรรม');
-    }
-    if (d.end <= d.start) return showToast('เวลาสิ้นสุดต้องมากกว่าเริ่ม');
+    if (!d.cat) return fail('cat', 'เลือกหมวดก่อนบันทึก');
+    if (!d.title.trim()) return fail('title', 'ใส่ชื่อกิจกรรมก่อนบันทึก');
+    if (d.end <= d.start) return fail('time', 'เวลาสิ้นสุดต้องหลังเวลาเริ่ม');
     // นัดเคสโหมดช่องทางติดต่อ: ต้องกรอกอย่างน้อย 1 ช่อง — ไม่งั้นบันทึกแล้วเปิดแก้ไขจะกลายเป็นโหมด "คนที่นัด"
     if (d.cat === 'case' && d.contactMode === 'inline') {
-      if (!cleanInline(d.inline)) {
-        openStep1();
-        return showToast('กรอกช่องทางติดต่ออย่างน้อย 1 ช่อง หรือเปลี่ยนเป็น "คนที่นัด"');
-      }
-      if (d.inline.email?.trim() && !isEmail(d.inline.email)) {
-        openStep1();
-        return showToast('อีเมลไม่ถูกต้อง — ตัวอย่าง name@example.com');
-      }
+      if (!cleanInline(d.inline)) return fail('inline', 'กรอกช่องทางติดต่ออย่างน้อย 1 ช่อง หรือเปลี่ยนเป็น “คนที่นัด”');
+      if (d.inline.email?.trim() && !isEmail(d.inline.email)) return fail('email', 'อีเมลไม่ถูกต้อง — ตัวอย่าง name@example.com');
     }
     const isOnce = d.repeat === 'none';
     const isCustom = d.repeat === 'custom';
@@ -766,13 +818,13 @@ function useSave(editing: Activity | undefined, askScope: boolean, openStep1: ()
           } else if (note !== d.noteOrig) setNote({ id: targetId, date: toDate }, note || null);
         }
         const noteMsg = !noteOn || note === d.noteOrig ? '' : !note ? ' · ลบโน้ตแล้ว' : d.noteOrig ? ' · แก้โน้ตแล้ว' : ' · เพิ่มโน้ตแล้ว';
-        showToast((scope === 'one' ? 'บันทึกเฉพาะครั้งนี้แล้ว ✓' : scope === 'future' ? 'บันทึกตั้งแต่ครั้งนี้เป็นต้นไปแล้ว ✓' : 'บันทึกการแก้ไขแล้ว ✓') + noteMsg);
+        showToast((scope === 'one' ? 'บันทึกเฉพาะครั้งนี้แล้ว' : scope === 'future' ? 'บันทึกตั้งแต่ครั้งนี้เป็นต้นไปแล้ว' : 'บันทึกการแก้ไขแล้ว') + noteMsg);
       } else {
         const full = await add(fields);
         // เพิ่มหลายวัน: โน้ตลงวันแรก หรือทุกวันที่เลือก (ตามที่เลือกใต้ช่องโน้ต)
         const noteDates = note ? (d.noteAll ? d.dates : [startDate]) : [];
         setNotes(noteDates.map((date) => ({ id: full.id, date })), note);
-        showToast(`เพิ่มแล้ว ${d.dates.length} วัน ✓${noteDates.length ? ` · โน้ต ${noteDates.length === 1 ? '1 วัน' : `${noteDates.length} วัน`}` : ''}`);
+        showToast(`เพิ่ม “${fields.title.length > 18 ? `${fields.title.slice(0, 17)}…` : fields.title}” แล้ว${d.dates.length > 1 ? ` ${d.dates.length} วัน` : ''}${noteDates.length ? ` · โน้ต ${noteDates.length === 1 ? '1 วัน' : `${noteDates.length} วัน`}` : ''}`);
       }
     } catch (e) {
       // เขียนลงเครื่องไม่สำเร็จ — คงฟอร์มไว้ให้กดบันทึกใหม่ได้ ไม่ล้างทิ้ง
@@ -789,7 +841,18 @@ function useSave(editing: Activity | undefined, askScope: boolean, openStep1: ()
 
 // ---------- ส่วนบน: หมวด + รายละเอียด ----------
 
-function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<TextInputInstance | null>; onNoteSession: (s: NoteSession | null) => void }) {
+function DetailsBody({
+  noteInputRef,
+  onNoteSession,
+  titleRef,
+  err,
+}: {
+  noteInputRef: RefObject<TextInputInstance | null>;
+  onNoteSession: (s: NoteSession | null) => void;
+  titleRef: RefObject<TextInputInstance | null>;
+  /** ช่องที่ทำให้บันทึกไม่ผ่าน — ข้อความเตือนขึ้นเฉพาะตอนที่ช่องนั้นยังไม่ถูกแก้ */
+  err: ErrField | null;
+}) {
   const t = useTokens();
   const d = useDraft();
   const router = useRouter();
@@ -804,11 +867,23 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
 
   // คนที่เลือกไว้ (ตามลำดับที่กด) — ใช้กางรายละเอียดช่องทางติดต่อใต้แถวชิป
   const pickedContacts = d.contactIds.map((id) => contacts.find((c) => c.id === id)).filter((c): c is Contact => !!c);
+  const titleMissing = err === 'title' && !d.title.trim();
+  const inlineErr =
+    err === 'inline' && !cleanInline(d.inline)
+      ? 'กรอกอย่างน้อย 1 ช่อง หรือเปลี่ยนเป็น “คนที่นัด”'
+      : err === 'email' && !!d.inline.email?.trim() && !isEmail(d.inline.email)
+        ? 'รูปแบบอีเมลไม่ถูกต้อง — เช่น name@example.com'
+        : '';
 
   return (
     <>
       {/* หมวด + รายละเอียด รวมในการ์ดพื้นหลังเดียว — ส่วนรายละเอียดโผล่ใต้เส้นคั่นเมื่อเลือกหมวดแล้ว */}
       <Card style={{ gap: 12 }}>
+        {err === 'cat' && !d.cat ? (
+          <Txt size={12.5} weight="bold" color={t.warn}>
+            เลือกหมวดของกิจกรรมก่อน
+          </Txt>
+        ) : null}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           {CATS.map((c) => (
             <CatCard key={c.id} c={c} active={d.cat === c.id} onPress={() => d.set({ cat: c.id })} />
@@ -820,13 +895,20 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
           <FadeInView rise={8} duration={220} style={{ gap: 12 }}>
             <View style={{ height: 1, backgroundColor: t.line }} />
             <TextInput
+              ref={titleRef}
               value={d.title}
               onChangeText={(title) => d.set({ title })}
               placeholder="พิมพ์ชื่อกิจกรรม…"
               placeholderTextColor={t.faint}
               accessibilityLabel="ชื่อกิจกรรม"
-              style={{ backgroundColor: t.bg, borderRadius: 12, borderWidth: 1, borderColor: t.line, minHeight: 48, paddingHorizontal: 12, paddingVertical: 10, color: t.ink, fontFamily: FONT.uiMed, fontSize: 15 }}
+              returnKeyType="done"
+              style={{ backgroundColor: t.bg, borderRadius: 12, borderWidth: titleMissing ? 1.5 : 1, borderColor: titleMissing ? t.warn : t.line, minHeight: 48, paddingHorizontal: 12, paddingVertical: 10, color: t.ink, fontFamily: FONT.uiMed, fontSize: 15 }}
             />
+            {titleMissing ? (
+              <Txt size={12} weight="med" color={t.warn} style={{ marginTop: -6 }}>
+                ใส่ชื่อกิจกรรม หรือแตะชื่อสำเร็จรูปด้านล่าง
+              </Txt>
+            ) : null}
             <ChipRow>
               {quickPicks[d.cat].map((q) => (
                 <Chip key={q} small label={q} active={d.title === q} onPress={() => d.set({ title: q })} />
@@ -863,7 +945,7 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
         ) : null}
 
         {d.cat === 'case' ? (
-          <>
+          <FadeInView rise={8} duration={220} style={{ gap: 12 }}>
             <View style={{ height: 1, backgroundColor: t.line }} />
             {/* ผู้ติดต่อของนัด 2 โหมด (ทีละโหมด): คนที่นัด = เลือกจากสมุดรายชื่อ + ระดับความสำคัญ (ตามเดิม)
                 · ช่องทางติดต่อ = กรอกข้อมูลของนัดนี้เอง ไม่ลงสมุดรายชื่อ ไม่ต้องเลือกระดับ */}
@@ -886,7 +968,14 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
             </Txt>
 
             {d.contactMode === 'inline' ? (
-              <InlineContactForm value={d.inline} onChange={(inline) => d.set({ inline })} />
+              <>
+                <InlineContactForm value={d.inline} onChange={(inline) => d.set({ inline })} />
+                {inlineErr ? (
+                  <Txt size={12} weight="med" color={t.warn}>
+                    {inlineErr}
+                  </Txt>
+                ) : null}
+              </>
             ) : (
               <>
                 <ChipRow>
@@ -936,7 +1025,7 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
                           await upsertContact({ name, priority: 'P6', phone: null, line: null, email: null, zoom: null, googlemeet: null, note: null, org: null });
                           setNewName('');
                           setAddingContact(false);
-                          showToast(`เพิ่ม ${name} ในสมุดรายชื่อแล้ว ✓`);
+                          showToast(`เพิ่ม ${name} ในสมุดรายชื่อแล้ว`);
                         }}
                       />
                     </View>
@@ -985,7 +1074,7 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
               <Chip small icon="video" label="ออนไลน์" active={d.channel === 'online'} onPress={() => d.set({ channel: 'online' })} />
               <Chip small icon="mappin" label="พบตัว" active={d.channel === 'inperson'} onPress={() => d.set({ channel: 'inperson' })} />
             </ChipRow>
-          </>
+          </FadeInView>
         ) : null}
 
         {d.cat ? <FormNote cat={d.cat} inputRef={noteInputRef} onSession={onNoteSession} /> : null}
@@ -1226,6 +1315,18 @@ function DatesBody() {
     return { y: dt.getFullYear(), m: dt.getMonth() };
   });
   const [pickerOpen, setPickerOpen] = useState(false);
+  // เลือกวันสิ้นสุดเอง ("ถึงวันที่…") — ปฏิทินเล็กกางใต้ชิประยะเวลา
+  const [endPick, setEndPick] = useState(false);
+  const [endYm, setEndYm] = useState(ym);
+  const shiftYm = (cur: { y: number; m: number }, dir: 1 | -1) => {
+    const dt = new Date(cur.y, cur.m + dir, 1);
+    return { y: dt.getFullYear(), m: dt.getMonth() };
+  };
+  // วันในสัปดาห์ที่ชุดนี้ลง (bit 0 = จันทร์) — กฎสำเร็จรูปรู้จากกฎ · "เลือกเอง" ดูจากวันที่เลือกจริง
+  const weekMask = d.repeat === 'daily' ? 127 : d.repeat === 'weekday' ? 31 : d.repeat === 'weekend' ? 96 : (d.weekMask ?? maskFromDates(d.dates));
+  // ปรับระยะเวลาได้เมื่อวันถูกสร้างจากกฎ (สำเร็จรูป หรือชิปวันในสัปดาห์) — แตะเลือกวันบนปฏิทินเองไม่มีระยะเวลา
+  const spanned = d.repeat !== 'none' && (d.repeat !== 'custom' || d.weekMask != null);
+  const customEnd = d.keepEnd?.endDate ?? null;
   // ปฏิทิน: เปิดเองอัตโนมัติเมื่อต้องเลือกวันเอง (ครั้งเดียว / เลือกเอง) · ทำซ้ำตามสูตร = พับไว้ แตะ "ดูบนปฏิทิน"
   const [calPref, setCalPref] = useState<boolean | null>(null);
   const calOpen = calPref ?? (d.repeat === 'none' || d.repeat === 'custom');
@@ -1243,19 +1344,85 @@ function DatesBody() {
     <Card style={{ gap: 10, padding: 12 }}>
       <Segmented<RepeatRule> options={REPEATS} value={d.repeat} onChange={(r) => d.setRepeat(r)} />
 
-      {d.repeat !== 'none' && d.repeat !== 'custom' ? (
-        <>
+      {d.repeat !== 'none' ? (
+        // เลือกวันในสัปดาห์ได้เอง (เช่น จ พ ศ) — เดิมต้องแตะบนปฏิทินทีละวัน เดือนต่อเดือน
+        <FadeInView rise={6} style={{ gap: 6 }}>
           <Txt size={12.5} color={t.sub}>
-            ลงต่อเนื่องนาน
+            ทำซ้ำวันไหนบ้าง
           </Txt>
-          <ChipRow style={{ gap: 6, marginTop: -4 }}>
-            {/* แก้ไขชุดเดิมที่ช่วงไม่ตรงชิปไหน — คงวันสิ้นสุดเดิมไว้จนกว่าจะเลือกระยะเวลาใหม่เอง */}
-            {d.keepEnd ? <Chip small label={d.keepEnd.endDate ? `เดิม: ถึง ${shortDate(d.keepEnd.endDate)}` : 'เดิม: ไม่มีวันสิ้นสุด'} active /> : null}
+          <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', gap: 6 }}>
+            {WD_TH.map((w, i) => {
+              const on = ((weekMask >> i) & 1) === 1;
+              return (
+                <Pressable
+                  key={w}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on }}
+                  accessibilityLabel={`วัน${WD_FULL[i]}`}
+                  onPress={() => {
+                    const next = weekMask ^ (1 << i);
+                    if (!next) return showToast('ต้องเลือกอย่างน้อย 1 วัน');
+                    d.setWeekdays(next);
+                  }}
+                  style={({ pressed }) => ({ flex: 1, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? t.ink : pressed ? t.rail : t.track })}>
+                  <Txt size={13.5} weight={on ? 'bold' : 'med'} color={on ? t.bg : i === 6 ? t.accentInk : t.sub}>
+                    {w}
+                  </Txt>
+                </Pressable>
+              );
+            })}
+          </View>
+        </FadeInView>
+      ) : null}
+
+      {spanned ? (
+        <FadeInView rise={6} style={{ gap: 6 }}>
+          <Txt size={12.5} color={t.sub}>
+            ทำซ้ำไปอีก
+          </Txt>
+          <ChipRow style={{ gap: 6 }}>
             {HORIZONS.map((h) => (
-              <Chip key={h.key} small label={h.label} active={!d.keepEnd && d.horizon === h.key} onPress={() => d.setHorizon(h.key)} />
+              <Chip key={h.key} small label={h.label} active={!d.keepEnd && d.horizon === h.key} onPress={() => { setEndPick(false); d.setHorizon(h.key); }} />
             ))}
+            {/* ไม่มีวันสิ้นสุด — เฉพาะกฎสำเร็จรูป ("เลือกเอง" ต้องเก็บเป็นรายวัน จึงต้องมีวันจบ) */}
+            {d.repeat !== 'custom' ? (
+              <Chip small label="ไม่มีวันสิ้นสุด" active={!!d.keepEnd && d.keepEnd.endDate === null} onPress={() => { setEndPick(false); d.setEnd(null); }} />
+            ) : null}
+            <Chip
+              small
+              icon="calendar"
+              label={customEnd ? `ถึง ${shortDate(customEnd)}` : 'ถึงวันที่…'}
+              active={!!customEnd}
+              onPress={() => {
+                const dt = fromISO(customEnd ?? last);
+                setEndYm({ y: dt.getFullYear(), m: dt.getMonth() });
+                setEndPick(!endPick);
+              }}
+            />
           </ChipRow>
-        </>
+          {endPick ? (
+            <FadeInView rise={-6} style={{ gap: 8, padding: 10, borderRadius: 14, backgroundColor: t.bg }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <NavCircle dir="prev" label="เดือนก่อนหน้า" onPress={() => setEndYm(shiftYm(endYm, -1))} />
+                <Txt size={13.5} weight="bold" style={{ flex: 1, textAlign: 'center' }}>
+                  วันสุดท้าย · {MONTH_TH_FULL[endYm.m]} {beYear(endYm.y)}
+                </Txt>
+                <NavCircle dir="next" label="เดือนถัดไป" onPress={() => setEndYm(shiftYm(endYm, 1))} />
+              </View>
+              <MonthGrid
+                year={endYm.y}
+                month={endYm.m}
+                mode="select"
+                selected={customEnd ? [customEnd] : []}
+                onPressDay={(iso) => {
+                  if (iso < anchor) return showToast('วันสุดท้ายต้องไม่ก่อนวันแรก');
+                  d.setEnd(iso);
+                  setEndPick(false);
+                }}
+              />
+            </FadeInView>
+          ) : null}
+        </FadeInView>
       ) : null}
 
       <Pressable
@@ -1271,7 +1438,7 @@ function DatesBody() {
             </>
           ) : (
             <>
-              รวม <Txt size={13} weight="bold">{d.dates.length} วัน</Txt> · {dateRange(anchor, last)}
+              รวม <Txt size={13} weight="bold">{d.dates.length} วัน</Txt> · {customEnd === null && d.keepEnd ? `เริ่ม ${shortDate(anchor)} · ไม่มีวันสิ้นสุด` : dateRange(anchor, last)}
             </>
           )}
         </Txt>
@@ -1281,26 +1448,32 @@ function DatesBody() {
       </Pressable>
 
       {calOpen ? (
-        <>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Pressable accessibilityRole="button" onPress={() => setPickerOpen(true)} style={pressFade({ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40 })}>
+        <FadeInView rise={-6} style={{ gap: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {/* ‹ › เปลี่ยนเดือนได้ตรงนี้ — แตะชื่อเดือนเพื่อกระโดดไปเดือน/ปีอื่น */}
+            <NavCircle dir="prev" label="เดือนก่อนหน้า" onPress={() => setYm(shiftYm(ym, -1))} />
+            <Pressable accessibilityRole="button" accessibilityLabel={`${MONTH_TH_FULL[ym.m]} ${beYear(ym.y)} — แตะเพื่อเลือกเดือนและปี`} onPress={() => setPickerOpen(true)} style={pressFade({ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 40 })}>
               <Txt size={14} weight="bold">
                 {MONTH_TH_FULL[ym.m]} {beYear(ym.y)}
               </Txt>
               <Icon name="chevD" size={16} color={t.sub} />
             </Pressable>
-            {datesDirty ? (
+            <NavCircle dir="next" label="เดือนถัดไป" onPress={() => setYm(shiftYm(ym, 1))} />
+          </View>
+          {datesDirty ? (
+            <View style={{ alignItems: 'flex-end', marginTop: -4 }}>
               <Chip
                 small
                 icon="restore"
-                label="รีเซ็ตเป็นวันนี้"
+                label="กลับเป็นวันนี้"
                 onPress={() => {
+                  const before = { dates: d.dates, repeat: d.repeat, horizon: d.horizon, keepEnd: d.keepEnd, weekMask: d.weekMask, weekBase: d.weekBase };
                   d.resetDates();
-                  showToast('รีเซ็ตเป็นวันนี้วันเดียวแล้ว');
+                  showToast('กลับเป็นวันนี้วันเดียวแล้ว', { label: 'เลิกทำ', run: () => useDraft.getState().set(before) });
                 }}
               />
-            ) : null}
-          </View>
+            </View>
+          ) : null}
           <MonthGrid
             year={ym.y}
             month={ym.m}
@@ -1309,10 +1482,10 @@ function DatesBody() {
             // ครั้งเดียว: แตะวัน = ย้ายไปวันนั้น · แบบอื่น: แตะเพิ่ม/เอาออก (กลายเป็น "เลือกเอง")
             onPressDay={(iso) => (d.repeat === 'none' ? d.set({ dates: [iso] }) : d.toggleDate(iso))}
           />
-          <Txt size={12} color={t.faint}>
-            {d.repeat === 'none' ? 'แตะวันเพื่อย้ายไปวันนั้น' : 'แตะวันเพื่อเพิ่ม/เอาออก — แก้เองแล้วจะเป็น "เลือกเอง"'}
+          <Txt size={12} color={t.sub}>
+            {d.repeat === 'none' ? 'แตะวันเพื่อย้ายไปวันนั้น' : 'แตะวันเพื่อเพิ่ม/เอาออก — แก้เองแล้วจะเป็น “เลือกเอง”'}
           </Txt>
-        </>
+        </FadeInView>
       ) : null}
       <MonthYearPicker visible={pickerOpen} year={ym.y} month={ym.m} onClose={() => setPickerOpen(false)} onPick={(y, m) => setYm({ y, m })} />
     </Card>
@@ -1345,20 +1518,81 @@ function TimeBody({ analysis, onDragState }: { analysis: Analysis; onDragState: 
     d.set({ start: s, end: e });
   };
   const multi = d.dates.length > 1;
+  // แตะเวลา "เริ่ม"/"สิ้นสุด" → กางชิปชั่วโมง/นาทีให้เลือกตรง ๆ (เดิมมีแต่ปุ่ม ± ทีละ 15 นาที)
+  const [pick, setPick] = useState<'start' | 'end' | null>(null);
+  // แตะบล็อกบนแถบเวลาเฉย ๆ → เน้นคำอธิบายวิธีลาก 3 วินาที
+  const [hintOn, setHintOn] = useState(0);
+  useEffect(() => {
+    if (!hintOn) return;
+    const id = setTimeout(() => setHintOn(0), 3200);
+    return () => clearTimeout(id);
+  }, [hintOn]);
+  // เปลี่ยนเวลาเริ่ม = ย้ายทั้งช่วง (ระยะเวลาเท่าเดิม) — เดิมเลื่อนเริ่มเลยเวลาจบแล้วกลายเป็น "เวลาไม่ถูกต้อง"
+  const setStart = (v: number) => {
+    const len = duration > 0 ? duration : 60;
+    const st = Math.min(Math.max(v, DAY_START), DAY_END - SNAP);
+    setRange(st, Math.min(st + len, DAY_END));
+  };
+  const setEnd = (v: number) => d.set({ end: Math.min(Math.max(v, DAY_START + SNAP), DAY_END) });
 
   return (
     <Card style={{ gap: 10 }}>
-      {/* ── ลากเลือกเวลา + กิจกรรมเดิม + ช่วงว่าง + ที่ชน (รวมในที่เดียว) ── */}
+      {/* ── ตั้งเวลาตรง ๆ ก่อน: เริ่ม · สิ้นสุด · ระยะเวลา · ช่วงของวัน ── */}
+      <TimeStepper label="เริ่ม" value={d.start} onChange={setStart} open={pick === 'start'} onToggle={() => setPick(pick === 'start' ? null : 'start')} />
+      {pick === 'start' ? <TimePick value={d.start} onChange={setStart} /> : null}
+      <TimeStepper label="สิ้นสุด" value={d.end} onChange={setEnd} open={pick === 'end'} onToggle={() => setPick(pick === 'end' ? null : 'end')} />
+      {pick === 'end' ? <TimePick value={d.end} onChange={setEnd} /> : null}
+      {timeInvalid ? (
+        <Txt size={12.5} weight="bold" color={t.warn}>
+          เวลาสิ้นสุดต้องหลังเวลาเริ่ม
+        </Txt>
+      ) : null}
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>
+          ระยะเวลา
+        </Txt>
+        <Txt size={13} num weight="bold" color={timeInvalid ? t.warn : t.accentInk}>
+          {timeInvalid ? '—' : durText(duration)}
+        </Txt>
+      </View>
+      <ChipRow style={{ gap: 6, marginTop: -4 }}>
+        {DURATIONS.map((m) => (
+          <Chip key={m} small label={durChip(m)} active={duration === m} onPress={() => d.set({ end: Math.min(d.start + m, DAY_END) })} />
+        ))}
+      </ChipRow>
+
+      <Txt size={12.5} color={t.sub}>
+        ช่วงของวัน
+      </Txt>
+      <ChipRow style={{ gap: 6, marginTop: -4 }}>
+        {PERIOD_PRESETS.map((p) => (
+          <Chip
+            key={p.label}
+            small
+            label={p.label}
+            active={periodStart === p.start}
+            onPress={() => {
+              setPeriodStart(p.start);
+              d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) });
+            }}
+          />
+        ))}
+      </ChipRow>
+
+      <View style={{ height: 1, backgroundColor: t.line }} />
+
+      {/* ── ดูทั้งวัน: ลากบนแถบเวลา + กิจกรรมเดิม + ช่วงว่าง + ที่ซ้อน ── */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Txt size={13} weight="bold" style={{ flex: 1 }} numberOfLines={1}>
-          ลากเลือกเวลา
+          หรือลากบนแถบเวลา
         </Txt>
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ expanded: detailed }}
           onPress={() => setDetailed(!detailed)}
           hitSlop={6}
-          style={({ pressed }) => ({ height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: pressed ? t.rail : t.track, justifyContent: 'center' })}>
+          style={({ pressed }) => ({ height: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: pressed ? t.rail : t.track, justifyContent: 'center' })}>
           <Txt size={12.5} weight="bold" color={t.accentInk}>
             {detailed ? 'ย่อเป็นแถบ' : 'ขยายแบบละเอียด'}
           </Txt>
@@ -1379,7 +1613,7 @@ function TimeBody({ analysis, onDragState }: { analysis: Analysis; onDragState: 
                   key={p.date}
                   accessibilityRole="button"
                   accessibilityState={{ selected: on }}
-                  accessibilityLabel={`${thaiDate(p.date)}${p.conflicts.length ? ' · เวลาชน' : ''}`}
+                  accessibilityLabel={`${thaiDate(p.date)}${p.conflicts.length ? ' · เวลาซ้อน' : ''}`}
                   onPress={() => setRefPick(i)}
                   style={pressFade({ height: 34, paddingHorizontal: 12, borderRadius: 17, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: on ? t.ink : t.track })}>
                   <Txt size={13} weight={on ? 'bold' : 'med'} color={on ? t.bg : t.sub}>
@@ -1394,37 +1628,48 @@ function TimeBody({ analysis, onDragState }: { analysis: Analysis; onDragState: 
       ) : null}
 
       {detailed ? (
-        <TimeDragRail start={d.start} end={d.end} items={refItems} free={slots} title={d.title.trim()} onDragState={onDragState} onChange={setRange} />
+        <FadeInView key="rail">
+          <TimeDragRail start={d.start} end={d.end} items={refItems} free={slots} title={d.title.trim()} onDragState={onDragState} onChange={setRange} onHint={() => setHintOn(hintOn + 1)} />
+        </FadeInView>
       ) : (
-        <TimeDragBar start={d.start} end={d.end} items={refItems} free={slots} onDragState={onDragState} onChange={setRange} />
+        <FadeInView key="bar">
+          <TimeDragBar start={d.start} end={d.end} items={refItems} free={slots} onDragState={onDragState} onChange={setRange} onHint={() => setHintOn(hintOn + 1)} />
+        </FadeInView>
       )}
+      {/* วิธีลาก — อยู่ติดใต้แถบ (เดิมอยู่ไกลลงไปด้านล่าง) · แตะบล็อกเฉย ๆ แล้วบรรทัดนี้เด่นขึ้น */}
+      <Txt size={12} weight={hintOn ? 'bold' : 'reg'} color={hintOn ? t.accentInk : t.sub} style={{ lineHeight: 17, marginTop: -4 }}>
+        {detailed ? 'กดค้างที่บล็อกสีแล้วลาก = ย้าย · ลากขอบบน/ล่าง = ยืด/หด · แตะที่ว่าง = ย้ายไปเวลานั้น' : 'ลากบล็อกสีไปซ้าย–ขวา = ย้าย · ลากขอบ = ยืด/หด · แตะที่ว่าง = ย้ายไปเวลานั้น'}
+      </Txt>
 
+      {/* พื้นที่ผลลัพธ์สูงคงที่ขั้นต่ำ — ระหว่างลาก กล่อง "ซ้อน/ไม่ซ้อน" สลับกันแล้วส่วนล่างไม่กระตุกขึ้นลง */}
+      <View style={{ minHeight: 24, justifyContent: 'center' }}>
       {/* ผลของช่วงที่เลือก — ชน (ทุกวันที่ลง) + เสนอช่วงที่ใกล้ที่สุด · หรือว่างตลอดช่วง */}
-      {analysis.conflictDays > 0 ? (
-        <View style={{ borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: ATTN + '73' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10 }}>
-            <SvgIcon name="alert" size={16} color={t.warn} strokeWidth={2} />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Txt size={12.5} weight="bold" color={t.warn} style={{ lineHeight: 18 }}>
-                {analysis.text} — บันทึกซ้อนได้
-              </Txt>
-              {multi && ref ? (
-                <Txt size={12} color={t.sub} style={{ lineHeight: 17 }}>
-                  {shortDate(ref.date)}: {ref.conflicts.length ? `ชนกับ ${ref.conflicts.map((c) => `“${c.title}”`).join(', ')}` : 'ไม่ชน'}
+        {analysis.conflictDays > 0 ? (
+          <View style={{ borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: ATTN + '73' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10 }}>
+              <SvgIcon name="alert" size={16} color={t.warn} strokeWidth={2} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt size={12.5} weight="bold" color={t.warn} style={{ lineHeight: 18 }}>
+                  {analysis.text} — บันทึกซ้อนได้
                 </Txt>
-              ) : null}
+                {multi && ref ? (
+                  <Txt size={12} color={t.sub} style={{ lineHeight: 17 }}>
+                    {shortDate(ref.date)}: {ref.conflicts.length ? `ซ้อนกับ ${ref.conflicts.map((c) => `“${c.title}”`).join(', ')}` : 'ไม่ซ้อน'}
+                  </Txt>
+                ) : null}
+              </View>
             </View>
+            <SuggestStrip analysis={analysis} />
           </View>
-          <SuggestStrip analysis={analysis} />
-        </View>
-      ) : !timeInvalid ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <SvgIcon name="check" size={15} color={t.greenInk} strokeWidth={2.6} />
-          <Txt size={12.5} weight="bold" color={t.greenInk}>
-            ไม่ชนกับกิจกรรมเดิม{multi ? `ทุกวันที่ลง (${d.dates.length} วัน)` : ''}
-          </Txt>
-        </View>
-      ) : null}
+        ) : !timeInvalid ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <SvgIcon name="check" size={15} color={t.greenInk} strokeWidth={2.6} />
+            <Txt size={12.5} weight="bold" color={t.greenInk}>
+              ไม่ซ้อนกับกิจกรรมเดิม{multi ? `ทุกวันที่ลง (${d.dates.length} วัน)` : ''}
+            </Txt>
+          </View>
+        ) : null}
+      </View>
 
       {/* ช่วงว่างของวันที่ดูอยู่ — แตะเพื่อใช้ทั้งช่วง (แถบเขียวบนแถบเวลาคือช่วงเดียวกัน) */}
       {slots.length ? (
@@ -1452,7 +1697,7 @@ function TimeBody({ analysis, onDragState }: { analysis: Analysis; onDragState: 
                     flexDirection: 'row',
                     alignItems: 'center',
                     gap: 5,
-                    backgroundColor: on ? c : pressed ? 'rgba(76,154,106,0.22)' : s.night ? t.track : 'rgba(76,154,106,0.12)',
+                    backgroundColor: on ? c : pressed ? t.greenInk + '38' : s.night ? t.track : t.greenInk + '1F',
                   })}>
                   {s.night ? <Icon name="moon" size={12} color={on ? '#FFFFFF' : c} /> : null}
                   <Txt size={12.5} num weight={on ? 'bold' : 'med'} color={on ? '#FFFFFF' : c}>
@@ -1464,54 +1709,6 @@ function TimeBody({ analysis, onDragState }: { analysis: Analysis; onDragState: 
           </ChipRow>
         </View>
       ) : null}
-
-      <Txt size={11.5} color={t.faint} style={{ lineHeight: 17 }}>
-        กดค้างที่บล็อกส้มแล้วลาก = ย้าย · ลากขอบ = ยืด/หด · แตะที่ว่าง = ย้ายไปเวลานั้น · ทีละ 15 นาที
-      </Txt>
-
-      <View style={{ height: 1, backgroundColor: t.line }} />
-
-      {/* ── ตั้งเร็ว: เริ่มช่วง · ระยะเวลา · ปรับละเอียด ── */}
-      <Txt size={12.5} color={t.sub}>
-        เริ่มช่วง
-      </Txt>
-      <ChipRow style={{ gap: 6, marginTop: -4 }}>
-        {PERIOD_PRESETS.map((p) => (
-          <Chip
-            key={p.label}
-            small
-            label={p.label}
-            active={periodStart === p.start}
-            onPress={() => {
-              setPeriodStart(p.start);
-              d.set({ start: p.start, end: Math.min(p.start + (duration > 0 ? duration : 60), DAY_END) });
-            }}
-          />
-        ))}
-      </ChipRow>
-
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>
-          ระยะเวลา
-        </Txt>
-        <Txt size={13} num weight="bold" color={timeInvalid ? t.warn : t.accentInk}>
-          {timeInvalid ? 'เวลาไม่ถูกต้อง' : durText(duration)}
-        </Txt>
-      </View>
-      <ChipRow style={{ gap: 6, marginTop: -4 }}>
-        {[1, 2, 3, 4, 5].map((n) => (
-          <Chip key={n} small label={`${n} ชม.`} active={duration === n * 60} onPress={() => d.set({ end: Math.min(d.start + n * 60, DAY_END) })} />
-        ))}
-      </ChipRow>
-
-      <View style={{ height: 1, backgroundColor: t.line }} />
-      <TimeStepper label="เริ่ม" value={d.start} onChange={(v) => d.set({ start: v })} />
-      <TimeStepper label="สิ้นสุด" value={d.end} onChange={(v) => d.set({ end: v })} />
-      {timeInvalid ? (
-        <Txt size={12} color={t.warn}>
-          เวลาสิ้นสุดต้องมากกว่าเริ่ม
-        </Txt>
-      ) : null}
     </Card>
   );
 }
@@ -1521,6 +1718,18 @@ function TimeBody({ analysis, onDragState }: { analysis: Analysis; onDragState: 
 function NotifyBody() {
   const t = useTokens();
   const d = useDraft();
+  const showToast = useUI((s) => s.showToast);
+  const master = useSettings((s) => s.notifMaster);
+  // เปิดแจ้งเตือนของกิจกรรม = จังหวะที่ขอสิทธิ์จากเครื่อง (ถ้ายังไม่เคยให้) — ผู้ใช้เพิ่งบอกเองว่าอยากให้เตือน
+  const setNotify = async (v: boolean) => {
+    d.set({ notify: v });
+    if (!v) return;
+    const st = await notifPermissionState().catch(() => 'granted' as const);
+    if (st === 'granted') return;
+    const ok = st === 'ask' ? await requestNotifPermission().catch(() => false) : false;
+    if (ok) return resyncNotifications();
+    showToast('เครื่องยังไม่อนุญาตให้แอปนี้แจ้งเตือน — กิจกรรมจะยังไม่เด้งเตือน', { label: 'ไปตั้งค่า', run: () => Linking.openSettings() });
+  };
   return (
     <Card style={{ gap: 10, paddingVertical: 6 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 48, gap: 10 }}>
@@ -1530,16 +1739,27 @@ function NotifyBody() {
         <Txt size={13} color={t.sub}>
           {d.notify ? 'เปิด' : 'ปิด'}
         </Txt>
-        <Toggle value={d.notify} onChange={(v) => d.set({ notify: v })} />
+        <Toggle label="แจ้งเตือนก่อนเริ่ม" value={d.notify} onChange={setNotify} />
       </View>
       {d.notify ? (
-        <ChipRow style={{ gap: 6, paddingBottom: 8 }}>
-          {/* 0 = แจ้งทันทีตอนถึงเวลาเริ่ม */}
-          {[0, 1, 5, 10, 15, 30, 60, 120].map((m) => (
-            <Chip key={m} small label={m === 0 ? 'ตอนเริ่ม' : m >= 60 ? `${m / 60} ชม.` : `${m} นาที`} active={d.before === m} onPress={() => d.set({ before: m })} />
-          ))}
-        </ChipRow>
-      ) : null}
+        <FadeInView rise={-6} style={{ gap: 8, paddingBottom: 8 }}>
+          <ChipRow style={{ gap: 6 }}>
+            {/* 0 = แจ้งทันทีตอนถึงเวลาเริ่ม */}
+            {[0, 1, 5, 10, 15, 30, 60, 120].map((m) => (
+              <Chip key={m} small label={m === 0 ? 'ตอนเริ่ม' : m >= 60 ? `${m / 60} ชม.` : `${m} นาที`} active={d.before === m} onPress={() => d.set({ before: m })} />
+            ))}
+          </ChipRow>
+          {!master ? (
+            <Txt size={12} weight="med" color={t.warn}>
+              การแจ้งเตือนของแอปปิดอยู่ — เปิดได้ที่ ตั้งค่า › เปิดการแจ้งเตือน
+            </Txt>
+          ) : null}
+        </FadeInView>
+      ) : (
+        <Txt size={12} color={t.sub} style={{ paddingBottom: 10, marginTop: -6 }}>
+          ไม่บังคับ — ครบแล้ว กด “บันทึก” ด้านล่างได้เลย
+        </Txt>
+      )}
     </Card>
   );
 }
@@ -1587,24 +1807,119 @@ function ScopeCard({ editing, editDate }: { editing: Activity; editDate: string 
   );
 }
 
-function TimeStepper({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+/**
+ * แถวปรับเวลา — − / เวลา / ＋ ทีละ 15 นาที · กดค้างปุ่มแล้วเลื่อนต่อเนื่อง (ไม่ต้องแตะรัว)
+ * แตะตัวเลขเวลา = กาง/พับชิปเลือกชั่วโมงและนาที (TimePick)
+ */
+function TimeStepper({ label, value, onChange, open, onToggle }: { label: string; value: number; onChange: (v: number) => void; open: boolean; onToggle: () => void }) {
   const t = useTokens();
-  const step = (dir: 1 | -1) => onChange(Math.min(Math.max(value + dir * SNAP, DAY_START), DAY_END));
+  // ค่าล่าสุดสำหรับตัวจับเวลาตอนกดค้าง (อัปเดตหลัง render)
+  const latest = useRef({ value, onChange });
+  useEffect(() => {
+    latest.current = { value, onChange };
+  });
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopRepeat = () => {
+    if (timer.current) clearInterval(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => stopRepeat, []);
+  const step = (dir: 1 | -1) => latest.current.onChange(latest.current.value + dir * SNAP);
+  const btn = (dir: 1 | -1) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label} ${dir > 0 ? 'เพิ่ม' : 'ลด'} 15 นาที`}
+      accessibilityHint="กดค้างเพื่อเลื่อนต่อเนื่อง"
+      onPress={() => step(dir)}
+      delayLongPress={320}
+      onLongPress={() => {
+        stopRepeat();
+        timer.current = setInterval(() => step(dir), 110);
+      }}
+      onPressOut={stopRepeat}
+      style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
+      <SvgIcon name={dir > 0 ? 'plus' : 'minus'} size={18} color={t.ink} strokeWidth={2.2} />
+    </Pressable>
+  );
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       <Txt size={13} color={t.sub} style={{ width: 48 }}>{label}</Txt>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${label} ลด 15 นาที`} onPress={() => step(-1)} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
-        <SvgIcon name="minus" size={18} color={t.ink} strokeWidth={2.2} />
-      </Pressable>
-      <View style={{ flex: 1, alignItems: 'center' }}>
-        <Txt size={20} num weight="bold">
+      {btn(-1)}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${label} ${fmtMin(value)}${value > 1440 ? ' วันถัดไป' : ''} — แตะเพื่อเลือกชั่วโมงและนาที`}
+        onPress={onToggle}
+        style={({ pressed }) => ({ flex: 1, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, backgroundColor: open ? t.accent + '1F' : pressed ? t.track : 'transparent' })}>
+        <Txt size={20} num weight="bold" color={open ? t.accentInk : t.ink}>
           {fmtMin(value)}
-          {value > 1440 ? ' +1' : ''}
         </Txt>
-      </View>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${label} เพิ่ม 15 นาที`} onPress={() => step(1)} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
-        <SvgIcon name="plus" size={18} color={t.ink} strokeWidth={2.2} />
+        {value > 1440 ? (
+          <Txt size={11.5} color={t.sub}>
+            วันถัดไป
+          </Txt>
+        ) : null}
+        <Icon name="chevD" size={14} color={open ? t.accentInk : t.faint} />
       </Pressable>
+      {btn(1)}
     </View>
+  );
+}
+
+/** ชั่วโมงในหน้าต่างวัน 06:00 → 06:00 ของวันถัดไป */
+const PICK_HOURS = Array.from({ length: (DAY_END - DAY_START) / 60 }, (_, i) => DAY_START / 60 + i);
+
+/** เลือกชั่วโมง (แถวเลื่อนแนวนอน) + นาที (00/15/30/45) ตรง ๆ — ชั่วโมงหลังเที่ยงคืนมีป้าย "+1" */
+function TimePick({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const t = useTokens();
+  const h = Math.floor(value / 60);
+  const m = value % 60;
+  const scRef = useRef<ScrollViewInstance>(null);
+  const CELL = 46;
+  // เปิดมาเลื่อนให้ชั่วโมงที่เลือกอยู่กลางแถว
+  const [x0] = useState(() => Math.max((h - DAY_START / 60) * (CELL + 6) - 120, 0));
+  return (
+    <FadeInView rise={-6} style={{ gap: 8, padding: 10, borderRadius: 14, backgroundColor: t.bg }}>
+      <ScrollView ref={scRef} horizontal showsHorizontalScrollIndicator={false} contentOffset={{ x: x0, y: 0 }} onContentSizeChange={() => scRef.current?.scrollTo({ x: x0, animated: false })} contentContainerStyle={{ gap: 6 }}>
+        {PICK_HOURS.map((hh) => {
+          const on = hh === h;
+          return (
+            <Pressable
+              key={hh}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={`${hh % 24} นาฬิกา${hh >= 24 ? ' วันถัดไป' : ''}`}
+              onPress={() => onChange(hh * 60 + m)}
+              style={({ pressed }) => ({ width: CELL, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? t.ink : pressed ? t.rail : t.track })}>
+              <Txt size={14} num weight={on ? 'bold' : 'med'} color={on ? t.bg : hh >= 24 ? t.muted : t.ink}>
+                {`${hh % 24}`.padStart(2, '0')}
+                {hh >= 24 ? <Txt size={9.5} color={on ? t.bg : t.muted}>{' +1'}</Txt> : null}
+              </Txt>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Txt size={12} color={t.sub} style={{ width: 40 }}>
+          นาที
+        </Txt>
+        {[0, 15, 30, 45].map((mm) => {
+          const on = mm === m;
+          return (
+            <Pressable
+              key={mm}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={`${mm} นาที`}
+              onPress={() => onChange(h * 60 + mm)}
+              style={({ pressed }) => ({ flex: 1, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? t.ink : pressed ? t.rail : t.track })}>
+              <Txt size={14} num weight={on ? 'bold' : 'med'} color={on ? t.bg : t.ink}>
+                :{`${mm}`.padStart(2, '0')}
+              </Txt>
+            </Pressable>
+          );
+        })}
+      </View>
+    </FadeInView>
   );
 }

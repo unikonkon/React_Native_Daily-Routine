@@ -35,6 +35,13 @@ export function occursOn(a: Activity, date: string, wd?: number): boolean {
 export const OPEN_END_DAYS = 365;
 
 /** วันที่ทั้งหมดของชุด (ไม่สนสถานะรายวัน) — ใช้โหลดชุดเข้าฟอร์มแก้ไข และตัดแบ่งชุด */
+/**
+ * นัดที่ "เลื่อนมา" รุ่นเก่าถูกต่อท้ายชื่อด้วย " (เลื่อนมา)" ถาวร — ตอนนี้หน้าจอแสดงเป็นป้ายแทน (ดู rescCounts)
+ * ใช้ตัดส่วนต่อท้ายออกตอนแสดงผล ไม่ให้ขึ้นซ้ำกับป้าย
+ */
+const MOVED_SUFFIX = ' (เลื่อนมา)';
+export const plainTitle = (title: string) => (title.endsWith(MOVED_SUFFIX) ? title.slice(0, -MOVED_SUFFIX.length) : title);
+
 export function seriesDates(a: Activity): string[] {
   if (a.repeat === 'none') return [a.startDate];
   if (a.repeat === 'custom' && a.dates) return [...a.dates];

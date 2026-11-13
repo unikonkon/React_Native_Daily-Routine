@@ -3,8 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 
-import { Icon } from '@/components/icon';
-import { Txt, pressFade, useTokens } from '@/components/ui';
+import { NavCircle, Txt, pressFade, useTokens } from '@/components/ui';
 import {
   MONTH_TH,
   SCHED_MAX_Y,
@@ -68,14 +67,10 @@ export function WeekPicker({
           <Txt size={16} weight="bold" style={{ textAlign: 'center' }}>เลือกสัปดาห์</Txt>
 
           {/* ปี */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
-            <Pressable disabled={ym.y <= minYear} onPress={() => setYm({ ...ym, y: ym.y - 1 })} style={pressFade({ opacity: ym.y <= minYear ? 0.3 : 1 })}>
-              <Icon name="chevL" size={22} color={t.sub} />
-            </Pressable>
-            <Txt size={18} num weight="bold">{beYear(ym.y)}</Txt>
-            <Pressable disabled={ym.y >= maxYear} onPress={() => setYm({ ...ym, y: ym.y + 1 })} style={pressFade({ opacity: ym.y >= maxYear ? 0.3 : 1 })}>
-              <Icon name="chevR" size={22} color={t.sub} />
-            </Pressable>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+            <NavCircle dir="prev" label="ปีก่อนหน้า" disabled={ym.y <= minYear} onPress={() => setYm({ ...ym, y: ym.y - 1 })} />
+            <Txt size={18} num weight="bold" style={{ minWidth: 64, textAlign: 'center' }}>{beYear(ym.y)}</Txt>
+            <NavCircle dir="next" label="ปีถัดไป" disabled={ym.y >= maxYear} onPress={() => setYm({ ...ym, y: ym.y + 1 })} />
           </View>
 
           {/* เดือน */}
@@ -83,6 +78,9 @@ export function WeekPicker({
             {MONTH_TH.map((m, i) => (
               <Pressable
                 key={m}
+                accessibilityRole="button"
+                accessibilityState={{ selected: i === ym.m }}
+                accessibilityLabel={`เดือน ${m}`}
                 onPress={() => setYm({ ...ym, m: i })}
                 style={pressFade({
                   width: '25%',
@@ -106,8 +104,13 @@ export function WeekPicker({
                 return (
                   <Pressable
                     key={w}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={`สัปดาห์ ${thaiWeekRange(w)}`}
                     onPress={() => onPick(w)}
                     style={pressFade({
+                      minHeight: 44,
+                      justifyContent: 'center',
                       paddingVertical: 10,
                       borderRadius: 12,
                       alignItems: 'center',

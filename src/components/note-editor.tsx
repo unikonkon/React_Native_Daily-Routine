@@ -70,7 +70,7 @@ export function NoteEditor({ cfg, defaults, onChange }: { cfg: NoteCfg; defaults
             onChange(defaults);
             setHint(defaults.hint);
             setTemplate(defaults.template);
-            showToast('คืนค่าเริ่มต้นแล้ว ✓');
+            showToast('คืนค่าเริ่มต้นแล้ว');
           }}
         />
       ) : null}

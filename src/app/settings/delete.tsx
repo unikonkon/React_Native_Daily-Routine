@@ -5,9 +5,10 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Pressable, View, type ScrollViewInstance } from 'react-native';
 
+import { FadeInView } from '@/components/motion';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
-import { Btn, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
+import { Btn, NavCircle, Segmented, Txt, pressFade, useTokens } from '@/components/ui';
 import { CAT_BY_ID } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fmtMin, fromISO, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
 import type { DayItem } from '@/lib/types';
@@ -154,7 +155,7 @@ export default function DeleteScreen() {
       </View>
 
       {confirming ? (
-        <View style={{ backgroundColor: t.card, borderRadius: 20, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 8 }}>
+        <FadeInView rise={-6} style={{ backgroundColor: t.card, borderRadius: 20, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 8 }}>
           <Txt size={15} weight="bold">
             ลบ {targets.length} รายการ?
           </Txt>
@@ -165,7 +166,7 @@ export default function DeleteScreen() {
             ลบแล้วกด “เลิกทำ” ได้ภายในไม่กี่วินาที · กดปุ่มแดงด้านล่างอีกครั้งเพื่อยืนยัน
           </Txt>
           <Btn kind="ghost" label="ไม่ลบ" onPress={() => setConfirmFor(null)} />
-        </View>
+        </FadeInView>
       ) : null}
 
       {mode === 'month' ? (
@@ -247,21 +248,12 @@ function Bullet({ text, warn }: { text: string; warn?: boolean }) {
 function PeriodNav({ label, onPrev, onNext }: { label: string; onPrev: () => void; onNext: () => void }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <NavCircle icon="chevL" onPress={onPrev} a11y="ก่อนหน้า" />
+      <NavCircle dir="prev" onPress={onPrev} />
       <Txt size={15} weight="bold" style={{ flex: 1, textAlign: 'center' }}>
         {label}
       </Txt>
-      <NavCircle icon="chevR" onPress={onNext} a11y="ถัดไป" />
+      <NavCircle dir="next" onPress={onNext} />
     </View>
-  );
-}
-
-function NavCircle({ icon, onPress, a11y }: { icon: string; onPress: () => void; a11y: string }) {
-  const t = useTokens();
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={a11y} onPress={onPress} style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: pressed ? t.rail : t.track, alignItems: 'center', justifyContent: 'center' })}>
-      <SvgIcon name={icon} size={18} color={t.ink} strokeWidth={2.2} />
-    </Pressable>
   );
 }
 
@@ -308,7 +300,7 @@ function PickCard({ on, disabled, title, sub, onPress }: { on: boolean; disabled
 function Check({ on }: { on: boolean }) {
   const t = useTokens();
   return (
-    <View style={{ width: 24, height: 24, borderRadius: 7, borderWidth: on ? 0 : 2, borderColor: t.railDash, backgroundColor: on ? t.warn : t.card, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: 24, height: 24, borderRadius: 7, borderWidth: on ? 0 : 2, borderColor: t.railDash, backgroundColor: on ? t.warnFill : t.card, alignItems: 'center', justifyContent: 'center' }}>
       {on ? <SvgIcon name="check" size={15} color="#FFFFFF" strokeWidth={3} /> : null}
     </View>
   );
@@ -369,7 +361,7 @@ function DayGrid({
                     borderRadius: 17,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: on ? t.warn : focus ? t.ink : 'transparent',
+                    backgroundColor: on ? t.warnFill : focus ? t.ink : 'transparent',
                     borderWidth: d === today && !on && !focus ? 1.5 : 0,
                     borderColor: t.accent,
                   }}>
@@ -377,7 +369,7 @@ function DayGrid({
                     {fromISO(d).getDate()}
                   </Txt>
                 </View>
-                <Txt size={10.5} num weight={picked ? 'bold' : 'reg'} color={picked ? t.warn : t.muted}>
+                <Txt size={11} num weight={picked ? 'bold' : 'reg'} color={picked ? t.warn : t.muted}>
                   {picked ? `✓${picked}` : n ? `${n}` : ' '}
                 </Txt>
               </Pressable>
@@ -433,7 +425,7 @@ function DayItems({ date, items, picked, onToggle, onSetAll }: { date: string; i
                   paddingVertical: 9,
                   borderBottomWidth: i === items.length - 1 ? 0 : 1,
                   borderBottomColor: t.line,
-                  backgroundColor: on ? 'rgba(163,63,31,0.07)' : pressed ? t.track : 'transparent',
+                  backgroundColor: on ? t.warn + '14' : pressed ? t.track : 'transparent',
                 })}>
                 <Check on={on} />
                 <View style={{ width: 44 }}>

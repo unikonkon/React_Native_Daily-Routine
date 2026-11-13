@@ -44,6 +44,8 @@ export interface Palette {
   primaryDown: string;
   // ---- สีความหมาย (เหมือนกันทุกธีมในโหมดเดียวกัน) ----
   warn: string;
+  /** พื้นปุ่ม/ช่องติ๊กสีอันตรายที่มีตัวหนังสือขาวทับ — ธีมมืดใช้สีเข้มกว่า warn (warn ธีมมืดสว่างเกินสำหรับตัวหนังสือขาว) */
+  warnFill: string;
   greenInk: string;
   freeLine: string;
   skipFill: string;
@@ -75,6 +77,7 @@ const cream: Palette = {
   primary: '#B44E2C', // พื้นปุ่มหลัก (ตัวอักษรขาว)
   primaryDown: '#9A3F22', // ปุ่มหลักตอนกด
   warn: '#A33F1F', // ค้างบันทึก / ลบ
+  warnFill: '#A33F1F',
   greenInk: '#2F6B45', // ข้อความสีเขียว (เวลาว่าง)
   freeLine: '#CFE0D3', // กรอบเส้นประช่วงว่าง
   skipFill: '#DDD5C8', // วงกลม "ข้าม"
@@ -104,6 +107,7 @@ const rose: Palette = {
   primary: '#AE3A66',
   primaryDown: '#932D55',
   warn: '#A33F1F',
+  warnFill: '#A33F1F',
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#E5D0D4',
@@ -133,6 +137,7 @@ const lavender: Palette = {
   primary: '#6E50B5',
   primaryDown: '#5B409C',
   warn: '#A33F1F',
+  warnFill: '#A33F1F',
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#D8D3E6',
@@ -162,6 +167,7 @@ const sage: Palette = {
   primary: '#1F7468',
   primaryDown: '#175F55',
   warn: '#A33F1F',
+  warnFill: '#A33F1F',
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#C9DBD1',
@@ -191,6 +197,7 @@ const peach: Palette = {
   primary: '#BC4640',
   primaryDown: '#A03933',
   warn: '#A33F1F',
+  warnFill: '#A33F1F',
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#EAD0C4',
@@ -220,6 +227,7 @@ const cocoa: Palette = {
   primary: '#B44E2C',
   primaryDown: '#9A3F22',
   warn: '#F08A64',
+  warnFill: '#B4482A',
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#4A4236',
@@ -249,6 +257,7 @@ const plum: Palette = {
   primary: '#B43A70',
   primaryDown: '#992E5E',
   warn: '#F08A64',
+  warnFill: '#B4482A',
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#523C48',
@@ -278,6 +287,7 @@ const midnight: Palette = {
   primary: '#6B55C2',
   primaryDown: '#5844A6',
   warn: '#F08A64',
+  warnFill: '#B4482A',
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#414157',
@@ -307,6 +317,7 @@ const forest: Palette = {
   primary: '#1E7C70',
   primaryDown: '#17665C',
   warn: '#F08A64',
+  warnFill: '#B4482A',
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#33493F',
@@ -336,6 +347,7 @@ const graphite: Palette = {
   primary: '#AC5560',
   primaryDown: '#914550',
   warn: '#F08A64',
+  warnFill: '#B4482A',
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#464244',
@@ -365,6 +377,7 @@ const sky: Palette = {
   primary: '#2F68B5',
   primaryDown: '#25569A',
   warn: '#A33F1F',
+  warnFill: '#A33F1F',
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#C9D8E6',
@@ -394,6 +407,7 @@ const honey: Palette = {
   primary: '#8A5E0F',
   primaryDown: '#724D0A',
   warn: '#A33F1F',
+  warnFill: '#A33F1F',
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#DFD6BB',
@@ -423,6 +437,7 @@ const mist: Palette = {
   primary: '#48566E',
   primaryDown: '#39455A',
   warn: '#A33F1F',
+  warnFill: '#A33F1F',
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#D3D6DB',
@@ -452,6 +467,7 @@ const ocean: Palette = {
   primary: '#2A68B8',
   primaryDown: '#21559A',
   warn: '#F08A64',
+  warnFill: '#B4482A',
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#334558',
@@ -481,6 +497,7 @@ const gold: Palette = {
   primary: '#8A6212',
   primaryDown: '#724F0C',
   warn: '#F08A64',
+  warnFill: '#B4482A',
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#484333',
@@ -510,6 +527,7 @@ const onyx: Palette = {
   primary: '#58657C',
   primaryDown: '#485367',
   warn: '#F08A64',
+  warnFill: '#B4482A',
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#2F3135',

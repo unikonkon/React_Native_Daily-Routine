@@ -447,6 +447,11 @@ export async function insertRescheduleLog(
   );
 }
 
+/** เลิกทำการเลื่อนนัด — ลบประวัติการเลื่อนของนัดปลายทาง (ตัวนัดปลายทางถูกยกเลิกแยกต่างหาก) */
+export async function deleteRescheduleLog(activityId: number): Promise<void> {
+  await getDb().runAsync('DELETE FROM reschedule_logs WHERE activity_id=?', activityId);
+}
+
 export async function upsertContact(c: Omit<Contact, 'id'> & { id?: number }): Promise<number> {
   const d = getDb();
   if (c.id) {
@@ -467,6 +472,18 @@ export async function deleteContact(id: number): Promise<void> {
   const d = getDb();
   await d.runAsync('DELETE FROM activity_contacts WHERE contact_id=?', id);
   await d.runAsync('DELETE FROM contacts WHERE id=?', id);
+}
+
+/** เลิกทำการลบรายชื่อ — ใส่กลับด้วย id เดิม แล้วผูกกลับกับนัดที่เคยผูกไว้ (activityIds) */
+export async function restoreContact(c: Contact, activityIds: number[]): Promise<void> {
+  const d = getDb();
+  await d.runAsync(
+    'INSERT OR REPLACE INTO contacts (id, name, priority, phone, line, email, zoom, googlemeet, note, org) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    c.id, c.name, c.priority, c.phone, c.line, c.email ?? null, c.zoom ?? null, c.googlemeet ?? null, c.note ?? null, c.org ?? null,
+  );
+  for (const a of activityIds) {
+    await d.runAsync('INSERT OR IGNORE INTO activity_contacts (activity_id, contact_id) VALUES (?,?)', a, c.id);
+  }
 }
 
 export async function saveSetting(key: string, value: string): Promise<void> {

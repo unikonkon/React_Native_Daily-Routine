@@ -3,12 +3,13 @@
 // ทั้งสองลิสต์ เพิ่ม/แก้/ลบ/คืนค่าเริ่มต้นได้ เก็บลงตาราง settings (stores/settings) และมีผลกับฟอร์มเพิ่มกิจกรรมทันที
 // (3) โน้ตรายครั้ง: ข้อความตัวอย่าง · แม่แบบ (เติมให้เมื่อแตะช่องโน้ตที่ว่าง) · ถามโน้ตเมื่อติ๊กว่าทำแล้ว
 //     (ค่าเดียวกับ ตั้งค่า › จัดการโน้ต — editor ใช้ร่วมจาก components/note-editor)
-import React, { useState } from 'react';
-import { TextInput, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { TextInput, View, type TextInputInstance } from 'react-native';
 
 import { useRouter } from 'expo-router';
 
 import { Icon } from '@/components/icon';
+import { Chevron, FadeInView } from '@/components/motion';
 import { NoteEditor } from '@/components/note-editor';
 import { Screen } from '@/components/screen';
 import { Btn, Card, Chip, ChipRow, Row, Txt, useTokens } from '@/components/ui';
@@ -53,7 +54,7 @@ export default function CategoriesScreen() {
                 onPress={() => setOpen(opened ? null : c.id)}
                 right={
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Icon name={opened ? 'chevD' : 'chevR'} size={16} color={t.faint} />
+                    <Chevron open={opened} color={t.faint} />
                     <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: c.color + '22', alignItems: 'center', justifyContent: 'center' }}>
                       <Icon name={c.icon} size={17} color={c.color} />
                     </View>
@@ -61,7 +62,7 @@ export default function CategoriesScreen() {
                 }
               />
               {opened ? (
-                <View style={{ gap: 12, marginBottom: 10 }}>
+                <FadeInView rise={-6} style={{ gap: 12, marginBottom: 10 }}>
                   <ListEditor
                     title="ตัวเลือกด่วน (ชื่อกิจกรรม)"
                     hint="ชิปชื่อกิจกรรมในฟอร์มเพิ่ม — แตะชิปเพื่อแก้ไข/ลบ"
@@ -83,7 +84,7 @@ export default function CategoriesScreen() {
                   <NoteEditor key={`note-${c.id}`} cfg={noteCfg[c.id]} defaults={NOTE_DEFAULTS[c.id]} onChange={(patch) => setNoteCfg(c.id, patch)} />
                   {/* ค่าเดียวกับหน้าจัดการโน้ต — ที่นั่นมีโน้ตสำเร็จรูปและการแสดงผลด้วย */}
                   <Btn kind="ghost" icon="note" label="จัดการโน้ตทั้งหมด (โน้ตสำเร็จรูป · การแสดงผล)" onPress={() => router.push('/settings/notes')} />
-                </View>
+                </FadeInView>
               ) : null}
             </View>
           );
@@ -91,7 +92,7 @@ export default function CategoriesScreen() {
       </Card>
 
       <Card>
-        <Txt size={12} weight="bold" color={t.faint} style={{ marginBottom: 4 }}>ระดับความสำคัญของเคส (P1–P6)</Txt>
+        <Txt size={12} weight="bold" color={t.sub} style={{ marginBottom: 4 }}>ระดับความสำคัญของเคส (P1–P6)</Txt>
         {PRI.map((p, i) => (
           <Row
             key={p.id}
@@ -102,8 +103,8 @@ export default function CategoriesScreen() {
         ))}
       </Card>
 
-      <Txt size={11} color={t.faint} style={{ textAlign: 'center' }}>
-        ชื่อหมวด/สีเป็นชุดมาตรฐานตามดีไซน์ — ลิสต์ตัวเลือกแก้ได้และมีผลกับฟอร์มเพิ่มกิจกรรมทันที
+      <Txt size={12} color={t.sub} style={{ textAlign: 'center', lineHeight: 18 }}>
+        ชื่อหมวดและสีเป็นชุดมาตรฐานของแอป — รายการตัวเลือกแก้ได้ และมีผลกับฟอร์มเพิ่มกิจกรรมทันที
       </Txt>
     </Screen>
   );
@@ -133,6 +134,7 @@ function ListEditor({
   /** index ของชิปที่กำลังแก้ (null = โหมดเพิ่มใหม่) */
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [text, setText] = useState('');
+  const inputRef = useRef<TextInputInstance>(null);
 
   const isDefault = values.length === defaults.length && values.every((v, i) => v === defaults[i]);
 
@@ -150,14 +152,24 @@ function ListEditor({
     else list[editIdx] = v;
     onChange(list);
     close();
-    showToast(editIdx === null ? `เพิ่ม${title}แล้ว ✓` : 'แก้ไขแล้ว ✓');
+    showToast(editIdx === null ? `เพิ่ม “${v}” แล้ว` : 'แก้ไขแล้ว');
   };
 
+  // ลบ/คืนค่า = ทำทันทีแล้วให้ "เลิกทำ" (แบบเดียวกับหน้าธีม) — ไม่ต้องถามยืนยัน แต่พลาดแล้วเอาคืนได้
   const removeAt = () => {
     if (editIdx === null) return;
+    const before = values;
+    const gone = values[editIdx];
     onChange(values.filter((_, i) => i !== editIdx));
     close();
-    showToast('ลบตัวเลือกแล้ว');
+    showToast(`ลบ “${gone}” แล้ว`, { label: 'เลิกทำ', run: () => onChange(before) });
+  };
+
+  const resetAll = () => {
+    const before = values;
+    onChange(defaults);
+    close();
+    showToast('คืนค่าเริ่มต้นของลิสต์นี้แล้ว', { label: 'เลิกทำ', run: () => onChange(before) });
   };
 
   return (
@@ -177,6 +189,7 @@ function ListEditor({
               else {
                 setEditIdx(idx);
                 setText(q);
+                inputRef.current?.focus(); // แตะชิปเพื่อแก้ → เคอร์เซอร์ไปที่ช่องเลย
               }
             }}
           />
@@ -184,8 +197,13 @@ function ListEditor({
         {values.length === 0 ? <Txt size={12} color={t.faint}>ยังไม่มีตัวเลือก — เพิ่มด้านล่าง</Txt> : null}
       </ChipRow>
       <TextInput
+        ref={inputRef}
         value={text}
         onChangeText={setText}
+        accessibilityLabel={editIdx === null ? `เพิ่ม${title}ใหม่` : 'แก้ไขชื่อตัวเลือก'}
+        returnKeyType="done"
+        submitBehavior="submit"
+        onSubmitEditing={() => (text.trim() ? save() : undefined)}
         placeholder={editIdx === null ? `เพิ่ม${title}ใหม่…` : 'แก้ไขชื่อตัวเลือก…'}
         placeholderTextColor={t.faint}
         style={{
@@ -203,12 +221,12 @@ function ListEditor({
         {editIdx !== null ? (
           <>
             <Btn style={{ flex: 1 }} kind="ghost" label="ยกเลิก" onPress={close} />
-            <Btn style={{ flex: 1 }} kind="danger" label="ลบ" onPress={removeAt} />
+            <Btn style={{ flex: 1 }} kind="dangerSoft" label="ลบ" onPress={removeAt} />
           </>
         ) : null}
         <Btn style={{ flex: 1 }} label={editIdx === null ? '+ เพิ่ม' : 'บันทึก'} disabled={!text.trim()} onPress={save} />
       </View>
-      {!isDefault ? <Btn kind="ghost" label="คืนค่าเริ่มต้นของลิสต์นี้" onPress={() => { onChange(defaults); close(); showToast('คืนค่าเริ่มต้นแล้ว ✓'); }} /> : null}
+      {!isDefault ? <Btn kind="ghost" label="คืนค่าเริ่มต้นของลิสต์นี้" onPress={resetAll} /> : null}
     </View>
   );
 }

@@ -125,3 +125,9 @@ export function hoursText(mins: number): string {
   const h = mins / 60;
   return `${h % 1 === 0 ? h : h.toFixed(1)} ชม.`;
 }
+
+/** วันแบบสั้น "พฤ 5 พ.ย." — ใช้ในปุ่ม/ข้อความแจ้งที่เนื้อที่จำกัด */
+export function shortThai(iso: string): string {
+  const d = fromISO(iso);
+  return `${WD_TH[wdMon(iso)]} ${d.getDate()} ${MONTH_TH[d.getMonth()]}`;
+}
