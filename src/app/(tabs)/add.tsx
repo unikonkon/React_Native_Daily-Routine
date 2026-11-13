@@ -3,15 +3,17 @@
 // แก้ไข: แถบ "กำลังแก้ไข" + ป้าย "เปลี่ยนแล้ว" ต่อขั้น + การ์ดขอบเขตชุดทำซ้ำ (มีผล n ครั้ง)
 // แถบล่าง: ‹ กลับ (เพิ่ม = เก็บร่างไว้ · แก้ไข = ทิ้งการแก้ไข) + บันทึก / บันทึกการแก้ไข
 // โน้ตของครั้งนั้น (ขั้น ① · ไม่บังคับ): บันทึกพร้อมกิจกรรม — ชุดเดียวกับโน้ตในแผ่นรายละเอียด (ตั้งค่าที่ ตั้งค่า › จัดการโน้ต)
+// ขณะพิมพ์โน้ต: แถบ ยกเลิก / เสร็จ ติดขอบบนคีย์บอร์ด (ปุ่มบันทึกของฟอร์มอยู่หลังคีย์บอร์ด และ Enter ในช่องโน้ต = ขึ้นบรรทัดใหม่)
 import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, TextInput, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Keyboard, Pressable, ScrollView, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type ScrollViewInstance, type TextInputInstance } from 'react-native';
 
 import { Field } from '@/components/field';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
 import { MonthYearPicker } from '@/components/month-year-picker';
+import { NoteBtn, NoteKeyboardBar, useKeyboardHeight } from '@/components/note-bar';
 import { Screen } from '@/components/screen';
 import { SnippetChips } from '@/components/snippet-chips';
 import { SvgIcon } from '@/components/svg-icon';
@@ -30,6 +32,10 @@ import { useUI } from '@/stores/ui';
 
 type Step = 1 | 2 | 3 | 4;
 type Draft = ReturnType<typeof useDraft.getState>;
+/** รอบการพิมพ์โน้ต (ตั้งแต่แตะช่องจนคีย์บอร์ดหุบ) — before = ข้อความตอนแตะช่อง ไว้ให้ "ยกเลิก" ย้อนกลับ */
+type NoteSession = { before: string };
+/** ความสูงโดยประมาณของแถบเหนือคีย์บอร์ด — ใช้เลื่อนช่องโน้ตให้พ้นแถบ */
+const NOTE_BAR_H = 56;
 
 const REPEATS: { key: RepeatRule; label: string }[] = [
   { key: 'none', label: 'ครั้งเดียว' },
@@ -156,6 +162,53 @@ export default function AddScreen() {
   const askScope = !!editing && editing.repeat !== 'none' && !!d.editDate && d.editDate > editing.startDate;
   const analysis = useScheduleAnalysis();
   const [dragging, setDragging] = useState(false); // ลากเลือกเวลาอยู่ → ล็อกการเลื่อนหน้า
+
+  // ---------- แถบ ยกเลิก / เสร็จ เหนือคีย์บอร์ด ขณะพิมพ์โน้ต ----------
+  const kb = useKeyboardHeight();
+  const { height: winH } = useWindowDimensions();
+  const noteInputRef = useRef<TextInputInstance>(null);
+  const scrollY = useRef(0);
+  const [noteSession, setNoteSession] = useState<NoteSession | null>(null);
+  const noteBarOn = !!noteSession && kb > 0;
+  /** โน้ตเปลี่ยนจากตอนแตะช่องรอบนี้ไหม (เทียบหลังตัดบรรทัดแม่แบบที่ไม่ได้กรอก) — เปลี่ยนแล้วถึงมีปุ่ม "ยกเลิก" */
+  const noteTouched = !!noteSession && draftNote(d) !== draftNote({ note: noteSession.before, cat: d.cat });
+  // แถบกินที่เหนือคีย์บอร์ดเพิ่ม — ช่องโน้ตที่ถูกแถบ/คีย์บอร์ดบังให้เลื่อนขึ้นมาพ้น (รอคีย์บอร์ดขึ้นสุดก่อนวัด)
+  useEffect(() => {
+    if (!noteBarOn) return;
+    const id = setTimeout(() => {
+      noteInputRef.current?.measureInWindow((_x, y, _w, h) => {
+        const over = y + h - (winH - kb - NOTE_BAR_H - 12);
+        if (over > 0) scrollRef.current?.scrollTo({ y: scrollY.current + over, animated: true });
+      });
+    }, 320);
+    return () => clearTimeout(id);
+  }, [noteBarOn, kb, winH]);
+  const noteBar = noteBarOn ? (
+    <NoteKeyboardBar
+      text={
+        noteTouched
+          ? d.editId
+            ? 'แก้โน้ตแล้ว · บันทึกพร้อมการแก้ไขกิจกรรม'
+            : 'โน้ตบันทึกพร้อมกิจกรรมเมื่อกด “บันทึก”'
+          : 'พิมพ์โน้ตของครั้งนี้ (ไม่บังคับ)'
+      }
+      color={noteTouched ? t.accentInk : t.faint}
+      strong={noteTouched}>
+      {noteTouched ? (
+        <NoteBtn
+          big
+          label="ยกเลิก"
+          a11y="ยกเลิกที่พิมพ์โน้ตรอบนี้"
+          onPress={() => {
+            // ย้อนเป็นข้อความตอนแตะช่องรอบนี้ (ที่กด "เสร็จ" ไปก่อนหน้ายังอยู่) แล้วหุบคีย์บอร์ด
+            if (noteSession) d.set({ note: noteSession.before });
+            Keyboard.dismiss();
+          }}
+        />
+      ) : null}
+      <NoteBtn big label="เสร็จ" icon="check" tone="primary" a11y="เสร็จ เก็บโน้ตไว้ในฟอร์มและหุบคีย์บอร์ด" onPress={() => Keyboard.dismiss()} />
+    </NoteKeyboardBar>
+  ) : null;
   const onSave = useSave(editing, askScope, () => setOpen(1));
 
   const dirty = !!d.cat || !!d.title || !!d.editId;
@@ -223,6 +276,8 @@ export default function AddScreen() {
       headerRight={headerRight}
       scrollRef={scrollRef}
       scrollLocked={dragging}
+      keyboardBar={noteBar}
+      onScrollY={(y) => (scrollY.current = y)}
       onBack={goBack}
       action={{ label: d.editId ? 'บันทึกการแก้ไข' : 'บันทึก', icon: 'check', onPress: onSave }}>
       {d.editId ? <EditBanner title={editing?.title ?? d.title} date={d.editDate} /> : null}
@@ -232,7 +287,7 @@ export default function AddScreen() {
         <View onLayout={(e: LayoutChangeEvent) => (stepY.current[1] = e.nativeEvent.layout.y)}>
           {open === 1 ? (
             <StepOpen n={1} title="หมวดและรายละเอียด">
-              <DetailsBody />
+              <DetailsBody noteInputRef={noteInputRef} onNoteSession={setNoteSession} />
               <NextBtn label="ถัดไป · วันที่และการทำซ้ำ" disabled={!step1Done} hint={!d.cat ? 'เลือกหมวดก่อน' : !step1Done ? 'ใส่ชื่อกิจกรรม' : undefined} onPress={() => setOpen(2)} />
             </StepOpen>
           ) : (
@@ -721,7 +776,7 @@ function useSave(editing: Activity | undefined, askScope: boolean, openStep1: ()
 
 // ---------- ส่วนบน: หมวด + รายละเอียด ----------
 
-function DetailsBody() {
+function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<TextInputInstance | null>; onNoteSession: (s: NoteSession | null) => void }) {
   const t = useTokens();
   const d = useDraft();
   const router = useRouter();
@@ -938,7 +993,7 @@ function DetailsBody() {
           </>
         ) : null}
 
-        {d.cat ? <FormNote cat={d.cat} /> : null}
+        {d.cat ? <FormNote cat={d.cat} inputRef={noteInputRef} onSession={onNoteSession} /> : null}
       </Card>
     </>
   );
@@ -949,14 +1004,16 @@ function DetailsBody() {
  * เป็นร่างจนกด "บันทึก" ของฟอร์ม — แก้ไข: โน้ตของวันที่เปิดมาแก้ ตัวเดียวกับในแผ่นรายละเอียด (ไม่ลงทั้งชุด)
  * แม่แบบ/ข้อความตัวอย่างตามหมวด · ชิปโน้ตสำเร็จรูป (ปักหมุดก่อน) · ✕ ล้าง · เพิ่มหลายวันเลือกได้ว่าลงวันแรกหรือทุกวัน
  */
-function FormNote({ cat }: { cat: CatId }) {
+function FormNote({ cat, inputRef, onSession }: { cat: CatId; inputRef: RefObject<TextInputInstance | null>; onSession: (s: NoteSession | null) => void }) {
   const t = useTokens();
   const d = useDraft();
   const router = useRouter();
   const display = useSettings((s) => s.noteDisplay);
   const cfg = useSettings((s) => s.noteCfg[cat]);
-  /** แม่แบบเติมให้ครั้งเดียวต่อการเปิดขั้น — ล้างแล้วไม่เด้งกลับ */
+  /** แม่แบบเติมให้เมื่อแตะช่องที่ยังว่าง — ล้างด้วย ✕ ระหว่างพิมพ์แล้วไม่เด้งกลับ (ออกจากช่องทั้งที่ว่าง = พร้อมเติมใหม่รอบหน้า) */
   const [tplArmed, setTplArmed] = useState(!d.note);
+  // ช่องถูกถอดทั้งที่ยังโฟกัส (พับขั้น ① / ล้างฟอร์ม) → ไม่มี onBlur — ปิดแถบเหนือคีย์บอร์ดเอง
+  useEffect(() => () => onSession(null), [onSession]);
   if (!display.form) return null;
 
   const clean = stripTemplate(d.note, cfg.template);
@@ -1012,7 +1069,15 @@ function FormNote({ cat }: { cat: CatId }) {
         <TextInput
           value={d.note}
           onChangeText={(note) => d.set({ note })}
-          onFocus={fill}
+          ref={inputRef}
+          onFocus={() => {
+            onSession({ before: d.note }); // ก่อนเติมแม่แบบ — "ยกเลิก" ย้อนถึงตรงนี้
+            fill();
+          }}
+          onBlur={() => {
+            onSession(null);
+            if (!useDraft.getState().note.trim()) setTplArmed(true);
+          }}
           placeholder={cfg.hint || 'เช่น สรุปสั้น ๆ ของครั้งนี้'}
           placeholderTextColor={t.faint}
           multiline

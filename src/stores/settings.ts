@@ -27,7 +27,7 @@ export interface NoteSnippet {
 export interface NoteDisplay {
   /** โน้ตบนการ์ดรายการ (หน้าวัน · การ์ดวันในเดือน · ทบทวน) */
   rail: boolean;
-  /** จำนวนบรรทัดโน้ตบนการ์ด 1–4 */
+  /** จำนวนบรรทัดโน้ตบนการ์ด 1–7 */
   railLines: number;
   /** โน้ตครั้งก่อนในแผ่นรายละเอียด 0–5 (0 = ไม่แสดง) */
   prevCount: number;
@@ -44,7 +44,7 @@ export interface NoteDisplay {
 }
 
 export const NOTE_DISPLAY_DEFAULTS: NoteDisplay = { rail: true, railLines: 2, prevCount: 1, chips: 4, form: true, formChips: 6, report: true, morning: false };
-export const NOTE_LIMITS = { railLines: [1, 4], prevCount: [0, 5], chips: [0, 12], formChips: [0, 12] } as const;
+export const NOTE_LIMITS = { railLines: [1, 7], prevCount: [0, 5], chips: [0, 12], formChips: [0, 12] } as const;
 
 interface SettingsState {
   /** โหมดแสดงผลที่เลือก — ใช้ useThemeName() (components/ui) เพื่อได้ธีมที่ใช้จริง */

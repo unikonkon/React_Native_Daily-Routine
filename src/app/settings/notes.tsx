@@ -18,8 +18,9 @@ import { resyncNotifications, useActivities } from '@/stores/activities';
 import { NOTE_DISPLAY_DEFAULTS, NOTE_LIMITS, useSettings, type NoteDisplay, type NoteSnippet } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
 
-/** โน้ตตัวอย่างในพรีวิวการ์ด — 4 บรรทัด ให้เห็นผลของ "จำนวนบรรทัด" ชัด */
-const SAMPLE_NOTE = 'เสร็จ: สรุปขอบเขตงานเฟส 2\nค้าง: รอลูกค้ายืนยันราคา\nนัดต่อ: ศุกร์นี้ 10:00\nเตรียม: สไลด์สรุป';
+/** โน้ตตัวอย่างในพรีวิวการ์ด — ยาวกว่าจำนวนบรรทัดสูงสุด (7) 1 บรรทัด ให้เห็นผลของ "จำนวนบรรทัด" และการตัด … ทุกค่า */
+const SAMPLE_NOTE =
+  'เสร็จ: สรุปขอบเขตงานเฟส 2\nค้าง: รอลูกค้ายืนยันราคา\nนัดต่อ: ศุกร์นี้ 10:00\nเตรียม: สไลด์สรุป\nผู้เข้าร่วม: ทีมออกแบบ 4 คน\nงบ: รอฝ่ายบัญชีอนุมัติ\nความเสี่ยง: กำหนดส่งชนวันหยุด\nหมายเหตุ: ส่งสรุปทางอีเมลภายในวันนี้';
 
 export default function NotesScreen() {
   const t = useTokens();

@@ -2,12 +2,13 @@
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Keyboard, Modal, Platform, Pressable, ScrollView, TextInput, View, type TextInputInstance } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Keyboard, Modal, Pressable, ScrollView, TextInput, View, useWindowDimensions, type TextInputInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StatusDot } from '@/components/b1/status-circle';
 import { useNow } from '@/components/b1/use-now';
 import { Icon } from '@/components/icon';
+import { NoteBtn, NoteKeyboardBar, useKeyboardHeight } from '@/components/note-bar';
 import { SnippetChips } from '@/components/snippet-chips';
 import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Chip, ChipRow, PriBadge, Txt, useTokens } from '@/components/ui';
@@ -26,22 +27,6 @@ import { useUI } from '@/stores/ui';
 export function ActivitySheet() {
   const sheet = useUI((s) => s.sheet);
   return sheet ? <SheetBody key={`${sheet.id}:${sheet.date}`} id={sheet.id} date={sheet.date} focusNote={!!sheet.focusNote} /> : null;
-}
-
-/** ความสูงคีย์บอร์ดปัจจุบัน (0 = ปิด) — รองรับทั้ง iOS (will) และ Android (did) */
-function useKeyboardHeight() {
-  const [height, setHeight] = useState(0);
-  useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const s = Keyboard.addListener(showEvt, (e) => setHeight(e.endCoordinates?.height ?? 0));
-    const h = Keyboard.addListener(hideEvt, () => setHeight(0));
-    return () => {
-      s.remove();
-      h.remove();
-    };
-  }, []);
-  return height;
 }
 
 function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNote: boolean }) {
@@ -70,6 +55,9 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [adding, setAdding] = useState(false); // เปิดรายการรายชื่อเพื่อเพิ่มเข้าเคสนี้
   const kb = useKeyboardHeight();
+  const { height: winH } = useWindowDimensions();
+  /** เคอร์เซอร์อยู่ในช่องโน้ต — คู่กับคีย์บอร์ดเปิด = โหมดจดโน้ต (แผ่นย่อเหลือส่วนโน้ต + แถบปุ่มติดเหนือคีย์บอร์ด) */
+  const [noteFocused, setNoteFocused] = useState(false);
 
   // เข้าเร็วและลื่น: Modal ไม่ใส่แอนิเมชันของระบบ (ช้า ~300ms) — สไลด์ขึ้น+จางเข้าเองด้วย native driver สั้น ๆ
   const anim = useRef(new Animated.Value(0)).current;
@@ -156,6 +144,16 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
     setLeaveAsk({ go });
   };
   const requestClose = () => leave(closeSheet);
+  /**
+   * โหมดจดโน้ต: กำลังพิมพ์ในช่องโน้ตและคีย์บอร์ดเปิดอยู่ — ซ่อนส่วนอื่นของแผ่นชั่วคราว (สถานะ/เลื่อน/แก้ไข/ลบ/รายชื่อ)
+   * ให้ช่องโน้ต + โน้ตครั้งก่อน + ชิปพอดีเหนือคีย์บอร์ด และย้ายปุ่ม ยกเลิก/บันทึก ไปแถบติดขอบคีย์บอร์ด (ไม่ถูกคีย์บอร์ดบัง)
+   * ซ่อนด้วยการสลับเป็น null ทีละส่วน — ช่องโน้ตต้องอยู่ตำแหน่งเดิมในโครง ไม่งั้นถูกสร้างใหม่แล้วคีย์บอร์ดหุบ
+   */
+  const typing = noteFocused && kb > 0 && !adding && !editContact && !confirm && !leaveAsk;
+  /** ความสูงที่แผ่นใช้ได้เหนือคีย์บอร์ด (ไม่ทับแถบสถานะ) — เกินนี้โน้ตครั้งก่อนหดก่อน */
+  const typingMax = winH - kb - insets.top - 6;
+  /** จอเตี้ย: ตัดบรรทัดวันเวลาออกด้วย ให้ช่องโน้ตยังสูงพอ */
+  const tight = typing && typingMax < 460;
   /**
    * แทรกโน้ตครั้งก่อน/โน้ตสำเร็จรูปลงช่อง — ช่องว่าง (หรือมีแค่แม่แบบ) = แทนที่ · มีข้อความแล้ว = ต่อท้าย
    * เป็นร่างจนกด "บันทึก" เหมือนการพิมพ์เอง · ข้อความถูกคัดลอกมา (แก้/ลบต้นทางทีหลังไม่กระทบโน้ตนี้)
@@ -276,7 +274,8 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
           padding: 20,
           // ยกแผ่นให้พ้นคีย์บอร์ด (iOS/Android) — เปิดคีย์บอร์ด: ดันขึ้นด้วย marginBottom, ปิด: เว้น safe area
           marginBottom: kb,
-          paddingBottom: kb > 0 ? 20 : insets.bottom + 20,
+          paddingBottom: typing ? 0 : kb > 0 ? 20 : insets.bottom + 20,
+          maxHeight: typing ? typingMax : undefined,
           gap: 12,
           // เงานุ่มแทน overlay — ให้แผ่นยังแยกจากเนื้อหาด้านหลังชัด
           shadowColor: '#000',
@@ -343,7 +342,7 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
           </Pressable>
         </View>
 
-        {state === 'overdue' ? (
+        {typing ? null : state === 'overdue' ? (
           <Txt size={12.5} weight="bold" color={t.warn}>
             ค้างบันทึก · เลยเวลามา {date < now.date ? 'ตั้งแต่วันก่อน' : durText(now.min - item.endMin)}
           </Txt>
@@ -354,17 +353,19 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
         ) : item.ostatus === 'rescheduled' ? (
           <Txt size={12.5} weight="bold" color={t.accentInk}>เลื่อนไปแล้ว</Txt>
         ) : null}
-        <Txt size={21} weight="bold" style={{ lineHeight: 29 }}>{item.title}</Txt>
-        <Txt size={14} num color={t.sub}>
-          {thaiDate(date)} · {fmtRange(item.startMin, item.endMin)} ({durText(item.endMin - item.startMin)})
-        </Txt>
-        {item.loc ? (
+        <Txt size={typing ? 17 : 21} weight="bold" numberOfLines={typing ? 1 : undefined} style={{ lineHeight: typing ? 24 : 29, flexShrink: 0 }}>{item.title}</Txt>
+        {tight ? null : (
+          <Txt size={14} num color={t.sub}>
+            {thaiDate(date)} · {fmtRange(item.startMin, item.endMin)} ({durText(item.endMin - item.startMin)})
+          </Txt>
+        )}
+        {item.loc && !typing ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <SvgIcon name="mappin" size={14} color={t.sub} />
             <Txt size={13} color={t.sub}>{item.loc}</Txt>
           </View>
         ) : null}
-        {item.cat === 'case' ? (
+        {item.cat === 'case' && !typing ? (
           <>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <SvgIcon name={item.channel === 'online' ? 'video' : 'users'} size={14} color={t.sub} />
@@ -421,8 +422,8 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
         ) : null}
 
         {!confirm ? (
-          <View style={{ gap: 12 }}>
-            {canResc ? (
+          <View style={{ gap: 12, flexShrink: 1 }}>
+            {canResc && !typing ? (
               <View style={{ gap: 6 }}>
                 <Txt size={12.5} weight="bold" color={t.sub}>สถานะครั้งนี้</Txt>
                 <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', backgroundColor: t.track, borderRadius: 14, padding: 3, gap: 2 }}>
@@ -448,13 +449,14 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
               </View>
             ) : null}
 
-            <View style={{ gap: 6 }}>
+            <View style={{ gap: 6, flexShrink: 1 }}>
               <Txt size={12.5} weight="bold" color={t.sub}>
                 โน้ตของครั้งนี้ <Txt size={12.5} color={t.faint}>(ไม่บังคับ)</Txt>
               </Txt>
               {/* โน้ตครั้งก่อนของกิจกรรมเดียวกัน (ใหม่ → เก่า ตามจำนวนที่ตั้งไว้) — ดูความต่อเนื่อง · "ใช้ต่อ" = เอามาเป็นตั้งต้น */}
               {prevNotes.length ? (
-                <ScrollView style={{ maxHeight: 176, flexGrow: 0 }} nestedScrollEnabled showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
+                // โหมดจดโน้ต: เตี้ยลงและหดก่อนส่วนอื่นเมื่อที่เหลือน้อย (flexShrink สูง) · persistTaps ให้ "ใช้ต่อ" กดได้ทันทีโดยคีย์บอร์ดไม่หุบ
+                <ScrollView style={{ maxHeight: typing ? 112 : 176, flexGrow: 0, flexShrink: 100 }} nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 4 }}>
                   {prevNotes.map((p, i) => (
                     <View key={p.date} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: t.track, borderRadius: 10, paddingLeft: 10, paddingRight: 6, paddingVertical: 7 }}>
                       <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
@@ -476,18 +478,23 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
               ) : null}
               {/* โน้ตสำเร็จรูปของหมวดนี้ — แตะเพื่อแทรก (ปักหมุดก่อน แล้วใช้บ่อย) · จำนวนตั้งที่ จัดการโน้ต › แผ่นรายละเอียด */}
               <SnippetChips cat={item.cat} limit={noteDisplay.chips} onPick={insertNote} onManage={openNoteSettings} />
-              <View>
+              {/* ช่องโน้ตหดได้เป็นลำดับสุดท้าย (จอเตี้ยมาก) — แถบปุ่มต้องไม่ถูกดันลงหลังคีย์บอร์ด */}
+              <View style={{ flexShrink: 1 }}>
                 <TextInput
                   ref={noteRef}
                   value={noteText}
                   onChangeText={setNoteText}
-                  onFocus={fillTemplate}
+                  onFocus={() => {
+                    setNoteFocused(true);
+                    fillTemplate();
+                  }}
+                  onBlur={() => setNoteFocused(false)}
                   autoFocus={focusNote}
                   placeholder={noteCfg.hint || 'เช่น สรุปสั้น ๆ ของครั้งนี้'}
                   placeholderTextColor={t.faint}
                   multiline
                   accessibilityLabel="โน้ตของครั้งนี้"
-                  style={{ minHeight: 64, maxHeight: 120, borderRadius: 12, borderWidth: 1, borderColor: notePending === 'delete' ? DANGER : notePending ? '#D2603A' : t.rail, backgroundColor: t.card, paddingLeft: 12, paddingRight: 40, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
+                  style={{ minHeight: 64, maxHeight: 120, flexShrink: 1, borderRadius: 12, borderWidth: 1, borderColor: notePending === 'delete' ? DANGER : notePending ? '#D2603A' : t.rail, backgroundColor: t.card, paddingLeft: 12, paddingRight: 40, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
                 />
                 {/* ✕ ล้างข้อความทั้งหมดในช่อง — มีโน้ตเดิมแล้วปล่อยว่าง = ร่างการลบ (ยังไม่ลบจนกด "ยืนยันลบ") */}
                 {noteText ? (
@@ -496,8 +503,8 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
                   </Pressable>
                 ) : null}
               </View>
-              {/* มีการแก้ไขค้าง → สถานะ + ยกเลิก / บันทึก (ยืนยันลบ) · ไม่มี → ✓ บันทึกแล้ว + ลบโน้ต */}
-              {notePending ? (
+              {/* มีการแก้ไขค้าง → สถานะ + ยกเลิก / บันทึก (ยืนยันลบ) · ไม่มี → ✓ บันทึกแล้ว + ลบโน้ต · โหมดจดโน้ต: ย้ายไปแถบเหนือคีย์บอร์ด */}
+              {typing ? null : notePending ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 34 }}>
                   <Txt size={11.5} weight="bold" color={notePending === 'delete' ? DANGER : t.accentInk} style={{ flex: 1 }} numberOfLines={2}>
                     {notePending === 'delete' ? 'จะลบโน้ตนี้ — ยืนยันเพื่อลบ' : notePending === 'add' ? 'โน้ตใหม่ · ยังไม่บันทึก' : 'แก้ไขแล้ว · ยังไม่บันทึก'}
@@ -525,7 +532,7 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
               ) : null}
             </View>
 
-            {canResc ? (
+            {canResc && !typing ? (
               <View style={{ gap: 6 }}>
                 <Txt size={12.5} weight="bold" color={t.sub}>เลื่อนครั้งนี้ไป</Txt>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
@@ -546,15 +553,17 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
               </View>
             ) : null}
 
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Btn style={{ flex: 1 }} kind="ghost" renderIcon={(c, sz) => <SvgIcon name="edit" size={sz} color={c} />} label="แก้ไขกิจกรรม" onPress={onEdit} />
-              <Pressable accessibilityRole="button" onPress={() => setConfirm(true)} style={{ height: 46, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <SvgIcon name="trash" size={16} color={t.warn} />
-                <Txt size={14} weight="bold" color={t.warn}>ลบ…</Txt>
-              </Pressable>
-            </View>
+            {typing ? null : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Btn style={{ flex: 1 }} kind="ghost" renderIcon={(c, sz) => <SvgIcon name="edit" size={sz} color={c} />} label="แก้ไขกิจกรรม" onPress={onEdit} />
+                <Pressable accessibilityRole="button" onPress={() => setConfirm(true)} style={{ height: 46, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <SvgIcon name="trash" size={16} color={t.warn} />
+                  <Txt size={14} weight="bold" color={t.warn}>ลบ…</Txt>
+                </Pressable>
+              </View>
+            )}
 
-            {seriesStat ? (
+            {seriesStat && !typing ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: t.line, paddingTop: 10 }}>
                 <Txt size={12.5} color={t.sub} style={{ flex: 1 }}>
                   ชุดนี้: ทำแล้ว {seriesStat.done} จาก {seriesStat.total} ครั้ง{seriesStat.skip ? ` · ข้าม ${seriesStat.skip}` : ''}
@@ -619,35 +628,42 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
         )}
         </>
         )}
+
+        {/* แถบปุ่มโน้ตติดขอบบนคีย์บอร์ด — มีการแก้ไขค้าง: ยกเลิก / บันทึก (ยืนยันลบ) · ไม่มี: เสร็จ = หุบคีย์บอร์ด */}
+        {typing ? (
+          <NoteKeyboardBar
+            bleed={20}
+            strong={!!notePending}
+            color={notePending === 'delete' ? DANGER : notePending ? t.accentInk : savedNote ? t.greenInk : t.faint}
+            text={
+              notePending === 'delete'
+                ? 'จะลบโน้ตนี้ — ยืนยันเพื่อลบ'
+                : notePending === 'add'
+                  ? 'โน้ตใหม่ · ยังไม่บันทึก'
+                  : notePending === 'edit'
+                    ? 'แก้ไขแล้ว · ยังไม่บันทึก'
+                    : savedNote
+                      ? '✓ บันทึกแล้ว'
+                      : 'ยังไม่มีโน้ต — พิมพ์แล้วกดบันทึก'
+            }>
+            {notePending ? (
+              <>
+                <NoteBtn big label="ยกเลิก" onPress={discardNote} />
+                <NoteBtn
+                  big
+                  label={notePending === 'delete' ? 'ยืนยันลบ' : 'บันทึก'}
+                  icon={notePending === 'delete' ? 'trash' : 'check'}
+                  tone={notePending === 'delete' ? 'danger' : 'primary'}
+                  onPress={commitNote}
+                />
+              </>
+            ) : (
+              <NoteBtn big label="เสร็จ" a11y="เสร็จ หุบคีย์บอร์ด" onPress={() => noteRef.current?.blur()} />
+            )}
+          </NoteKeyboardBar>
+        ) : null}
       </Animated.View>
     </Modal>
-  );
-}
-
-/** ปุ่มเล็กของแถวโน้ต — ghost (ยกเลิก) · primary (บันทึก) · danger (ยืนยันลบ) */
-function NoteBtn({ label, icon, tone, onPress }: { label: string; icon?: string; tone?: 'primary' | 'danger'; onPress: () => void }) {
-  const t = useTokens();
-  const bg = tone === 'danger' ? [DANGER, '#A33A2E'] : tone === 'primary' ? ['#B44E2C', '#9A3F22'] : null;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label}โน้ต`}
-      onPress={onPress}
-      hitSlop={6}
-      style={({ pressed }) => ({
-        height: 32,
-        paddingHorizontal: bg ? 14 : 12,
-        borderRadius: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        backgroundColor: bg ? (pressed ? bg[1] : bg[0]) : pressed ? t.rail : t.track,
-      })}>
-      {icon ? <SvgIcon name={icon} size={13} color={bg ? '#FFFFFF' : t.sub} strokeWidth={2.6} /> : null}
-      <Txt size={12.5} weight="bold" color={bg ? '#FFFFFF' : t.sub}>
-        {label}
-      </Txt>
-    </Pressable>
   );
 }
 
