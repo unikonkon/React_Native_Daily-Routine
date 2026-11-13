@@ -12,8 +12,7 @@ import { ActivitySheet } from '@/components/activity-sheet';
 import { LaunchSplash } from '@/components/launch-splash';
 import { RescheduleModal } from '@/components/reschedule-modal';
 import { ToastHost } from '@/components/toast';
-import { useThemeName } from '@/components/ui';
-import { PALETTES } from '@/constants/theme';
+import { useThemeName, useTokens } from '@/components/ui';
 import { useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
 import { useSettings } from '@/stores/settings';
@@ -34,6 +33,7 @@ export default function RootLayout() {
   // โหลดฐานข้อมูลไม่สำเร็จ — เดิมกลืน error แล้วเปิดแอปเป็นหน้าว่าง (เหมือนข้อมูลหาย และบันทึกทับได้)
   const [bootError, setBootError] = useState<string | null>(null);
   const theme = useThemeName();
+  const pal = useTokens();
 
   const boot = useCallback(() => {
     Promise.all([useSettings.getState().boot(), useActivities.getState().boot(), useContacts.getState().boot()])
@@ -53,7 +53,6 @@ export default function RootLayout() {
   );
 
   if (bootError) {
-    const pal = PALETTES[theme];
     return (
       <>
         <View style={{ flex: 1, backgroundColor: pal.bg, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 }}>
@@ -81,7 +80,7 @@ export default function RootLayout() {
   return (
     <>
       <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: PALETTES[theme].bg } }}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: pal.bg } }}>
         <Stack.Screen name="(tabs)" />
       </Stack>
       <ActivitySheet />

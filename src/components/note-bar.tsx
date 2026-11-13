@@ -26,7 +26,7 @@ export function useKeyboardHeight() {
 /** ปุ่มเล็กของแถวโน้ต — ghost (ยกเลิก) · primary (บันทึก) · danger (ยืนยันลบ) · big = ในแถบเหนือคีย์บอร์ด */
 export function NoteBtn({ label, icon, tone, big, a11y, onPress }: { label: string; icon?: string; tone?: 'primary' | 'danger'; big?: boolean; a11y?: string; onPress: () => void }) {
   const t = useTokens();
-  const bg = tone === 'danger' ? [DANGER, '#A33A2E'] : tone === 'primary' ? ['#B44E2C', '#9A3F22'] : null;
+  const bg = tone === 'danger' ? [DANGER, '#A33A2E'] : tone === 'primary' ? [t.primary, t.primaryDown] : null;
   return (
     <Pressable
       accessibilityRole="button"

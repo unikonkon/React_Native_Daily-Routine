@@ -1,6 +1,20 @@
 import { create } from 'zustand';
 
-import { CAT_OPTIONS, CATS, NOTE_DEFAULTS, QUICK_PICKS, type CatId, type NoteCfg, type ThemePref } from '@/constants/theme';
+import {
+  CAT_OPTIONS,
+  CATS,
+  DEFAULT_DARK_THEME,
+  DEFAULT_LIGHT_THEME,
+  isDarkThemeId,
+  isLightThemeId,
+  NOTE_DEFAULTS,
+  QUICK_PICKS,
+  type CatId,
+  type DarkThemeId,
+  type LightThemeId,
+  type NoteCfg,
+  type ThemePref,
+} from '@/constants/theme';
 import * as db from '@/lib/db';
 
 /** ตัวเลือกย่อยเริ่มต้นของทุกหมวด (หมวดที่ไม่มีชุดตัวเลือก = ลิสต์ว่าง) */
@@ -47,8 +61,11 @@ export const NOTE_DISPLAY_DEFAULTS: NoteDisplay = { rail: true, railLines: 2, pr
 export const NOTE_LIMITS = { railLines: [1, 7], prevCount: [0, 5], chips: [0, 12], formChips: [0, 12] } as const;
 
 interface SettingsState {
-  /** โหมดแสดงผลที่เลือก — ใช้ useThemeName() (components/ui) เพื่อได้ธีมที่ใช้จริง */
+  /** โหมดแสดงผลที่เลือก — ใช้ useThemeName() (components/ui) เพื่อได้โหมดที่ใช้จริง */
   theme: ThemePref;
+  /** ชุดสีที่ใช้เมื่ออยู่โหมดสว่าง / โหมดมืด — "ตามระบบ" สลับระหว่างสองชุดนี้ · ใช้ useTokens() เพื่อได้ palette จริง */
+  themeLight: LightThemeId;
+  themeDark: DarkThemeId;
   notifMaster: boolean;
   morning: boolean;
   /** quick-pick chips ต่อหมวด — เริ่มจาก QUICK_PICKS แก้ไขได้ใน settings/categories */
@@ -65,6 +82,8 @@ interface SettingsState {
   sheetsUrls: string[];
   boot: () => Promise<void>;
   setTheme: (t: ThemePref) => void;
+  setThemeLight: (id: LightThemeId) => void;
+  setThemeDark: (id: DarkThemeId) => void;
   setNotifMaster: (v: boolean) => void;
   setMorning: (v: boolean) => void;
   setQuickPicks: (cat: CatId, list: string[]) => void;
@@ -196,6 +215,8 @@ export const useSettings = create<SettingsState>((set, get) => {
   };
   return {
   theme: 'system',
+  themeLight: DEFAULT_LIGHT_THEME,
+  themeDark: DEFAULT_DARK_THEME,
   notifMaster: true,
   morning: true,
   quickPicks: QUICK_PICKS,
@@ -211,6 +232,9 @@ export const useSettings = create<SettingsState>((set, get) => {
     set({
       // ยังไม่เคยเลือก = ตามระบบ · ค่าเดิมที่บันทึกไว้ (light/dark) คงไว้ตามที่ผู้ใช้เคยเลือก
       theme: s.theme === 'light' || s.theme === 'dark' || s.theme === 'system' ? s.theme : 'system',
+      // ยังไม่เคยเลือกชุดสี (หรือค่าที่ไม่รู้จัก) = ธีมเดิม
+      themeLight: isLightThemeId(s.theme_light) ? s.theme_light : DEFAULT_LIGHT_THEME,
+      themeDark: isDarkThemeId(s.theme_dark) ? s.theme_dark : DEFAULT_DARK_THEME,
       notifMaster: s.notif_master !== '0',
       morning: s.morning_summary !== '0',
       quickPicks: parseCatLists(s.quick_picks, QUICK_PICKS),
@@ -226,6 +250,14 @@ export const useSettings = create<SettingsState>((set, get) => {
   setTheme: (theme) => {
     set({ theme });
     db.saveSetting('theme', theme);
+  },
+  setThemeLight: (themeLight) => {
+    set({ themeLight });
+    db.saveSetting('theme_light', themeLight);
+  },
+  setThemeDark: (themeDark) => {
+    set({ themeDark });
+    db.saveSetting('theme_dark', themeDark);
   },
   setNotifMaster: (v) => {
     set({ notifMaster: v });

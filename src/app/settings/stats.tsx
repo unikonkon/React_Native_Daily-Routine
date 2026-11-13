@@ -8,7 +8,7 @@ import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
 import { Card, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CATS, CAT_OPTIONS, FONT, GREEN, PRI, PRI_BY_ID, type CatId, type PriorityId } from '@/constants/theme';
+import { ATTN, CATS, CAT_OPTIONS, FONT, GREEN, PRI, PRI_BY_ID, type CatId, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, hoursText, mondayOf, nowMin, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
 import { rangeStats, type RangeStats } from '@/lib/engine';
 import { caseWho, inlineName } from '@/lib/case-contacts';
@@ -266,7 +266,7 @@ export default function StatsScreen() {
                   setOffset(0);
                   resetCaseView();
                 }}
-                style={{ paddingVertical: 8, borderBottomWidth: 2, borderBottomColor: on ? ACCENT : 'transparent', marginBottom: -StyleSheet.hairlineWidth }}>
+                style={{ paddingVertical: 8, borderBottomWidth: 2, borderBottomColor: on ? t.accent : 'transparent', marginBottom: -StyleSheet.hairlineWidth }}>
                 <Txt size={14.5} weight={on ? 'bold' : 'med'} color={on ? t.ink : t.sub}>
                   {k === 'week' ? 'สัปดาห์' : k === 'month' ? 'เดือน' : 'ทั้งหมด'}
                 </Txt>
@@ -281,7 +281,7 @@ export default function StatsScreen() {
             <Txt size={14} weight="bold">{range.label}</Txt>
             {mode !== 'all' && offset !== 0 ? (
               <Pressable onPress={() => { setOffset(0); resetCaseView(); }} hitSlop={6}>
-                <Txt size={10} color={ACCENT}>ย้อนหลัง · กลับปัจจุบัน</Txt>
+                <Txt size={10} color={t.accent}>ย้อนหลัง · กลับปัจจุบัน</Txt>
               </Pressable>
             ) : null}
           </View>
@@ -316,7 +316,7 @@ export default function StatsScreen() {
             <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: t.line2 }} />
 
             <ReportRow k={`ทำเสร็จ${PER_LABEL[mode]}`} sub={`เฉลี่ย ${avgDone.toFixed(1)} /วัน · จาก ${stats.countedDays} วัน`}>
-              <Spark data={series} color={ACCENT} />
+              <Spark data={series} color={t.accent} />
             </ReportRow>
             <ReportRow k="ชั่วโมงลงมือรวม" sub="เฉพาะที่ทำเสร็จ" divider>
               <Txt size={22} num weight="bold">
@@ -329,7 +329,7 @@ export default function StatsScreen() {
               </Txt>
             </ReportRow>
             <ReportRow k="เลื่อนนัด" sub="จำนวนครั้งที่เลื่อนในช่วงนี้" divider>
-              <Txt size={22} num weight="bold" color={stats.rescheduled ? ACCENT : t.ink}>
+              <Txt size={22} num weight="bold" color={stats.rescheduled ? ATTN : t.ink}>
                 {stats.rescheduled}
                 <Txt size={11} color={t.faint} weight="med">
                   {' '}ครั้ง
@@ -426,14 +426,14 @@ export default function StatsScreen() {
                       if (!next) resetCaseView();
                     }}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, paddingTop: 10 }}>
-                    <Txt size={12.5} weight="med" color={ACCENT} style={{ flex: 1 }}>
+                    <Txt size={12.5} weight="med" color={t.accent} style={{ flex: 1 }}>
                       {openCases
                         ? priFilter
                           ? `กรองเฉพาะ ${priFilter} · แตะเพื่อซ่อน`
                           : 'ซ่อนรายละเอียดเคส'
                         : `ดูรายละเอียดเคสทั้งหมด (${stats.caseItems.length})`}
                     </Txt>
-                    <Icon name={openCases ? 'chevD' : 'chevR'} size={16} color={ACCENT} />
+                    <Icon name={openCases ? 'chevD' : 'chevR'} size={16} color={t.accent} />
                   </Pressable>
 
                   {/* รายการเคส — แตะเปิด bottom sheet รายละเอียดเต็ม */}
@@ -587,7 +587,7 @@ function CatSummary({ stats, catOptions }: { stats: RangeStats; catOptions: Reco
               onPress={() => setMetric(k)}
               hitSlop={4}
               style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 99, backgroundColor: on ? t.chip : 'transparent' }}>
-              <Txt size={11} weight={on ? 'bold' : 'med'} color={on ? ACCENT : t.faint}>{k === 'count' ? 'จำนวน' : 'ชั่วโมง'}</Txt>
+              <Txt size={11} weight={on ? 'bold' : 'med'} color={on ? t.accent : t.faint}>{k === 'count' ? 'จำนวน' : 'ชั่วโมง'}</Txt>
             </Pressable>
           );
         })}
@@ -785,7 +785,7 @@ function PeriodBars({ series }: { series: { label: string; done: number }[] }) {
       {series.map((s, i) => (
         <View key={i} style={{ flex: 1, alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' }}>
           <Txt size={9} num color={t.faint}>{s.done || ''}</Txt>
-          <View style={{ width: '100%', minHeight: 3, height: Math.max(3, (s.done / mx) * 46), borderRadius: 4, backgroundColor: ACCENT }} />
+          <View style={{ width: '100%', minHeight: 3, height: Math.max(3, (s.done / mx) * 46), borderRadius: 4, backgroundColor: t.accent }} />
           <Txt size={9} color={t.faint} numberOfLines={1}>{s.label}</Txt>
         </View>
       ))}
@@ -1056,7 +1056,7 @@ function ContactMethods({ contacts, showToast }: { contacts: Contact[]; showToas
             style={{ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: busy ? 0.6 : 1 }}>
             <SvgIcon name={m.icon} size={14} color={t.sub} />
             <Txt size={13} style={{ flex: 1 }} numberOfLines={1}>{busy ? `กำลังเปิด ${m.label}…` : m.display}</Txt>
-            {busy ? <ActivityIndicator size="small" color={ACCENT} /> : <SvgIcon name="extLink" size={14} color={ACCENT} />}
+            {busy ? <ActivityIndicator size="small" color={t.accent} /> : <SvgIcon name="extLink" size={14} color={t.accent} />}
           </Pressable>
         );
       })}

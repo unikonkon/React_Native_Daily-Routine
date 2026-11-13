@@ -1,7 +1,7 @@
 // โครงหน้าจอทุกแท็บ: header + เนื้อหา
 // หน้าแท็บ → header แสดง "แถบแท็บ" (active = pill ส้ม icon+label, อื่น = ไอคอนล้วน) แทนหัวข้อ
 // หน้าย่อย (variant="sub") → หัวเรื่อง 26px + แถบล่าง ‹ กลับ + ปุ่มหลัก
-// สลับธีมได้ที่เดียว: ตั้งค่า → โหมดแสดงผล
+// สลับธีมได้ที่เดียว: ตั้งค่า → ธีมและการแสดงผล
 import { usePathname, useRouter } from 'expo-router';
 import React from 'react';
 import { KeyboardAvoidingView, Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native';

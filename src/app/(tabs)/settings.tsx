@@ -1,5 +1,5 @@
 // แท็บ 3 — ตั้งค่า (ระบบ B1): การ์ดสรุปสัปดาห์ (→ สถิติ · ค้างบันทึก → ทบทวน) + เมนู 3 กลุ่ม
-// การจัดการ · การแจ้งเตือนและการแสดงผล (โหมด สว่าง/มืด/ตามระบบ) · ข้อมูลและขั้นสูง (ข้อมูลตัวอย่างมีขั้นยืนยัน)
+// การจัดการ · การแจ้งเตือนและการแสดงผล (ธีม → หน้า settings/theme) · ข้อมูลและขั้นสูง (ข้อมูลตัวอย่างมีขั้นยืนยัน)
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Linking, Pressable, StyleSheet, View, type ScrollViewInstance } from 'react-native';
@@ -9,8 +9,8 @@ import { StatusDot } from '@/components/b1/status-circle';
 import { useNow } from '@/components/b1/use-now';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
-import { Btn, Card, Row, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
-import { CATS, GREEN, type ThemePref } from '@/constants/theme';
+import { Btn, Card, Row, Toggle, Txt, useTokens } from '@/components/ui';
+import { ATTN, CATS, DARK_THEMES, GREEN, LIGHT_THEMES } from '@/constants/theme';
 import { MONTH_TH_FULL, addDays, beYear, fromISO, nowMin, todayISO } from '@/lib/dates';
 import { restoreAll } from '@/lib/db';
 import { computeStats } from '@/lib/engine';
@@ -81,6 +81,8 @@ export default function SettingsScreen() {
   const getDay = useDayReader();
   const now = useNow();
   const overdue7 = useMemo(() => overdueBetween(getDay, addDays(now.date, -6), now.date, now).length, [getDay, now]);
+  const lightName = LIGHT_THEMES.find((x) => x.id === settings.themeLight)?.name ?? '';
+  const darkName = DARK_THEMES.find((x) => x.id === settings.themeDark)?.name ?? '';
   const split = CATS.filter((c) => stats.hoursByCat[c.id]).map((c) => ({ ...c, h: stats.hoursByCat[c.id] }));
   const totalH = split.reduce((a, c) => a + c.h, 0);
 
@@ -208,22 +210,12 @@ export default function SettingsScreen() {
             />
           }
         />
-        <View style={{ minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 }}>
-          <Txt size={14.5} style={{ flex: 1 }}>
-            โหมดแสดงผล
-          </Txt>
-          <View style={{ width: 216 }}>
-            <Segmented<ThemePref>
-              options={[
-                { key: 'light', label: 'สว่าง' },
-                { key: 'dark', label: 'มืด' },
-                { key: 'system', label: 'ตามระบบ' },
-              ]}
-              value={settings.theme}
-              onChange={settings.setTheme}
-            />
-          </View>
-        </View>
+        <Row
+          label="ธีมและการแสดงผล"
+          sub={`${settings.theme === 'system' ? 'ตามระบบ' : settings.theme === 'dark' ? 'โหมดมืด' : 'โหมดสว่าง'} · สว่าง: ${lightName} · มืด: ${darkName}`}
+          onPress={() => router.push('/settings/theme')}
+          last
+        />
       </Section>
 
       <Section title="ข้อมูลและขั้นสูง">
@@ -300,7 +292,7 @@ function ProgressRing({ pct }: { pct: number }) {
           cx={28}
           cy={28}
           r={R}
-          stroke={pct >= 0.7 ? GREEN : '#D2603A'}
+          stroke={pct >= 0.7 ? GREEN : ATTN}
           strokeWidth={7}
           fill="none"
           strokeLinecap="round"

@@ -517,7 +517,7 @@ function SnippetItem({ sn, order, canUp, canDown, onEdit }: { sn: NoteSnippet; o
   return (
     <View style={{ backgroundColor: t.card2, borderRadius: 12, borderWidth: 1, borderColor: confirmDel ? DANGER : sn.pinned ? t.line2 : t.line, padding: 10, gap: 8, opacity: sn.hidden && !confirmDel ? 0.62 : 1 }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-        <View style={{ minWidth: 26, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: sn.pinned ? '#D2603A22' : t.track }}>
+        <View style={{ minWidth: 26, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: sn.pinned ? t.accent + '22' : t.track }}>
           <Txt size={11} num weight="bold" color={sn.pinned ? t.accentInk : t.sub}>
             {order ?? '–'}
           </Txt>
@@ -605,7 +605,7 @@ function ActBtn({ icon, label, a11y, active, danger, disabled, onPress }: { icon
         justifyContent: 'center',
         gap: 4,
         opacity: disabled ? 0.3 : 1,
-        backgroundColor: pressed ? t.rail : active ? '#D2603A22' : t.track,
+        backgroundColor: pressed ? t.rail : active ? t.accent + '22' : t.track,
       })}>
       <SvgIcon name={icon} size={13} color={color} strokeWidth={2.2} />
       {label ? (

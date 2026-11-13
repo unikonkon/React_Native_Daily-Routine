@@ -8,7 +8,7 @@ import { Linking, TextInput, View } from 'react-native';
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { Btn, Card, Chip, Txt, useTokens } from '@/components/ui';
-import { ACCENT, FONT, GREEN } from '@/constants/theme';
+import { FONT, GREEN } from '@/constants/theme';
 import { APPS_SCRIPT_CODE, isSheetsUrl } from '@/lib/sheets';
 import { useSettings } from '@/stores/settings';
 import { useUI } from '@/stores/ui';
@@ -133,7 +133,7 @@ export default function SheetsSetupScreen() {
         <Shot {...SHOTS.webapp} caption="เลือกประเภท → เว็บแอป (Web app)" />
         <Bullet>ดำเนินการในฐานะ: <Txt size={13} weight="bold">ฉัน (อีเมลของคุณ)</Txt></Bullet>
         <Bullet>
-          ผู้ที่มีสิทธิ์เข้าถึง: <Txt size={13} weight="bold" color={ACCENT}>ทุกคน</Txt> — จุดที่พลาดบ่อยที่สุด!
+          ผู้ที่มีสิทธิ์เข้าถึง: <Txt size={13} weight="bold" color={t.accent}>ทุกคน</Txt> — จุดที่พลาดบ่อยที่สุด!
           ต้องเป็น “ทุกคน” เท่านั้น ไม่ใช่ “ทุกคนที่มีบัญชี Google”
         </Bullet>
         <Bullet>กด <Txt size={13} weight="bold">การทำให้ใช้งานได้</Txt> (ปุ่มน้ำเงินมุมขวาล่าง)</Bullet>
@@ -208,6 +208,7 @@ export default function SheetsSetupScreen() {
 
 /** การ์ดขั้นตอน: วงเลขหมายเลข + หัวข้อ + เนื้อหา */
 function Step({ n, title, last, children }: { n: number; title: string; last?: boolean; children: React.ReactNode }) {
+  const t = useTokens();
   return (
     <Card style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -216,7 +217,7 @@ function Step({ n, title, last, children }: { n: number; title: string; last?: b
             width: 28,
             height: 28,
             borderRadius: 14,
-            backgroundColor: last ? GREEN : ACCENT,
+            backgroundColor: last ? GREEN : t.accent,
             alignItems: 'center',
             justifyContent: 'center',
           }}>

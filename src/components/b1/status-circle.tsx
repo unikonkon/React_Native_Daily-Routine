@@ -4,7 +4,7 @@ import { Pressable, View } from 'react-native';
 
 import { SvgIcon } from '@/components/svg-icon';
 import { useTokens } from '@/components/ui';
-import { GREEN } from '@/constants/theme';
+import { ATTN, GREEN } from '@/constants/theme';
 import type { RailState } from '@/lib/progress';
 
 const LABEL: Record<RailState, string> = {
@@ -23,8 +23,8 @@ export function StatusDot({ state, size = 24 }: { state: RailState; size?: numbe
   const s = {
     done: { bg: GREEN, bd: 'transparent', ink: '#FFFFFF', icon: 'check' },
     skipped: { bg: t.skipFill, bd: 'transparent', ink: t.sub, icon: 'minus' },
-    overdue: { bg: t.card, bd: '#D2603A', ink: '#D2603A', icon: 'check' },
-    current: { bg: t.card, bd: '#D2603A', ink: 'transparent', icon: '' },
+    overdue: { bg: t.card, bd: ATTN, ink: ATTN, icon: 'check' },
+    current: { bg: t.card, bd: t.accent, ink: 'transparent', icon: '' },
     planned: { bg: t.card, bd: t.railDash, ink: 'transparent', icon: '' },
     next: { bg: t.card, bd: t.ink, ink: 'transparent', icon: '' },
     rescheduled: { bg: t.card, bd: t.railDash, ink: t.muted, icon: 'chevR' },
@@ -42,8 +42,8 @@ export function StatusDot({ state, size = 24 }: { state: RailState; size?: numbe
         justifyContent: 'center',
       }}>
       {s.icon ? <SvgIcon name={s.icon} size={size * 0.58} color={s.ink} strokeWidth={3} /> : null}
-      {/* กำลังทำ = วงส้ม + จุดกลาง (สีเดียวกับเส้น "ตอนนี้") */}
-      {state === 'current' ? <View style={{ width: size * 0.42, height: size * 0.42, borderRadius: size, backgroundColor: '#D2603A' }} /> : null}
+      {/* กำลังทำ = วงสีเน้นของธีม + จุดกลาง (สีเดียวกับเส้น "ตอนนี้") · ค้างบันทึก = ส้มคงที่ทุกธีม */}
+      {state === 'current' ? <View style={{ width: size * 0.42, height: size * 0.42, borderRadius: size, backgroundColor: t.accent }} /> : null}
     </View>
   );
 }

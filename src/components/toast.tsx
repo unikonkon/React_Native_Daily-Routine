@@ -62,7 +62,7 @@ function ToastBtn({ a, primary }: { a: { label: string; run: () => void }; prima
         height: 36,
         paddingHorizontal: 14,
         borderRadius: 18,
-        backgroundColor: primary ? (pressed ? '#9A3F22' : '#B44E2C') : pressed ? t.sub : t.bg,
+        backgroundColor: primary ? (pressed ? t.primaryDown : t.primary) : pressed ? t.sub : t.bg,
         alignItems: 'center',
         justifyContent: 'center',
       })}>

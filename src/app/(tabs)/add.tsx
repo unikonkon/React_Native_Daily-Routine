@@ -19,7 +19,7 @@ import { SnippetChips } from '@/components/snippet-chips';
 import { SvgIcon } from '@/components/svg-icon';
 import { TimeDragBar, TimeDragRail } from '@/components/time-drag';
 import { Btn, Card, Chip, ChipRow, PriBadge, Segmented, Toggle, Txt, useTokens } from '@/components/ui';
-import { CATS, CAT_BY_ID, CAT_OPTIONS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
+import { ATTN, CATS, CAT_BY_ID, CAT_OPTIONS, DAY_END, DAY_START, FONT, GREEN, PRI, SNAP, type CatId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, durText, fmtMin, fromISO, hoursText, thaiDate, todayISO, wdMon } from '@/lib/dates';
 import { FREE_WINDOW_END, conflictsOn, freeSlots, maskFromDates, seriesDates } from '@/lib/engine';
 import { appendNote, stripTemplate } from '@/lib/notes';
@@ -421,14 +421,14 @@ function HeaderPill({ label, onPress }: { label: string; onPress: () => void }) 
 /** วงกลมเลขขั้น — open = ส้มทึบ · done = เขียว ✓ · warn = วงส้ม "!" · pending = วงเทา */
 function StepDot({ n, kind }: { n: number; kind: 'open' | 'done' | 'warn' | 'pending' }) {
   const t = useTokens();
-  const bg = kind === 'open' ? '#B44E2C' : kind === 'done' ? GREEN : t.card;
-  const bd = kind === 'warn' ? '#D2603A' : kind === 'pending' ? t.railDash : 'transparent';
+  const bg = kind === 'open' ? t.primary : kind === 'done' ? GREEN : t.card;
+  const bd = kind === 'warn' ? ATTN : kind === 'pending' ? t.railDash : 'transparent';
   return (
     <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: bg, borderWidth: bd === 'transparent' ? 0 : 2, borderColor: bd, alignItems: 'center', justifyContent: 'center' }}>
       {kind === 'done' ? (
         <SvgIcon name="check" size={14} color="#FFFFFF" strokeWidth={3} />
       ) : (
-        <Txt size={12} num weight="bold" color={kind === 'open' ? '#FFFFFF' : kind === 'warn' ? '#D2603A' : t.sub}>
+        <Txt size={12} num weight="bold" color={kind === 'open' ? '#FFFFFF' : kind === 'warn' ? ATTN : t.sub}>
           {kind === 'warn' ? '!' : n}
         </Txt>
       )}
@@ -509,7 +509,7 @@ function StepSummary({
               {n} · {label}
             </Txt>
             {changed ? (
-              <View style={{ paddingHorizontal: 7, paddingVertical: 1, borderRadius: 8, backgroundColor: 'rgba(210,96,58,0.15)' }}>
+              <View style={{ paddingHorizontal: 7, paddingVertical: 1, borderRadius: 8, backgroundColor: ATTN + '26' }}>
                 <Txt size={11.5} weight="bold" color={t.warn}>
                   เปลี่ยนแล้ว
                 </Txt>
@@ -653,7 +653,7 @@ function SuggestStrip({ analysis, inset }: { analysis: Analysis; inset?: boolean
         borderTopWidth: inset ? 1 : 0,
         borderTopColor: t.line,
         borderRadius: inset ? 0 : 12,
-        backgroundColor: 'rgba(210,96,58,0.07)',
+        backgroundColor: t.accent + '12',
       }}>
       <Txt size={12.5} color={t.sub} style={{ flex: 1, lineHeight: 18 }}>
         {s == null ? (analysis.multi ? 'ไม่มีช่วงที่ว่างตรงกันทุกวัน — บันทึกซ้อนได้' : 'ไม่มีช่วงว่างพอในวันนี้ — บันทึกซ้อนได้') : analysis.multi ? 'ช่วงที่ว่างทุกวันและใกล้ที่สุด' : 'ช่วงว่างที่ใกล้ที่สุด'}
@@ -665,7 +665,7 @@ function SuggestStrip({ analysis, inset }: { analysis: Analysis; inset?: boolean
             d.set({ start: s, end: s + dur });
             showToast(`ย้ายไป ${fmtMin(s)}–${fmtMin(s + dur)} แล้ว`, { label: 'เลิกทำ', run: () => useDraft.getState().set({ start: d.start, end: d.end }) });
           }}
-          style={({ pressed }) => ({ height: 40, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1.5, borderColor: '#B44E2C', backgroundColor: pressed ? 'rgba(180,78,44,0.08)' : t.card, justifyContent: 'center' })}>
+          style={({ pressed }) => ({ height: 40, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1.5, borderColor: t.accentInk, backgroundColor: pressed ? t.accentInk + '14' : t.card, justifyContent: 'center' })}>
           <Txt size={13} num weight="bold" color={t.accentInk}>
             ใช้ {fmtMin(s)}–{fmtMin(s + dur)}
           </Txt>
@@ -1087,7 +1087,7 @@ function FormNote({ cat, inputRef, onSession }: { cat: CatId; inputRef: RefObjec
             maxHeight: 140,
             borderRadius: 12,
             borderWidth: 1,
-            borderColor: state === 'delete' ? t.warn : state === 'add' || state === 'edit' ? '#D2603A' : t.line,
+            borderColor: state === 'delete' ? t.warn : state === 'add' || state === 'edit' ? t.accent : t.line,
             backgroundColor: t.card2,
             paddingLeft: 12,
             paddingRight: 40,
@@ -1359,7 +1359,7 @@ function TimeBody({ analysis, onDragState }: { analysis: Analysis; onDragState: 
                   <Txt size={13} weight={on ? 'bold' : 'med'} color={on ? t.bg : t.sub}>
                     {shortDate(p.date)}
                   </Txt>
-                  {p.conflicts.length ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#D2603A' }} /> : null}
+                  {p.conflicts.length ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: ATTN }} /> : null}
                 </Pressable>
               );
             })}
@@ -1375,7 +1375,7 @@ function TimeBody({ analysis, onDragState }: { analysis: Analysis; onDragState: 
 
       {/* ผลของช่วงที่เลือก — ชน (ทุกวันที่ลง) + เสนอช่วงที่ใกล้ที่สุด · หรือว่างตลอดช่วง */}
       {analysis.conflictDays > 0 ? (
-        <View style={{ borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(210,96,58,0.45)' }}>
+        <View style={{ borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: ATTN + '73' }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10 }}>
             <SvgIcon name="alert" size={16} color={t.warn} strokeWidth={2} />
             <View style={{ flex: 1, gap: 2 }}>
@@ -1533,7 +1533,7 @@ function ScopeCard({ editing, editDate }: { editing: Activity; editDate: string 
       ? `มีผลทุกครั้งตั้งแต่ ${shortDate(hit[0])} ${beYear(fromISO(hit[0]).getFullYear())} (ไม่มีวันสิ้นสุด)`
       : `มีผล ${hit.length} ครั้ง · ${dateRange(hit[0], hit[hit.length - 1])}`;
   return (
-    <View style={{ marginTop: 6, backgroundColor: t.card, borderRadius: 16, borderWidth: 1.5, borderColor: '#D2603A', padding: 14, gap: 10 }}>
+    <View style={{ marginTop: 6, backgroundColor: t.card, borderRadius: 16, borderWidth: 1.5, borderColor: t.accent, padding: 14, gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Icon name="repeat" size={18} color={t.accentInk} />
         <Txt size={14.5} weight="bold" style={{ flex: 1 }}>

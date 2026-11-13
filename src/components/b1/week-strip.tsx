@@ -5,7 +5,7 @@ import { FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, useWindow
 
 import { useNow } from '@/components/b1/use-now';
 import { Txt, useTokens } from '@/components/ui';
-import { GREEN } from '@/constants/theme';
+import { ATTN, GREEN } from '@/constants/theme';
 import { addDays, fromISO, mondayOf, MONTH_TH, todayISO, WD_TH } from '@/lib/dates';
 import { dayProgress } from '@/lib/progress';
 import { useDayReader } from '@/stores/activities';
@@ -93,14 +93,14 @@ export function WeekStrip({ focus, onChangeFocus }: { focus: string; onChangeFoc
                       justifyContent: 'center',
                       backgroundColor: sel ? t.ink : 'transparent',
                       borderWidth: isToday && !sel ? 1.5 : 0,
-                      borderColor: '#D2603A',
+                      borderColor: t.accent,
                     }}>
                     <Txt size={15} num weight={sel || isToday ? 'bold' : 'reg'} color={sel ? t.bg : d < today ? t.muted : t.ink}>
                       {date.getDate()}
                     </Txt>
                   </View>
                   <View style={{ width: 18, height: 3, borderRadius: 2, backgroundColor: t.rail, overflow: 'hidden' }}>
-                    <View style={{ width: `${Math.round(pct * 100)}%`, height: 3, backgroundColor: pct >= 0.8 ? GREEN : '#D2603A' }} />
+                    <View style={{ width: `${Math.round(pct * 100)}%`, height: 3, backgroundColor: pct >= 0.8 ? GREEN : ATTN }} />
                   </View>
                 </Pressable>
               );

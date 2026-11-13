@@ -19,6 +19,7 @@ import { daytimeFreeSlots, streakBefore, streakWithToday } from '@/lib/engine';
 import { dayProgress, overdueBetween } from '@/lib/progress';
 import type { DayItem } from '@/lib/types';
 import { useActivities, useDay, useDayReader } from '@/stores/activities';
+import { ATTN } from '@/constants/theme';
 
 interface DayViewProps {
   focus: string;
@@ -132,7 +133,7 @@ function ReviewBanner({ overdue7, onReview }: { overdue7: number; onReview: () =
         shadowOffset: { width: 0, height: 1 },
         elevation: 1,
       })}>
-      <SvgIcon name="alert" size={18} color="#D2603A" />
+      <SvgIcon name="alert" size={18} color={ATTN} />
       <Txt size={13} style={{ flex: 1 }}>
         ยังไม่ได้บันทึก <Txt size={13} weight="bold">{overdue7} รายการ</Txt> ใน 7 วันล่าสุด
       </Txt>

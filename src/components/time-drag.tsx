@@ -14,7 +14,6 @@ import type { DayItem } from '@/lib/types';
 
 const LONG_PRESS = 220; // ms ก่อนเริ่มลากได้
 const SLOP = 8; // ขยับเกินนี้ก่อนครบเวลากดค้าง = ตั้งใจเลื่อนหน้าจอ ไม่ใช่ลาก
-const ACCENT_INK = '#B44E2C';
 
 type Target = 'move' | 'start' | 'end';
 
@@ -184,7 +183,7 @@ export function TimeDragBar({ start, end, onChange, items, free = [], onDragStat
             borderRadius: 13,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: active ? ACCENT_INK : t.ink,
+            backgroundColor: active ? t.primary : t.ink,
           }}>
           <Txt size={12} num weight="bold" color={active ? '#FFFFFF' : t.bg}>
             {label}
@@ -233,7 +232,7 @@ export function TimeDragBar({ start, end, onChange, items, free = [], onDragStat
             top: active ? 2 : 4,
             bottom: active ? 2 : 4,
             borderRadius: 8,
-            backgroundColor: ACCENT_INK,
+            backgroundColor: t.primary,
             borderWidth: clash ? 2 : 0,
             borderColor: '#FFD6C2',
             flexDirection: 'row',
@@ -359,7 +358,7 @@ export function TimeDragRail({ start, end, onChange, items, free = [], title, on
                 top,
                 height,
                 borderRadius: 10,
-                backgroundColor: ACCENT_INK,
+                backgroundColor: t.primary,
                 paddingHorizontal: 10,
                 justifyContent: 'center',
                 shadowColor: '#221C13',

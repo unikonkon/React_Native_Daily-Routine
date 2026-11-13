@@ -8,7 +8,7 @@ import { useNow } from '@/components/b1/use-now';
 import { Icon } from '@/components/icon';
 import { useCaseNames } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, CATS, DAY_END, DAY_START, GREEN, type CatId } from '@/constants/theme';
+import { ATTN, CAT_BY_ID, CATS, DAY_END, DAY_START, GREEN, type CatId } from '@/constants/theme';
 import { addDays, fmtMin, fromISO, mondayOf, todayISO, WD_TH } from '@/lib/dates';
 import { assignLanes, daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import { dayProgress, isPast } from '@/lib/progress';
@@ -157,7 +157,7 @@ export function TodayWeekView({
                           opacity: (done ? 0.75 : 0.98) * dim * (freeMode ? 0.3 : 1),
                           borderWidth: overdue ? 1.5 : 0,
                           borderStyle: overdue ? 'dashed' : 'solid',
-                          borderColor: '#D2603A',
+                          borderColor: ATTN,
                           alignItems: 'center',
                           justifyContent: 'center',
                           overflow: 'hidden',
@@ -210,8 +210,8 @@ export function TodayWeekView({
 
                   {/* เส้นตอนนี้ (เฉพาะวันนี้) */}
                   {isToday ? (
-                    <View style={{ position: 'absolute', top: `${pct(nowTop)}%`, left: 0, right: 0, height: 3, backgroundColor: ACCENT }}>
-                      <View style={{ position: 'absolute', left: -3, top: -2, width: 7, height: 7, borderRadius: 3, backgroundColor: ACCENT }} />
+                    <View style={{ position: 'absolute', top: `${pct(nowTop)}%`, left: 0, right: 0, height: 3, backgroundColor: t.accent }}>
+                      <View style={{ position: 'absolute', left: -3, top: -2, width: 7, height: 7, borderRadius: 3, backgroundColor: t.accent }} />
                     </View>
                   ) : null}
                 </View>
@@ -256,8 +256,8 @@ export function TodayWeekView({
           })}
           {nameCats.size ? (
             <Pressable onPress={() => setNameCats(new Set())} hitSlop={4} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Icon name="x" size={11} color={ACCENT} />
-              <Txt size={11} weight="med" color={ACCENT}>
+              <Icon name="x" size={11} color={t.accent} />
+              <Txt size={11} weight="med" color={t.accent}>
                 ซ่อนชื่อ
               </Txt>
             </Pressable>
@@ -387,10 +387,10 @@ function WeekHeaderStrip({
                 const past = d <= nowR.date;
                 return (
                   <Pressable key={d} onPress={() => onPressDay(d)} style={{ flex: 1, alignItems: 'center', gap: 2 }}>
-                    <Txt size={10.5} weight="med" color={i === 6 ? ACCENT : t.faint}>
+                    <Txt size={10.5} weight="med" color={i === 6 ? t.accent : t.faint}>
                       {WD_TH[i]}
                     </Txt>
-                    <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: isToday ? ACCENT : 'transparent' }}>
+                    <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: isToday ? t.accent : 'transparent' }}>
                       <Txt size={13} num weight="bold" color={isToday ? '#FFFFFF' : t.ink}>
                         {fromISO(d).getDate()}
                       </Txt>

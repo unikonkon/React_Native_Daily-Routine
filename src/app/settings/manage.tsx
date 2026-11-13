@@ -7,7 +7,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { Btn, Card, Segmented, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, DANGER, GREEN, type CatId } from '@/constants/theme';
+import { ATTN, CAT_BY_ID, DANGER, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH, MONTH_TH_FULL, WD_TH, addDays, beYear, fromISO, mondayOf, thaiDate, thaiWeekRange, toISO, todayISO } from '@/lib/dates';
 import { dumpAll, purgeRange, type BackupData } from '@/lib/db';
 import { dayItems } from '@/lib/engine';
@@ -205,7 +205,7 @@ export default function ManageDataScreen() {
               <Txt size={13} weight="bold">{window.label}</Txt>
               {offset !== 0 ? (
                 <Pressable onPress={() => { setOffset(0); setConfirm(null); }} hitSlop={6}>
-                  <Txt size={10} color={ACCENT}>{offset < 0 ? 'อนาคต · กลับปัจจุบัน' : 'ย้อนหลัง · กลับปัจจุบัน'}</Txt>
+                  <Txt size={10} color={t.accent}>{offset < 0 ? 'อนาคต · กลับปัจจุบัน' : 'ย้อนหลัง · กลับปัจจุบัน'}</Txt>
                 </Pressable>
               ) : null}
             </View>
@@ -317,7 +317,7 @@ function YearCard({ b, onDelete }: { b: Bucket; onDelete: () => void }) {
                 width: '100%',
                 height: Math.max(3, (n / max) * 38),
                 borderRadius: 3,
-                backgroundColor: n ? ACCENT : t.chip,
+                backgroundColor: n ? t.accent : t.chip,
               }}
             />
             <Txt size={8} color={t.faint}>{MONTH_TH[i].replace(/\./g, '')}</Txt>
@@ -389,7 +389,7 @@ function WeekRow({ b, last, onDelete }: { b: Bucket; last: boolean; onDelete: ()
                 width: 10,
                 height: 10,
                 borderRadius: 5,
-                backgroundColor: !d?.items ? t.chip : d.done === d.items ? GREEN : ACCENT,
+                backgroundColor: !d?.items ? t.chip : d.done === d.items ? GREEN : ATTN,
               }}
             />
             <Txt size={9} color={t.faint}>{WD_TH[i]}</Txt>

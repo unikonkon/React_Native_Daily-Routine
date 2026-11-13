@@ -5,7 +5,6 @@ import { Modal, Pressable, ScrollView, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
-import { ACCENT } from '@/constants/theme';
 import {
   MONTH_TH,
   SCHED_MAX_Y,
@@ -90,7 +89,7 @@ export function WeekPicker({
                   paddingVertical: 9,
                   alignItems: 'center',
                   borderRadius: 12,
-                  backgroundColor: i === ym.m ? ACCENT : 'transparent',
+                  backgroundColor: i === ym.m ? t.accent : 'transparent',
                 }}>
                 <Txt size={13} weight={i === ym.m ? 'bold' : 'reg'} color={i === ym.m ? '#FFFFFF' : t.ink}>
                   {m}
@@ -112,9 +111,9 @@ export function WeekPicker({
                       paddingVertical: 10,
                       borderRadius: 12,
                       alignItems: 'center',
-                      backgroundColor: active ? ACCENT : t.card2,
+                      backgroundColor: active ? t.accent : t.card2,
                       borderWidth: 1,
-                      borderColor: active ? ACCENT : t.line,
+                      borderColor: active ? t.accent : t.line,
                     }}>
                     <Txt size={13} num weight={active ? 'bold' : 'med'} color={active ? '#FFFFFF' : t.ink}>
                       {thaiWeekRange(w)}

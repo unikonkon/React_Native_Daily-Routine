@@ -81,7 +81,7 @@ export function CalendarBar({ onPrev, onNext, onToday, onCalendar, onAdd, prevLa
               gap: 7,
               transform: [{ scale: pressed ? 0.95 : 1 }],
             })}>
-            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: atToday ? '#F08A64' : '#FF6B3D' }} />
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: atToday ? t.accent : '#FF6B3D' }} />
             <Txt size={14} weight="bold" color={t.bg}>
               วันนี้
             </Txt>
@@ -103,7 +103,7 @@ export function CalendarBar({ onPrev, onNext, onToday, onCalendar, onAdd, prevLa
               borderRadius: 22,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: calendarActive || pressed ? 'rgba(210,96,58,0.15)' : 'transparent',
+              backgroundColor: calendarActive || pressed ? t.accent + '26' : 'transparent',
             })}>
             <SvgIcon name="calendar" size={20} color={calendarActive ? t.accentInk : t.sub} strokeWidth={1.8} />
           </Pressable>
@@ -117,7 +117,7 @@ export function CalendarBar({ onPrev, onNext, onToday, onCalendar, onAdd, prevLa
               borderRadius: 22,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: '#B44E2C',
+              backgroundColor: t.primary,
               transform: [{ scale: pressed ? 0.94 : 1 }],
             })}>
             <SvgIcon name="plus" size={20} color="#FFFFFF" strokeWidth={2.3} />
@@ -168,7 +168,7 @@ export function SubBar({ onBack, backLabel = 'กลับ', action }: { onBack:
                 height: 52,
                 paddingHorizontal: 22,
                 borderRadius: 26,
-                backgroundColor: action.tone === 'danger' ? t.warn : '#B44E2C',
+                backgroundColor: action.tone === 'danger' ? t.warn : t.primary,
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',

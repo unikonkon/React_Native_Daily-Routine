@@ -12,7 +12,7 @@ import { NoteBtn, NoteKeyboardBar, useKeyboardHeight } from '@/components/note-b
 import { SnippetChips } from '@/components/snippet-chips';
 import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Chip, ChipRow, PriBadge, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, DANGER, FONT, GREEN, PRI, type PriorityId } from '@/constants/theme';
+import { ATTN, CAT_BY_ID, DANGER, FONT, GREEN, PRI, type PriorityId } from '@/constants/theme';
 import { MONTH_TH, WD_TH, addDays, durText, fmtMin, fmtRange, fromISO, thaiDate, wdMon } from '@/lib/dates';
 import { daytimeFreeSlots, seriesDates } from '@/lib/engine';
 import { appendNote, previousNotes, stripTemplate } from '@/lib/notes';
@@ -386,13 +386,13 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
                 </ScrollView>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
                   <Pressable onPress={() => setAdding(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} hitSlop={6}>
-                    <Icon name="plus" size={14} color={ACCENT} />
-                    <Txt size={12.5} weight="med" color={ACCENT}>เพิ่มรายชื่ออีกคน</Txt>
+                    <Icon name="plus" size={14} color={t.accent} />
+                    <Txt size={12.5} weight="med" color={t.accent}>เพิ่มรายชื่ออีกคน</Txt>
                   </Pressable>
                   <Pressable onPress={openContactBook} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} hitSlop={6}>
-                    <Icon name="user" size={14} color={ACCENT} />
-                    <Txt size={12.5} weight="med" color={ACCENT}>สมุดรายชื่อ</Txt>
-                    <Icon name="chevR" size={13} color={ACCENT} />
+                    <Icon name="user" size={14} color={t.accent} />
+                    <Txt size={12.5} weight="med" color={t.accent}>สมุดรายชื่อ</Txt>
+                    <Icon name="chevR" size={13} color={t.accent} />
                   </Pressable>
                 </View>
               </>
@@ -494,7 +494,7 @@ function SheetBody({ id, date, focusNote }: { id: number; date: string; focusNot
                   placeholderTextColor={t.faint}
                   multiline
                   accessibilityLabel="โน้ตของครั้งนี้"
-                  style={{ minHeight: 64, maxHeight: 120, flexShrink: 1, borderRadius: 12, borderWidth: 1, borderColor: notePending === 'delete' ? DANGER : notePending ? '#D2603A' : t.rail, backgroundColor: t.card, paddingLeft: 12, paddingRight: 40, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
+                  style={{ minHeight: 64, maxHeight: 120, flexShrink: 1, borderRadius: 12, borderWidth: 1, borderColor: notePending === 'delete' ? DANGER : notePending ? t.accent : t.rail, backgroundColor: t.card, paddingLeft: 12, paddingRight: 40, paddingTop: 10, paddingBottom: 10, fontFamily: FONT.ui, fontSize: 14, color: t.ink, textAlignVertical: 'top' }}
                 />
                 {/* ✕ ล้างข้อความทั้งหมดในช่อง — มีโน้ตเดิมแล้วปล่อยว่าง = ร่างการลบ (ยังไม่ลบจนกด "ยืนยันลบ") */}
                 {noteText ? (
@@ -672,7 +672,7 @@ function LeaveNoteAsk({ pending, onBack, onDiscard, onSave }: { pending: 'add' |
   const t = useTokens();
   const del = pending === 'delete';
   return (
-    <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: del ? DANGER : '#D2603A', padding: 12, gap: 10 }}>
+    <View style={{ backgroundColor: t.card2, borderRadius: 14, borderWidth: 1, borderColor: del ? DANGER : ATTN, padding: 12, gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
         <View style={{ paddingTop: 2 }}>
           <SvgIcon name="note" size={15} color={del ? DANGER : t.accentInk} />
@@ -899,7 +899,7 @@ function ContactEditForm({
   return (
     <View style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-        <SvgIcon name="edit" size={16} color={ACCENT} />
+        <SvgIcon name="edit" size={16} color={t.accent} />
         <Txt size={16} weight="bold" style={{ flex: 1 }} numberOfLines={1}>แก้ไขรายชื่อ · {c.name}</Txt>
       </View>
 
@@ -1055,13 +1055,13 @@ function ContactPicker({
               gap: 8,
               borderRadius: 12,
               borderWidth: 1,
-              borderColor: ACCENT + '55',
-              backgroundColor: ACCENT + '12',
+              borderColor: t.accent + '55',
+              backgroundColor: t.accent + '12',
               paddingHorizontal: 11,
               paddingVertical: 10,
             }}>
-            <SvgIcon name="edit" size={14} color={ACCENT} />
-            <Txt size={13} color={ACCENT} weight="med" style={{ flex: 1 }} numberOfLines={2}>
+            <SvgIcon name="edit" size={14} color={t.accent} />
+            <Txt size={13} color={t.accent} weight="med" style={{ flex: 1 }} numberOfLines={2}>
               ใช้ “{query}” เป็นชื่อใหม่ของ {rename.current.name}
             </Txt>
           </Pressable>
@@ -1097,8 +1097,8 @@ function PickRow({ c, active, onPress }: { c: Contact; active: boolean; onPress:
         gap: 8,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: active ? ACCENT : t.line,
-        backgroundColor: active ? ACCENT + '10' : t.card2,
+        borderColor: active ? t.accent : t.line,
+        backgroundColor: active ? t.accent + '10' : t.card2,
         paddingHorizontal: 11,
         paddingVertical: 9,
       }}>
@@ -1107,7 +1107,7 @@ function PickRow({ c, active, onPress }: { c: Contact; active: boolean; onPress:
         {sub ? <Txt size={11} color={t.faint} numberOfLines={1}>{sub}</Txt> : null}
       </View>
       <PriBadge id={c.priority} />
-      {active ? <SvgIcon name="check" size={15} color={ACCENT} /> : null}
+      {active ? <SvgIcon name="check" size={15} color={t.accent} /> : null}
     </Pressable>
   );
 }
@@ -1240,7 +1240,7 @@ function MiniBtn({
     if (next !== 'idle') timer.current = setTimeout(() => setState('idle'), 1400);
   };
 
-  const bg = state === 'done' ? GREEN : state === 'error' ? DANGER : primary || state === 'busy' ? ACCENT : t.chip;
+  const bg = state === 'done' ? GREEN : state === 'error' ? DANGER : primary || state === 'busy' ? t.accent : t.chip;
   const fg = state === 'idle' && !primary ? t.sub : '#FFFFFF';
   const text = state === 'busy' ? busyLabel ?? 'กำลังเปิด…' : state === 'done' ? feedbackLabel : state === 'error' ? errorLabel : label;
   return (

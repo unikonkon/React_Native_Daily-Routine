@@ -12,7 +12,7 @@ import { useNow } from '@/components/b1/use-now';
 import { useToggleStatus } from '@/components/b1/use-toggle';
 import { SvgIcon } from '@/components/svg-icon';
 import { Txt, useTokens } from '@/components/ui';
-import { CATS, CAT_BY_ID, GREEN, type CatId } from '@/constants/theme';
+import { ATTN, CATS, CAT_BY_ID, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, VIEW_MAX_Y, VIEW_MIN_Y, WD_TH, addDays, beYear, fromISO, hoursText, mondayOf, thaiDate, toISO } from '@/lib/dates';
 import { daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import { dayProgress, type NowRef } from '@/lib/progress';
@@ -256,7 +256,7 @@ function MonthBlock({ k, live, current, picked, catFilter, freeMode, now, getDay
                       justifyContent: 'center',
                       backgroundColor: isSel ? t.ink : 'transparent',
                       borderWidth: isToday && !isSel ? 1.5 : 0,
-                      borderColor: '#D2603A',
+                      borderColor: t.accent,
                     }}>
                     <Txt size={15} num weight={isSel || isToday ? 'bold' : 'reg'} color={isSel ? t.bg : t.ink}>
                       {fromISO(d).getDate()}
@@ -276,7 +276,7 @@ function MonthBlock({ k, live, current, picked, catFilter, freeMode, now, getDay
                         ))}
                       </View>
                       <View style={{ width: 18, height: 3, borderRadius: 2, backgroundColor: started ? t.rail : 'transparent', overflow: 'hidden' }}>
-                        {started ? <View style={{ width: `${Math.round(p.rate * 100)}%`, height: 3, backgroundColor: p.rate >= 0.8 ? GREEN : '#D2603A' }} /> : null}
+                        {started ? <View style={{ width: `${Math.round(p.rate * 100)}%`, height: 3, backgroundColor: p.rate >= 0.8 ? GREEN : ATTN }} /> : null}
                       </View>
                     </>
                   )}

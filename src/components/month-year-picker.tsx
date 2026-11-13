@@ -2,7 +2,6 @@
 import React from 'react';
 import { Modal, Pressable, View } from 'react-native';
 
-import { ACCENT } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { Txt, useTokens } from '@/components/ui';
 import { MONTH_TH, SCHED_MAX_Y, SCHED_MIN_Y, beYear } from '@/lib/dates';
@@ -48,7 +47,7 @@ export function MonthYearPicker({ visible, year, month, onClose, onPick, minYear
                   paddingVertical: 12,
                   alignItems: 'center',
                   borderRadius: 12,
-                  backgroundColor: i === month ? ACCENT : 'transparent',
+                  backgroundColor: i === month ? t.accent : 'transparent',
                 }}>
                 <Txt size={13} weight={i === month ? 'bold' : 'reg'} color={i === month ? '#FFFFFF' : t.ink}>
                   {m}

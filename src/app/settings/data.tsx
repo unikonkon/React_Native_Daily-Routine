@@ -10,7 +10,7 @@ import { ActivityIndicator, Pressable, View } from 'react-native';
 import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { Btn, Card, Chip, Row, Txt, useTokens } from '@/components/ui';
-import { ACCENT, DANGER, GREEN } from '@/constants/theme';
+import { DANGER, GREEN } from '@/constants/theme';
 import { MONTH_TH, beYear, nowMin, todayISO } from '@/lib/dates';
 import { dumpAll, insertActivities, purgeRange, restoreAll, type BackupData } from '@/lib/db';
 import { EXPORT_PALETTES, EXPORT_TONES, type ExportTone } from '@/lib/export-theme';
@@ -643,10 +643,10 @@ function Seg<K extends string>({
                 borderRadius: 10,
                 borderWidth: 1,
                 alignItems: 'center',
-                borderColor: on ? ACCENT : t.line,
+                borderColor: on ? t.accent : t.line,
                 backgroundColor: on ? t.chip : 'transparent',
               }}>
-              <Txt size={12} weight="bold" color={on ? ACCENT : t.sub}>{lb}</Txt>
+              <Txt size={12} weight="bold" color={on ? t.accent : t.sub}>{lb}</Txt>
             </View>
           </Pressable>
         );
@@ -696,11 +696,11 @@ function ScopeDetail({
                   paddingHorizontal: 10,
                   borderRadius: 8,
                   borderWidth: 1,
-                  borderColor: on ? ACCENT : t.line,
+                  borderColor: on ? t.accent : t.line,
                   backgroundColor: on ? t.chip : 'transparent',
                 }}>
-                <Icon name={on ? 'check' : 'plus'} size={13} color={on ? ACCENT : t.faint} />
-                <Txt size={12} color={on ? ACCENT : t.sub}>{ttMonthLabel(mo)}</Txt>
+                <Icon name={on ? 'check' : 'plus'} size={13} color={on ? t.accent : t.faint} />
+                <Txt size={12} color={on ? t.accent : t.sub}>{ttMonthLabel(mo)}</Txt>
               </View>
             </Pressable>
           );
@@ -739,7 +739,7 @@ function TonePicks({
                   borderRadius: 10,
                   borderWidth: 1,
                   alignItems: 'center',
-                  borderColor: on ? ACCENT : t.line,
+                  borderColor: on ? t.accent : t.line,
                   backgroundColor: on ? t.chip : 'transparent',
                 }}>
                 <View style={{ flexDirection: 'row', borderRadius: 5, overflow: 'hidden' }}>
@@ -747,7 +747,7 @@ function TonePicks({
                     <View key={c} style={{ width: 13, height: 13, backgroundColor: c }} />
                   ))}
                 </View>
-                <Txt size={11.5} weight="bold" color={on ? ACCENT : t.sub}>{p.name}</Txt>
+                <Txt size={11.5} weight="bold" color={on ? t.accent : t.sub}>{p.name}</Txt>
               </View>
             </Pressable>
           );
@@ -786,7 +786,7 @@ function CheckRow({ label, sub, on, disabled, onPress }: { label: string; sub: s
           paddingHorizontal: 10,
           borderRadius: 10,
           borderWidth: 1,
-          borderColor: on ? ACCENT : t.line,
+          borderColor: on ? t.accent : t.line,
           backgroundColor: on ? t.chip : 'transparent',
         }}>
         <View

@@ -371,7 +371,7 @@ function DayGrid({
                     justifyContent: 'center',
                     backgroundColor: on ? t.warn : focus ? t.ink : 'transparent',
                     borderWidth: d === today && !on && !focus ? 1.5 : 0,
-                    borderColor: '#D2603A',
+                    borderColor: t.accent,
                   }}>
                   <Txt size={14.5} num weight={on || focus ? 'bold' : 'reg'} color={on ? '#FFFFFF' : focus ? t.bg : n ? t.ink : t.faint}>
                     {fromISO(d).getDate()}

@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { WeekPicker } from '@/components/period-nav';
 import { Btn, Chip, ChipRow, Txt, useTokens } from '@/components/ui';
-import { ACCENT, FONT, GREEN } from '@/constants/theme';
+import { FONT, GREEN } from '@/constants/theme';
 import { addDays, fmtMin, mondayOf, nowMin, thaiDate, thaiWeekRange, todayISO } from '@/lib/dates';
 import { rescRangeDates, rescheduleSlots, type RescCandidate, type RescRange } from '@/lib/engine';
 import { useActivities } from '@/stores/activities';
@@ -139,13 +139,13 @@ function Body() {
           <View style={{ gap: 14 }}>
             {byDay[0]?.date !== today ? (
               <View style={{ gap: 4 }}>
-                <Txt size={13} weight="med" color={ACCENT}>วันนี้ · {thaiDate(today)}</Txt>
+                <Txt size={13} weight="med" color={t.accent}>วันนี้ · {thaiDate(today)}</Txt>
                 <Txt size={12} color={t.faint}>ไม่มีช่วงว่างเหลือแล้ววันนี้</Txt>
               </View>
             ) : null}
             {byDay.map((day) => (
               <View key={day.date} style={{ gap: 8 }}>
-                <Txt size={13} weight="med" color={day.date === today ? ACCENT : undefined}>
+                <Txt size={13} weight="med" color={day.date === today ? t.accent : undefined}>
                   {day.date === today ? 'วันนี้ · ' : ''}{thaiDate(day.date)}{' '}
                   <Txt size={12} color={t.faint}>· ว่าง {day.slots.length} ช่วง</Txt>
                 </Txt>

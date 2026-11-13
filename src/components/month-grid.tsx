@@ -5,7 +5,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { ACCENT, CAT_BY_ID, GREEN } from '@/constants/theme';
+import { CAT_BY_ID, GREEN } from '@/constants/theme';
 import { Txt, useTokens } from '@/components/ui';
 import { WD_TH, addDays, mondayOf, toISO, todayISO } from '@/lib/dates';
 import { freeMinutes, freeSlots } from '@/lib/engine';
@@ -66,7 +66,7 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
               bg = `rgba(76,154,106,${(0.08 + g * 0.44).toFixed(3)})`;
               hoursLabel = `${Math.round(freeH)}ช`;
             }
-            if (mode === 'select' && isSel) bg = ACCENT;
+            if (mode === 'select' && isSel) bg = t.accent;
 
             const disabled = !inMonth || (mode === 'select' && past);
             return (
@@ -92,7 +92,7 @@ export function MonthGrid({ year, month, mode, selected, onPressDay }: MonthGrid
                     borderRadius: 13,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: isToday ? ACCENT : 'transparent',
+                    backgroundColor: isToday ? t.accent : 'transparent',
                   }}>
                   <Txt
                     size={13}

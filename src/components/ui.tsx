@@ -3,19 +3,22 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, TextStyle, View, ViewStyle, useColorScheme } from 'react-native';
 
 import { Icon } from '@/components/icon';
-import { FONT, GREEN, PALETTES, PRI_BY_ID, type Palette, type PriorityId, type ThemeName } from '@/constants/theme';
+import { FONT, GREEN, PRI_BY_ID, THEME_PALETTES, type Palette, type PriorityId, type ThemeName } from '@/constants/theme';
 import { useSettings } from '@/stores/settings';
 
-/** ธีมที่ใช้จริง — "ตามระบบ" อ่านจากเครื่อง (เปลี่ยนตามทันทีเมื่อผู้ใช้สลับโหมดมืดของเครื่อง) */
+/** โหมดที่ใช้จริง (สว่าง/มืด) — "ตามระบบ" อ่านจากเครื่อง (เปลี่ยนตามทันทีเมื่อผู้ใช้สลับโหมดมืดของเครื่อง) */
 export function useThemeName(): ThemeName {
   const pref = useSettings((s) => s.theme);
   const sys = useColorScheme();
   return pref === 'system' ? (sys === 'dark' ? 'dark' : 'light') : pref;
 }
 
-/** palette ตามธีมปัจจุบัน */
+/** palette ของชุดสีที่เลือกไว้สำหรับโหมดปัจจุบัน (ตั้งค่า › ธีมและการแสดงผล) */
 export function useTokens(): Palette {
-  return PALETTES[useThemeName()];
+  const mode = useThemeName();
+  const light = useSettings((s) => s.themeLight);
+  const dark = useSettings((s) => s.themeDark);
+  return THEME_PALETTES[mode === 'dark' ? dark : light];
 }
 
 interface TxtProps {
@@ -76,7 +79,7 @@ export function Chip({ label, active, onPress, color, small, icon }: ChipProps) 
   const theme = useThemeName();
   // ระบบ B1 — ชิปทรงแคปซูลสูง 34/40 (แตะง่าย) · ไม่เลือก = พื้นราง · เลือก = หมึกเข้ม (หรือสีที่ส่งมา)
   const bg = active ? (color ?? t.ink) : t.track;
-  const fg = active ? (theme === 'dark' && !color ? '#141009' : '#FFFFFF') : t.sub;
+  const fg = active ? (theme === 'dark' && !color ? t.bg : '#FFFFFF') : t.sub;
   return (
     <Pressable
       accessibilityRole="button"
@@ -191,7 +194,7 @@ interface BtnProps {
 export function Btn({ label, onPress, kind = 'primary', icon, renderIcon, style, disabled }: BtnProps) {
   const t = useTokens();
   // ระบบ B1 — ปุ่มแคปซูลสูง 48 · หลัก = ส้มเข้ม · รอง (ghost) = พื้นราง · ลบ = แดงอิฐ
-  const bg = kind === 'primary' ? '#B44E2C' : kind === 'danger' ? t.warn : kind === 'green' ? GREEN : t.track;
+  const bg = kind === 'primary' ? t.primary : kind === 'danger' ? t.warn : kind === 'green' ? GREEN : t.track;
   const fg = kind === 'ghost' ? t.ink : '#FFFFFF';
   return (
     <Pressable

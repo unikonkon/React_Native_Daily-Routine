@@ -13,7 +13,7 @@ import { Icon } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { StepBtn } from '@/components/today/parts';
 import { Card, Chip, ChipRow, PriBadge, Segmented, Txt, useTokens } from '@/components/ui';
-import { ACCENT, CAT_BY_ID, DANGER, GREEN, type CatId } from '@/constants/theme';
+import { CAT_BY_ID, DANGER, GREEN, type CatId } from '@/constants/theme';
 import { MONTH_TH_FULL, WD_TH, addDays, beYear, fmtRange, fromISO, mondayOf, thaiDate, toISO, todayISO } from '@/lib/dates';
 import { conflictsOn } from '@/lib/engine';
 import type { DayItem } from '@/lib/types';
@@ -227,7 +227,7 @@ export default function CopyScreen() {
   // ---------- การแสดงผลของแต่ละช่องวัน (ต่างกันตามโหมด+ขั้น) ----------
   const cellStyleOf = (d: string): CellLook => {
     const isToday = d === todayISO();
-    const base: CellLook = { fill: null, ring: null, label: '', labelColor: ACCENT, dim: false };
+    const base: CellLook = { fill: null, ring: null, label: '', labelColor: t.accent, dim: false };
 
     if (step === 1) {
       if (copyMode === 'item') {
@@ -337,7 +337,7 @@ export default function CopyScreen() {
         {/* หัววัน (จันทร์นำ, อาทิตย์สี accent) */}
         <View style={{ flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.line, paddingBottom: 4 }}>
           {WD_TH.map((w, i) => (
-            <Txt key={w} size={11} weight="med" color={i === 6 ? ACCENT : t.faint} style={{ flex: 1, textAlign: 'center' }}>
+            <Txt key={w} size={11} weight="med" color={i === 6 ? t.accent : t.faint} style={{ flex: 1, textAlign: 'center' }}>
               {w}
             </Txt>
           ))}
@@ -432,8 +432,8 @@ export default function CopyScreen() {
                             height: 20,
                             borderRadius: 6,
                             borderWidth: 1.5,
-                            borderColor: on ? ACCENT : t.line2,
-                            backgroundColor: on ? ACCENT : 'transparent',
+                            borderColor: on ? t.accent : t.line2,
+                            backgroundColor: on ? t.accent : 'transparent',
                             alignItems: 'center',
                             justifyContent: 'center',
                           }}>
@@ -597,7 +597,7 @@ export default function CopyScreen() {
 /** จุดบอกขั้นตอน — now = ส้ม (กำลังทำ), done = เขียว ✓, idle = จาง */
 function StepDot({ n, state }: { n: 1 | 2; state: 'now' | 'done' | 'idle' }) {
   const t = useTokens();
-  const bg = state === 'now' ? ACCENT : state === 'done' ? GREEN : t.chip;
+  const bg = state === 'now' ? t.accent : state === 'done' ? GREEN : t.chip;
   return (
     <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
       {state === 'done' ? (
@@ -626,8 +626,8 @@ interface CellProps {
 /** ช่องวันในตาราง — โครงเดียวกับมุมมองเดือนของแท็บวันนี้ (เลขในวงกลม + จุดสีหมวดใต้เลข) */
 function DayCell({ date, cats, inRange, fill, ring, label, labelColor, dim, onPress }: CellProps) {
   const t = useTokens();
-  const bg = fill === 'accent' ? ACCENT : fill === 'green' ? GREEN : 'transparent';
-  const border = ring === 'accent' ? ACCENT : ring === 'green' ? GREEN : 'transparent';
+  const bg = fill === 'accent' ? t.accent : fill === 'green' ? GREEN : 'transparent';
+  const border = ring === 'accent' ? t.accent : ring === 'green' ? GREEN : 'transparent';
 
   return (
     <Pressable

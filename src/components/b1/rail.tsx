@@ -25,7 +25,6 @@ const RAIL_W = 28;
 const LINE_X = 13; // กึ่งกลางราง (เส้นหนา 2)
 const DOT_Y = 13; // กึ่งกลางวงกลม = บรรทัดแรกของชื่อ
 
-const NOW_ORANGE = '#D2603A';
 /** ระยะที่แผ่นกลุ่มซ้อนยื่นออกนอกคอลัมน์ราง/เนื้อหา */
 const GROUP_PAD = 6;
 
@@ -203,15 +202,15 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
           </View>
           <View style={{ width: RAIL_W }}>
             {rail}
-            <View style={{ position: 'absolute', left: 9, top: 8, width: 10, height: 10, borderRadius: 5, backgroundColor: '#B44E2C', shadowColor: '#B44E2C', shadowOpacity: 0.3, shadowRadius: 4, elevation: 2 }} />
+            <View style={{ position: 'absolute', left: 9, top: 8, width: 10, height: 10, borderRadius: 5, backgroundColor: t.primary, shadowColor: t.primary, shadowOpacity: 0.3, shadowRadius: 4, elevation: 2 }} />
           </View>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, height: 26, paddingRight: inGroup ? GROUP_PAD : 0 }}>
-            <View style={{ backgroundColor: '#B44E2C', borderRadius: 9, paddingHorizontal: 8, paddingVertical: 2 }}>
+            <View style={{ backgroundColor: t.primary, borderRadius: 9, paddingHorizontal: 8, paddingVertical: 2 }}>
               <Txt size={11.5} weight="bold" color="#FFFFFF">
                 ตอนนี้
               </Txt>
             </View>
-            <View style={{ flex: 1, height: 1.5, backgroundColor: '#B44E2C' }} />
+            <View style={{ flex: 1, height: 1.5, backgroundColor: t.primary }} />
           </View>
         </View>
       );
@@ -310,7 +309,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
           {/* กำลังทำ: รางช่วงที่ผ่านไปแล้วเป็นสีส้ม (ตั้งแต่วงกลมลงมาตาม % ที่ผ่าน) */}
           {live ? (
             <View style={{ position: 'absolute', left: LINE_X, width: 2, top: DOT_Y, bottom: 0 }}>
-              <View style={{ width: 2, height: `${pct}%`, backgroundColor: NOW_ORANGE, borderRadius: 1 }} />
+              <View style={{ width: 2, height: `${pct}%`, backgroundColor: t.accent, borderRadius: 1 }} />
             </View>
           ) : null}
           <View style={{ position: 'absolute', left: -8, top: -9 }}>
@@ -327,7 +326,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
                   backgroundColor: nextCardBg ?? t.card,
                   borderRadius: 14,
                   borderWidth: live ? 1.5 : 0,
-                  borderColor: NOW_ORANGE,
+                  borderColor: t.accent,
                   paddingTop: 10,
                   paddingHorizontal: 12,
                   paddingBottom: 12,
@@ -348,7 +347,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
             style={({ pressed }) => ({ gap: 2, opacity: pressed ? 0.7 : 1 })}>
             {tag ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: NOW_ORANGE }} /> : null}
+                {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.accent }} /> : null}
                 <Txt size={12} weight="bold" color={st === 'overdue' ? t.warn : t.accentInk} style={{ flexShrink: 1 }}>
                   {tag}
                 </Txt>
@@ -391,9 +390,9 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
               <View accessible accessibilityLabel={`ตอนนี้ ${fmtMin(now.min)} ผ่านไป ${Math.round(pct)}%`} style={{ marginTop: 10, gap: 5 }}>
                 <View style={{ height: 10, justifyContent: 'center' }}>
                   <View style={{ height: 4, borderRadius: 2, backgroundColor: t.track, overflow: 'hidden' }}>
-                    <View style={{ width: `${pct}%`, height: 4, backgroundColor: NOW_ORANGE }} />
+                    <View style={{ width: `${pct}%`, height: 4, backgroundColor: t.accent }} />
                   </View>
-                  <View style={{ position: 'absolute', left: `${pct}%`, marginLeft: -5, width: 10, height: 10, borderRadius: 5, backgroundColor: '#B44E2C', borderWidth: 2, borderColor: nextCardBg ?? t.card }} />
+                  <View style={{ position: 'absolute', left: `${pct}%`, marginLeft: -5, width: 10, height: 10, borderRadius: 5, backgroundColor: t.primary, borderWidth: 2, borderColor: nextCardBg ?? t.card }} />
                 </View>
                 <View style={{ flexDirection: 'row' }}>
                   <Txt size={11.5} num weight="bold" color={t.accentInk} style={{ flex: 1 }}>
@@ -428,7 +427,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
             <View pointerEvents="none" style={{ position: 'absolute', left: TIME_W + 8 + 4, right: 4, top: 16, bottom: 0, borderRadius: 14, backgroundColor: t.rail }} />
             <View
               pointerEvents="none"
-              style={{ position: 'absolute', left: TIME_W + 8 - GROUP_PAD, right: -GROUP_PAD, top: 0, bottom: 6, borderRadius: 16, backgroundColor: t.track, borderWidth: hasLive ? 1 : 0, borderColor: hasLive ? 'rgba(210,96,58,0.35)' : 'transparent' }}
+              style={{ position: 'absolute', left: TIME_W + 8 - GROUP_PAD, right: -GROUP_PAD, top: 0, bottom: 6, borderRadius: 16, backgroundColor: t.track, borderWidth: hasLive ? 1 : 0, borderColor: hasLive ? t.accent + '59' : 'transparent' }}
             />
             <View
               accessible
@@ -439,12 +438,12 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
               <View style={{ width: RAIL_W }}>{railLine(firstIdx, false, true, true)}</View>
               <View style={{ flex: 1, minWidth: 0, paddingTop: 10, paddingBottom: 14, paddingRight: GROUP_PAD + 6, gap: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <StackGlyph color={hasLive ? NOW_ORANGE : t.sub} bg={t.track} />
+                  <StackGlyph color={hasLive ? t.accent : t.sub} bg={t.track} />
                   <Txt size={12.5} weight="bold" color={hasLive ? t.accentInk : t.sub}>
                     {hasLive ? 'กำลังทำ · ' : ''}ซ้อนเวลา {c.keys.length} รายการ
                   </Txt>
                   {spanText ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, height: 20, borderRadius: 10, backgroundColor: 'rgba(210,96,58,0.12)' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, height: 20, borderRadius: 10, backgroundColor: t.accent + '1F' }}>
                       <Txt size={11.5} weight="med" color={t.accentInk}>
                         ทับกัน
                       </Txt>
@@ -500,7 +499,7 @@ function OverlapBar({ cluster, now }: { cluster: Cluster; now: number | null }) 
     <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
       <View style={{ height: h + 6, justifyContent: 'center' }}>
         {overlaps.map((o) => (
-          <View key={o.start} style={{ position: 'absolute', left: x(o.start), width: w(o.start, o.end), top: 0, bottom: 0, borderRadius: 3, backgroundColor: 'rgba(210,96,58,0.14)' }} />
+          <View key={o.start} style={{ position: 'absolute', left: x(o.start), width: w(o.start, o.end), top: 0, bottom: 0, borderRadius: 3, backgroundColor: t.accent + '24' }} />
         ))}
         <View style={{ gap: GAP }}>
           {items.map((it) => {
@@ -513,7 +512,7 @@ function OverlapBar({ cluster, now }: { cluster: Cluster; now: number | null }) 
           })}
         </View>
         {now != null && now > start && now < end ? (
-          <View style={{ position: 'absolute', left: x(now), marginLeft: -1, width: 2, top: -2, bottom: -2, borderRadius: 1, backgroundColor: NOW_ORANGE }} />
+          <View style={{ position: 'absolute', left: x(now), marginLeft: -1, width: 2, top: -2, bottom: -2, borderRadius: 1, backgroundColor: t.accent }} />
         ) : null}
       </View>
       <View style={{ height: 14, marginTop: 3 }}>
