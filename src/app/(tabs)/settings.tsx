@@ -91,7 +91,7 @@ export default function SettingsScreen() {
   return (
     <Screen title="ตั้งค่า" scrollRef={scrollRef}>
       {/* สรุปสัปดาห์นี้ — แตะหัวการ์ดเปิดสถิติเต็ม · แถวค้างบันทึก → หน้าทบทวน */}
-      <View style={{ backgroundColor: t.card, borderRadius: 16, paddingTop: 12, paddingHorizontal: 16, shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
+      <View style={{ backgroundColor: t.card, borderRadius: 20, paddingTop: 12, paddingHorizontal: 16, shadowColor: t.shadow, shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`ความสำเร็จสัปดาห์นี้ ${Math.round(stats.rate * 100)}% — ดูสถิติทั้งหมด`}
@@ -216,8 +216,8 @@ export default function SettingsScreen() {
           label="ธีมและการแสดงผล"
           sub={`${settings.theme === 'system' ? 'ตามระบบ' : settings.theme === 'dark' ? 'โหมดมืด' : 'โหมดสว่าง'} · สว่าง: ${lightName} · มืด: ${darkName}`}
           onPress={() => router.push('/settings/theme')}
-          last
         />
+        <Row label="วิธีใช้เบื้องต้น" sub="คำแนะนำการใช้ 4 ข้อ · เลือกโทนสีอีกครั้ง" onPress={() => useUI.getState().setGuide(true)} last />
       </Section>
 
       <Section title="ข้อมูลและขั้นสูง">
@@ -247,7 +247,7 @@ export default function SettingsScreen() {
       </Section>
 
       {confirmSeed ? (
-        <View style={{ backgroundColor: t.card, borderRadius: 16, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 10 }}>
+        <View style={{ backgroundColor: t.card, borderRadius: 20, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 10 }}>
           <Txt size={15} weight="bold">
             นำเข้าตารางตัวอย่างเป็นเดือน{monthLabel}?
           </Txt>

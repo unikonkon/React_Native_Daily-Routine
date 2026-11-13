@@ -154,7 +154,7 @@ export default function DeleteScreen() {
       </View>
 
       {confirming ? (
-        <View style={{ backgroundColor: t.card, borderRadius: 16, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 8 }}>
+        <View style={{ backgroundColor: t.card, borderRadius: 20, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 8 }}>
           <Txt size={15} weight="bold">
             ลบ {targets.length} รายการ?
           </Txt>
@@ -286,7 +286,7 @@ function PickCard({ on, disabled, title, sub, onPress }: { on: boolean; disabled
         borderWidth: 1.5,
         borderColor: on ? t.warn : 'transparent',
         opacity: disabled ? 0.45 : pressed ? 0.8 : 1,
-        shadowColor: '#221C13',
+        shadowColor: t.shadow,
         shadowOpacity: 0.06,
         shadowRadius: 4,
         shadowOffset: { width: 0, height: 1 },
@@ -335,7 +335,7 @@ function DayGrid({
   const t = useTokens();
   const start = mondayOf(`${ym}-01`);
   return (
-    <View style={{ backgroundColor: t.card, borderRadius: 16, padding: 8, shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
+    <View style={{ backgroundColor: t.card, borderRadius: 20, padding: 8, shadowColor: t.shadow, shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
       <View style={{ flexDirection: 'row', paddingBottom: 4 }}>
         {WD_TH.map((w) => (
           <Txt key={w} size={11.5} color={t.sub} style={{ flex: 1, textAlign: 'center' }}>
@@ -409,7 +409,7 @@ function DayItems({ date, items, picked, onToggle, onSetAll }: { date: string; i
           </Pressable>
         ) : null}
       </View>
-      <View style={{ backgroundColor: t.card, borderRadius: 16, overflow: 'hidden', shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
+      <View style={{ backgroundColor: t.card, borderRadius: 20, overflow: 'hidden', shadowColor: t.shadow, shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
         {items.length ? (
           items.map((it, i) => {
             const k = keyOf(it);

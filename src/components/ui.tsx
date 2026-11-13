@@ -66,11 +66,11 @@ export function Txt({ children, size = 14, color, weight = 'reg', num, style, nu
 export function Card({ children, style, tone = 'card' }: { children: React.ReactNode; style?: ViewStyle | ViewStyle[]; tone?: 'card' | 'card2' }) {
   const t = useTokens();
   return (
-    // ระบบ B1 — การ์ดขาวมุม 16 + เงาบาง (ไม่มีเส้นขอบ) · card2 = พื้นรองในการ์ด (ไม่มีเงา)
+    // ระบบ B1 — การ์ดขาวมุม 20 + เงาบางสีตามธีม (ไม่มีเส้นขอบ) · card2 = พื้นรองในการ์ด (ไม่มีเงา)
     <View
       style={[
         tone === 'card'
-          ? { backgroundColor: t.card, borderRadius: 16, padding: 14, shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }
+          ? { backgroundColor: t.card, borderRadius: 20, padding: 14, shadowColor: t.shadow, shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }
           : { backgroundColor: t.card2, borderRadius: 12, padding: 12 },
         style,
       ]}>
@@ -159,7 +159,7 @@ export function Segmented<K extends string>({ options, value, onChange }: Segmen
               width: seg,
               borderRadius: 11,
               backgroundColor: t.card,
-              shadowColor: '#221C13',
+              shadowColor: t.shadow,
               shadowOpacity: 0.12,
               shadowRadius: 3,
               shadowOffset: { width: 0, height: 1 },
@@ -220,7 +220,7 @@ export function Toggle({ value, onChange, label }: { value: boolean; onChange: (
       <Animated.View style={[{ width: 46, height: 28, borderRadius: 14, padding: 3, justifyContent: 'center' }, track]}>
         <Animated.View
           style={[
-            { width: 22, height: 22, borderRadius: 11, backgroundColor: '#FFFFFF', shadowColor: '#221C13', shadowOpacity: 0.25, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+            { width: 22, height: 22, borderRadius: 11, backgroundColor: '#FFFFFF', shadowColor: t.shadow, shadowOpacity: 0.25, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
             thumb,
           ]}
         />

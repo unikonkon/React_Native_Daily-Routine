@@ -12,6 +12,7 @@ import { Keyboard, Pressable, ScrollView, TextInput, View, useWindowDimensions, 
 import { Field } from '@/components/field';
 import { Icon } from '@/components/icon';
 import { MonthGrid } from '@/components/month-grid';
+import { FadeInView, Pop, useBurst } from '@/components/motion';
 import { MonthYearPicker } from '@/components/month-year-picker';
 import { NoteBtn, NoteKeyboardBar, useKeyboardHeight } from '@/components/note-bar';
 import { Screen } from '@/components/screen';
@@ -127,12 +128,13 @@ export default function AddScreen() {
   const step1Done = !!d.cat && !!d.title.trim();
 
   // ขั้นที่เปิด + ค่าตอนโหลด — ผูกกับ loadRev (ร่างชุดใหม่ → เริ่มใหม่) โดยปรับ state ระหว่าง render แทน effect
-  const [nav, setNav] = useState(() => ({ rev: d.loadRev, open: firstOpen(d) as Step | null, snap: snapOf(d) }));
-  const cur = nav.rev === d.loadRev ? nav : { rev: d.loadRev, open: firstOpen(d) as Step | null, snap: snapOf(d) };
+  // just = ขั้นที่เพิ่งพับไปตอนเปิดขั้นใหม่ — วงเลขของขั้นนั้นเด้งเบา ๆ ตอนกลายเป็น ✓ (เปิดฟอร์มมาครั้งแรกไม่เล่น)
+  const [nav, setNav] = useState(() => ({ rev: d.loadRev, open: firstOpen(d) as Step | null, snap: snapOf(d), just: null as Step | null }));
+  const cur = nav.rev === d.loadRev ? nav : { rev: d.loadRev, open: firstOpen(d) as Step | null, snap: snapOf(d), just: null as Step | null };
   if (cur !== nav) setNav(cur);
   // ขั้น 1 ยังไม่ครบ → ขั้น 1 เปิดเสมอ (ขั้นอื่นยังไปไม่ได้)
   const open = step1Done ? cur.open : 1;
-  const setOpen = (n: Step | null) => setNav({ ...cur, open: n });
+  const setOpen = (n: Step | null) => setNav({ ...cur, open: n, just: open });
 
   // เปิดแท็บเพิ่มด้วยร่างว่าง (ยังไม่เลือกหมวด) → ตั้งเวลาตั้งต้นใหม่ = ช่วงว่าง 1 ชม. แรกหลังตอนนี้
   useFocusEffect(
@@ -291,7 +293,7 @@ export default function AddScreen() {
               <NextBtn label="ถัดไป · วันที่และการทำซ้ำ" disabled={!step1Done} hint={!d.cat ? 'เลือกหมวดก่อน' : !step1Done ? 'ใส่ชื่อกิจกรรม' : undefined} onPress={() => setOpen(2)} />
             </StepOpen>
           ) : (
-            <StepSummary n={1} label="หมวดและรายละเอียด" done={step1Done} changed={changed(1)} onPress={() => setOpen(1)}>
+            <StepSummary n={1} label="หมวดและรายละเอียด" done={step1Done} changed={changed(1)} pop={cur.just === 1} onPress={() => setOpen(1)}>
               {cat ? (
                 <Txt size={14.5} weight="med" numberOfLines={2} style={{ lineHeight: 20 }}>
                   <Txt size={14.5} weight="bold" color={cat.color}>
@@ -327,7 +329,7 @@ export default function AddScreen() {
               <NextBtn label="ถัดไป · เวลา" onPress={() => setOpen(3)} />
             </StepOpen>
           ) : (
-            <StepSummary n={2} label="วันที่และการทำซ้ำ" done changed={changed(2)} onPress={() => setOpen(2)}>
+            <StepSummary n={2} label="วันที่และการทำซ้ำ" done changed={changed(2)} pop={cur.just === 2} onPress={() => setOpen(2)}>
               <Txt size={14.5} weight="med" numberOfLines={2} style={{ lineHeight: 20 }}>
                 {s2Text}
                 {d.editId && !changed(2) ? <Txt size={14.5} color={t.sub}>{' (เดิม)'}</Txt> : null}
@@ -352,6 +354,7 @@ export default function AddScreen() {
               done={dur > 0}
               warn={analysis.conflictDays > 0}
               changed={changed(3)}
+              pop={cur.just === 3}
               onPress={() => setOpen(3)}
               footer={analysis.conflictDays > 0 ? <SuggestStrip analysis={analysis} inset /> : undefined}>
               <Txt size={14.5} weight="med" numberOfLines={2} style={{ lineHeight: 20 }}>
@@ -388,7 +391,7 @@ export default function AddScreen() {
               <NotifyBody />
             </StepOpen>
           ) : (
-            <StepSummary n={4} label="แจ้งเตือน" done changed={changed(4)} onPress={() => setOpen(4)}>
+            <StepSummary n={4} label="แจ้งเตือน" done changed={changed(4)} pop={cur.just === 4} onPress={() => setOpen(4)}>
               <Txt size={14.5} weight="med">
                 {d.notify ? (d.before === 0 ? 'แจ้งเมื่อถึงเวลาเริ่ม' : `แจ้งก่อนเริ่ม ${durText(d.before)}`) : 'ไม่แจ้งเตือน'}
               </Txt>
@@ -418,12 +421,13 @@ function HeaderPill({ label, onPress }: { label: string; onPress: () => void }) 
   );
 }
 
-/** วงกลมเลขขั้น — open = ส้มทึบ · done = เขียว ✓ · warn = วงส้ม "!" · pending = วงเทา */
-function StepDot({ n, kind }: { n: number; kind: 'open' | 'done' | 'warn' | 'pending' }) {
+/** วงกลมเลขขั้น — open = ส้มทึบ · done = เขียว ✓ · warn = วงส้ม "!" · pending = วงเทา · pop = เด้งเบา ๆ ตอนเปิด (ขั้นที่เพิ่งเสร็จ) */
+function StepDot({ n, kind, pop }: { n: number; kind: 'open' | 'done' | 'warn' | 'pending'; pop?: boolean }) {
   const t = useTokens();
   const bg = kind === 'open' ? t.primary : kind === 'done' ? GREEN : t.card;
   const bd = kind === 'warn' ? ATTN : kind === 'pending' ? t.railDash : 'transparent';
   return (
+    <Pop play={!!pop && kind === 'done'}>
     <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: bg, borderWidth: bd === 'transparent' ? 0 : 2, borderColor: bd, alignItems: 'center', justifyContent: 'center' }}>
       {kind === 'done' ? (
         <SvgIcon name="check" size={14} color="#FFFFFF" strokeWidth={3} />
@@ -433,6 +437,7 @@ function StepDot({ n, kind }: { n: number; kind: 'open' | 'done' | 'warn' | 'pen
         </Txt>
       )}
     </View>
+    </Pop>
   );
 }
 
@@ -451,7 +456,10 @@ function StepOpen({ n, title, right, children }: { n: Step; title: string; right
           </Txt>
         ) : null}
       </View>
-      {children}
+      {/* เปิดขั้น → เนื้อหาจางเข้า + ลอยขึ้นเล็กน้อย ให้รู้ว่าส่วนไหนเพิ่งกางออก */}
+      <FadeInView rise={8} duration={220} style={{ gap: 8 }}>
+        {children}
+      </FadeInView>
     </View>
   );
 }
@@ -481,6 +489,7 @@ function StepSummary({
   done,
   warn,
   changed,
+  pop,
   onPress,
   footer,
   children,
@@ -490,19 +499,22 @@ function StepSummary({
   done: boolean;
   warn?: boolean;
   changed?: boolean;
+  /** ขั้นนี้เพิ่งพับ (เพิ่งทำเสร็จ) — วงเลขเด้งเบา ๆ */
+  pop?: boolean;
   onPress: () => void;
   footer?: ReactNode;
   children: ReactNode;
 }) {
   const t = useTokens();
   return (
-    <View style={{ backgroundColor: t.card, borderRadius: 16, overflow: 'hidden', shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
+    <FadeInView duration={180}>
+    <View style={{ backgroundColor: t.card, borderRadius: 20, overflow: 'hidden', shadowColor: t.shadow, shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`แก้ขั้น ${n} ${label}`}
         onPress={onPress}
         style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 58, paddingVertical: 9, paddingLeft: 14, paddingRight: 12, backgroundColor: pressed ? t.track : 'transparent' })}>
-        <StepDot n={n} kind={warn ? 'warn' : done ? 'done' : 'pending'} />
+        <StepDot n={n} kind={warn ? 'warn' : done ? 'done' : 'pending'} pop={pop} />
         <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Txt size={12} color={t.sub}>
@@ -524,6 +536,7 @@ function StepSummary({
       </Pressable>
       {footer}
     </View>
+    </FadeInView>
   );
 }
 
@@ -797,32 +810,14 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
       {/* หมวด + รายละเอียด รวมในการ์ดพื้นหลังเดียว — ส่วนรายละเอียดโผล่ใต้เส้นคั่นเมื่อเลือกหมวดแล้ว */}
       <Card style={{ gap: 12 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          {CATS.map((c) => {
-            const active = d.cat === c.id;
-            return (
-              <Pressable
-                key={c.id}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: active }}
-                onPress={() => d.set({ cat: c.id })}
-                style={pressFade({
-                  width: '47.5%',
-                  padding: 14,
-                  borderRadius: 18,
-                  backgroundColor: active ? c.color + '22' : t.bg,
-                  borderWidth: 1.5,
-                  borderColor: active ? c.color : 'transparent',
-                  gap: 8,
-                })}>
-                <Icon name={c.icon} size={22} color={c.color} />
-                <Txt size={13} weight="med">{c.name}</Txt>
-              </Pressable>
-            );
-          })}
+          {CATS.map((c) => (
+            <CatCard key={c.id} c={c} active={d.cat === c.id} onPress={() => d.set({ cat: c.id })} />
+          ))}
         </View>
 
         {d.cat ? (
-          <>
+          // เลือกหมวดแล้ว → ส่วนรายละเอียดจางเข้าใต้การ์ดหมวด
+          <FadeInView rise={8} duration={220} style={{ gap: 12 }}>
             <View style={{ height: 1, backgroundColor: t.line }} />
             <TextInput
               value={d.title}
@@ -864,7 +859,7 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
                 </ChipRow>
               </>
             ) : null}
-          </>
+          </FadeInView>
         ) : null}
 
         {d.cat === 'case' ? (
@@ -1004,6 +999,37 @@ function DetailsBody({ noteInputRef, onNoteSession }: { noteInputRef: RefObject<
  * เป็นร่างจนกด "บันทึก" ของฟอร์ม — แก้ไข: โน้ตของวันที่เปิดมาแก้ ตัวเดียวกับในแผ่นรายละเอียด (ไม่ลงทั้งชุด)
  * แม่แบบ/ข้อความตัวอย่างตามหมวด · ชิปโน้ตสำเร็จรูป (ปักหมุดก่อน) · ✕ ล้าง · เพิ่มหลายวันเลือกได้ว่าลงวันแรกหรือทุกวัน
  */
+/** การ์ดเลือกหมวด — ไอคอนในวงสีอ่อนของหมวด · กดแล้วยุบเล็กน้อย · เลือกแล้วไอคอนเด้งเบา ๆ */
+function CatCard({ c, active, onPress }: { c: (typeof CATS)[number]; active: boolean; onPress: () => void }) {
+  const t = useTokens();
+  const burst = useBurst(active);
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ checked: active }}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        width: '47.5%',
+        padding: 14,
+        borderRadius: 18,
+        backgroundColor: active ? c.color + '22' : t.bg,
+        borderWidth: 1.5,
+        borderColor: active ? c.color : 'transparent',
+        gap: 8,
+        transform: [{ scale: pressed ? 0.97 : 1 }],
+      })}>
+      <Pop key={burst} play={burst > 0 && active} from={0.8}>
+        <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.color + (active ? '38' : '24'), alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name={c.icon} size={20} color={c.color} />
+        </View>
+      </Pop>
+      <Txt size={13} weight={active ? 'bold' : 'med'}>
+        {c.name}
+      </Txt>
+    </Pressable>
+  );
+}
+
 function FormNote({ cat, inputRef, onSession }: { cat: CatId; inputRef: RefObject<TextInputInstance | null>; onSession: (s: NoteSession | null) => void }) {
   const t = useTokens();
   const d = useDraft();
@@ -1533,7 +1559,7 @@ function ScopeCard({ editing, editDate }: { editing: Activity; editDate: string 
       ? `มีผลทุกครั้งตั้งแต่ ${shortDate(hit[0])} ${beYear(fromISO(hit[0]).getFullYear())} (ไม่มีวันสิ้นสุด)`
       : `มีผล ${hit.length} ครั้ง · ${dateRange(hit[0], hit[hit.length - 1])}`;
   return (
-    <View style={{ marginTop: 6, backgroundColor: t.card, borderRadius: 16, borderWidth: 1.5, borderColor: t.accent, padding: 14, gap: 10 }}>
+    <View style={{ marginTop: 6, backgroundColor: t.card, borderRadius: 20, borderWidth: 1.5, borderColor: t.accent, padding: 14, gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Icon name="repeat" size={18} color={t.accentInk} />
         <Txt size={14.5} weight="bold" style={{ flex: 1 }}>

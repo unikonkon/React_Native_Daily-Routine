@@ -2,12 +2,14 @@
 // ปฏิทินเลื่อนต่อเนื่องแนวตั้ง: เดือนก่อน/ถัดไปเรียงต่อกัน · แถวชื่อวัน + ชิปกรองหมวดปักไว้ด้านบน
 //   เลื่อนแล้วหัวจอเปลี่ยนชื่อเดือนตาม (onVisibleMonth) · ปุ่ม ‹ › / "วันนี้" ที่แถบล่าง = เลื่อนไปเดือนนั้น
 //   ถือไว้ทีละช่วง ±SPAN เดือน — เลื่อนใกล้ขอบช่วง → ขยับช่วงตาม (ชดเชยตำแหน่งให้ภาพไม่กระโดด)
-//   ข้อมูลรายวัน (จุดหมวด/แถบ %) คำนวณเฉพาะเดือนใกล้จอ — เดือนไกล ๆ โชว์แค่เลขวัน (cache รายวันจุได้ 500 วัน)
+//   ข้อมูลรายวัน (จุดหมวด/แถบ %) คำนวณเฉพาะเดือนใกล้จอ (±LIVE) · ช่องวันวาดเฉพาะเดือนใกล้จอ (±CELLS)
+//   เดือนที่ไกลกว่านั้นเป็นแค่ชื่อเดือน + ที่ว่างสูงเท่าจริง (ความสูงช่องคงที่) — เปิดมุมมองเดือนจึงไม่ต้องสร้างช่องวัน 13 เดือน
 // แตะวันครั้งแรก = เลือก → การ์ดรายการกางใต้สัปดาห์นั้น · แตะซ้ำ / "เปิดมุมมองวัน" = เข้ามุมมองวัน
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native';
 
 import { Rail } from '@/components/b1/rail';
+import { FadeInView } from '@/components/motion';
 import { useNow } from '@/components/b1/use-now';
 import { useToggleStatus } from '@/components/b1/use-toggle';
 import { SvgIcon } from '@/components/svg-icon';
@@ -17,12 +19,16 @@ import { MONTH_TH_FULL, VIEW_MAX_Y, VIEW_MIN_Y, WD_TH, addDays, beYear, fromISO,
 import { daytimeFreeSlots, freeMinutes } from '@/lib/engine';
 import { dayProgress, type NowRef } from '@/lib/progress';
 import type { DayItem, FreeSlot } from '@/lib/types';
-import { useActivities, useDayReader } from '@/stores/activities';
+import { useDayReader, useNotes } from '@/stores/activities';
 
 /** จำนวนเดือนก่อน/หลังเดือนกลางที่วางไว้ในรายการ */
 const SPAN = 6;
 /** เดือนที่ห่างจากเดือนบนจอไม่เกินเท่านี้ ถึงคำนวณข้อมูลรายวัน */
 const LIVE = 1;
+/** เดือนที่ห่างจากเดือนบนจอไม่เกินเท่านี้ ถึงวาดช่องวัน (จอเห็นราว 2 เดือน — ±2 เผื่อเลื่อนเร็ว) */
+const CELLS = 2;
+/** ความสูงของแถวสัปดาห์ (= ความสูงช่องวัน) — ใช้คำนวณที่ว่างของเดือนที่ยังไม่วาดช่อง */
+const ROW_H = 62;
 const MIN_K = VIEW_MIN_Y * 12;
 const MAX_K = VIEW_MAX_Y * 12 + 11;
 /** เส้นอ้างอิงจากขอบบนของรายการ — เดือนที่คร่อมเส้นนี้ = เดือนบนจอ */
@@ -47,9 +53,12 @@ interface MonthViewProps {
 }
 
 export function TodayMonthView({ year, month, selected, onPressDay, onVisibleMonth, bottomPad, freeMode = false, onPressSlot, onPressItem }: MonthViewProps) {
+  // ไม่ให้ React Compiler จัดการ memo ของคอมโพเนนต์นี้: มันถอด useCallback ด้านล่างออกแล้วไม่จำฟังก์ชันให้ (โค้ดส่วนนี้แตะ ref เยอะ)
+  // ทำให้ทุกเดือน/ทุกช่องวันได้ callback ตัวใหม่ทุกครั้งและถูกวาดใหม่หมด — ที่นี่จึง memo เองตามที่เขียนไว้
+  'use no memo';
   const t = useTokens();
   const getDay = useDayReader();
-  const notes = useActivities((s) => s.notes);
+  const notes = useNotes();
   const toggle = useToggleStatus();
   const now = useNow();
 
@@ -135,7 +144,15 @@ export function TodayMonthView({ year, month, selected, onPressDay, onVisibleMon
   };
 
   const [picked, setPicked] = useState<string | null>(selected);
-  const onCellPress = (d: string) => (picked === d ? onPressDay(d) : setPicked(d));
+  // callback ที่ส่งให้ทุกเดือน/ทุกช่องวันต้องเป็นตัวเดิมข้ามการวาด (MonthBlock/MonthCell ห่อ memo) — ไม่งั้นแตะวันเดียวหรือ
+  // สลับมุมมองทีหนึ่ง ช่องวันทุกช่องของทุกเดือนถูกคิดใหม่หมด · วันที่เลือกอยู่อ่านจาก ref ตอนแตะ (ไม่ผูกฟังก์ชันกับ state)
+  const pickedRef = useRef(picked);
+  useEffect(() => {
+    pickedRef.current = picked;
+  }, [picked]);
+  const onCellPress = useCallback((d: string) => (pickedRef.current === d ? onPressDay(d) : setPicked(d)), [onPressDay]);
+  const closeCard = useCallback(() => setPicked(null), []);
+  const noteOf = useCallback((it: DayItem) => notes[it.date]?.[it.id], [notes]);
 
   const [catFilter, setCatFilter] = useState<CatId | null>(null);
   const pickedK = picked ? toK(fromISO(picked).getFullYear(), fromISO(picked).getMonth()) : null;
@@ -163,16 +180,19 @@ export function TodayMonthView({ year, month, selected, onPressDay, onVisibleMon
             <MonthBlock
               k={k}
               live={Math.abs(k - visK) <= LIVE || k === pickedK}
+              cells={Math.abs(k - visK) <= CELLS || k === pickedK}
               current={k === visK}
               picked={k === pickedK ? picked : null}
               catFilter={catFilter}
               freeMode={freeMode}
-              now={now}
-              getDay={getDay}
-              noteOf={(it) => notes[it.date]?.[it.id]}
+              today={now.date}
+              // เวลา/ข้อมูลรายวันส่งให้เฉพาะเดือนที่คำนวณจริง — เดือนอื่นจึงไม่ถูกคิดใหม่ทุกนาทีหรือทุกครั้งที่ติ๊กรายการ
+              now={Math.abs(k - visK) <= LIVE || k === pickedK ? now : null}
+              getDay={Math.abs(k - visK) <= LIVE || k === pickedK ? getDay : null}
+              noteOf={k === pickedK ? noteOf : null}
               onCellPress={onCellPress}
               onOpenDay={onPressDay}
-              onClose={() => setPicked(null)}
+              onClose={closeCard}
               onPressItem={onPressItem}
               onPressSlot={onPressSlot}
               onToggle={toggle}
@@ -188,15 +208,20 @@ interface MonthBlockProps {
   k: number;
   /** คำนวณข้อมูลรายวัน (เดือนใกล้จอ) — false = โชว์แค่เลขวัน */
   live: boolean;
+  /** วาดช่องวัน — false = เดือนไกลจอ วาดแค่ชื่อเดือน + ที่ว่างสูงเท่าจริง */
+  cells: boolean;
   /** เดือนบนจอ — ชื่อเดือนเป็นสีเข้ม */
   current: boolean;
   /** วันที่เลือกไว้ (เฉพาะเมื่ออยู่ในเดือนนี้) */
   picked: string | null;
   catFilter: CatId | null;
   freeMode: boolean;
-  now: NowRef;
-  getDay: (d: string) => DayItem[];
-  noteOf: (it: DayItem) => string | undefined;
+  today: string;
+  /** เวลาปัจจุบัน / ตัวอ่านข้อมูลรายวัน — มีเฉพาะเดือนที่ live (null = เดือนไกลจอ) */
+  now: NowRef | null;
+  getDay: ((d: string) => DayItem[]) | null;
+  /** โน้ตของรายการ — ใช้กับการ์ดวันที่เลือก (null = เดือนนี้ไม่มีการ์ด) */
+  noteOf: ((it: DayItem) => string | undefined) | null;
   onCellPress: (d: string) => void;
   onOpenDay: (d: string) => void;
   onClose: () => void;
@@ -205,17 +230,29 @@ interface MonthBlockProps {
   onToggle: ReturnType<typeof useToggleStatus>;
 }
 
+const NO_ITEMS: DayItem[] = [];
+const NO_FREE: FreeSlot[] = [];
+const NO_NOTE = () => undefined;
+
 /** เดือนหนึ่งในปฏิทินต่อเนื่อง — ชื่อเดือน + สัปดาห์ (ช่องของเดือนอื่นเว้นว่าง) · การ์ดวันที่เลือกกางใต้สัปดาห์นั้น */
-function MonthBlock({ k, live, current, picked, catFilter, freeMode, now, getDay, noteOf, onCellPress, onOpenDay, onClose, onPressItem, onPressSlot, onToggle }: MonthBlockProps) {
+const MonthBlock = memo(function MonthBlock({ k, live, cells, current, picked, catFilter, freeMode, today, now, getDay, noteOf, onCellPress, onOpenDay, onClose, onPressItem, onPressSlot, onToggle }: MonthBlockProps) {
   const t = useTokens();
   const { y, m } = fromK(k);
   const first = toISO(new Date(y, m, 1));
   const last = toISO(new Date(y, m + 1, 0));
   const ymKey = first.slice(0, 7);
   const weeks: string[][] = [];
-  for (let w = mondayOf(first); w <= last; w = addDays(w, 7)) weeks.push(Array.from({ length: 7 }, (_, i) => addDays(w, i)));
-  const filt = (list: DayItem[]) => (catFilter ? list.filter((i) => i.cat === catFilter) : list);
-  const isNowMonth = now.date.slice(0, 7) === ymKey;
+  // w ถูกเปลี่ยนค่าในลูป — ส่งสำเนา (mon) เข้า lambda แทน ไม่งั้น React Compiler ข้ามทั้งคอมโพเนนต์
+  for (let w = mondayOf(first); w <= last; w = addDays(w, 7)) {
+    const mon = w;
+    weeks.push(Array.from({ length: 7 }, (_, i) => addDays(mon, i)));
+  }
+  const dayOf = (d: string): DayItem[] => {
+    if (!live || !getDay) return NO_ITEMS;
+    const list = getDay(d);
+    return catFilter ? list.filter((i) => i.cat === catFilter) : list;
+  };
+  const isNowMonth = today.slice(0, 7) === ymKey;
 
   return (
     <View style={{ paddingTop: 14 }}>
@@ -227,72 +264,45 @@ function MonthBlock({ k, live, current, picked, catFilter, freeMode, now, getDay
           {beYear(y)}
         </Txt>
       </View>
-      {weeks.map((week) => (
+      {!cells ? <View style={{ height: weeks.length * ROW_H }} /> : null}
+      {(cells ? weeks : []).map((week) => (
         <React.Fragment key={week[0]}>
           <View style={{ flexDirection: 'row', paddingHorizontal: 8 }}>
             {week.map((d) => {
               if (d.slice(0, 7) !== ymKey) return <View key={d} style={{ flex: 1 }} />;
-              const isToday = d === now.date;
-              const isSel = d === picked;
-              const items = live ? filt(getDay(d)) : [];
-              const p = dayProgress(items, now);
-              const cats = [...new Set(items.map((i) => i.cat))].slice(0, 3);
-              const cellFree = live && freeMode ? freeMinutes(daytimeFreeSlots(getDay(d))) : 0;
-              const started = d <= now.date && p.total > 0;
+              const items = dayOf(d);
+              const p = now ? dayProgress(items, now) : null;
+              const started = !!p && d <= today && p.total > 0;
               return (
-                <Pressable
+                <MonthCell
                   key={d}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSel }}
-                  accessibilityLabel={`${thaiDate(d)}${live ? ` · ${items.length} รายการ` : ''}${started ? ` · ทำแล้ว ${Math.round(p.rate * 100)}%` : ''}`}
-                  onPress={() => onCellPress(d)}
-                  style={pressFade({ flex: 1, height: 62, paddingTop: 4, alignItems: 'center', gap: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, opacity: catFilter && live && !items.length ? 0.4 : 1 })}>
-                  <View
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 16,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: isSel ? t.ink : 'transparent',
-                      borderWidth: isToday && !isSel ? 1.5 : 0,
-                      borderColor: t.accent,
-                    }}>
-                    <Txt size={15} num weight={isSel || isToday ? 'bold' : 'reg'} color={isSel ? t.bg : t.ink}>
-                      {fromISO(d).getDate()}
-                    </Txt>
-                  </View>
-                  {freeMode ? (
-                    cellFree > 0 ? (
-                      <Txt size={10.5} num weight="med" color={GREEN}>
-                        {hoursText(cellFree)}
-                      </Txt>
-                    ) : null
-                  ) : (
-                    <>
-                      <View style={{ flexDirection: 'row', gap: 3, height: 6 }}>
-                        {cats.map((cid) => (
-                          <View key={cid} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: CAT_BY_ID[cid].color }} />
-                        ))}
-                      </View>
-                      <View style={{ width: 18, height: 3, borderRadius: 2, backgroundColor: started ? t.rail : 'transparent', overflow: 'hidden' }}>
-                        {started ? <View style={{ width: `${Math.round(p.rate * 100)}%`, height: 3, backgroundColor: p.rate >= 0.8 ? GREEN : ATTN }} /> : null}
-                      </View>
-                    </>
-                  )}
-                </Pressable>
+                  d={d}
+                  day={Number(d.slice(8))}
+                  isToday={d === today}
+                  isSel={d === picked}
+                  live={live}
+                  count={items.length}
+                  // จุดสีหมวด ≤3 — ส่งเป็นข้อความ (id คั่นด้วย ,) ให้เทียบค่าได้ตรง ๆ ช่องที่ข้อมูลเหมือนเดิมไม่ถูกวาดใหม่
+                  cats={[...new Set(items.map((i) => i.cat))].slice(0, 3).join(',')}
+                  pct={started && p ? Math.round(p.rate * 100) : -1}
+                  freeMin={live && freeMode && getDay ? freeMinutes(daytimeFreeSlots(getDay(d))) : 0}
+                  freeMode={freeMode}
+                  dim={!!catFilter && live && !items.length}
+                  onPress={onCellPress}
+                />
               );
             })}
           </View>
-          {picked && week.includes(picked) ? (
+          {picked && now && getDay && week.includes(picked) ? (
             <DayCard
+              key={picked}
               date={picked}
-              items={filt(getDay(picked))}
-              free={freeMode ? daytimeFreeSlots(getDay(picked)) : []}
+              items={dayOf(picked)}
+              free={freeMode ? daytimeFreeSlots(getDay(picked)) : NO_FREE}
               catFilter={catFilter}
               now={now}
-              noteOf={noteOf}
-              onOpenDay={() => onOpenDay(picked)}
+              noteOf={noteOf ?? NO_NOTE}
+              onOpenDay={onOpenDay}
               onClose={onClose}
               onPressItem={onPressItem}
               onPressSlot={onPressSlot}
@@ -303,10 +313,73 @@ function MonthBlock({ k, live, current, picked, catFilter, freeMode, now, getDay
       ))}
     </View>
   );
+});
+
+interface MonthCellProps {
+  d: string;
+  day: number;
+  isToday: boolean;
+  isSel: boolean;
+  live: boolean;
+  count: number;
+  cats: string;
+  /** % ทำเสร็จของวัน (0–100) · -1 = ยังไม่มีแถบ (วันอนาคต/ไม่มีรายการ) */
+  pct: number;
+  freeMin: number;
+  freeMode: boolean;
+  dim: boolean;
+  onPress: (d: string) => void;
 }
 
+/** ช่องวันในปฏิทินเดือน — รับเฉพาะค่าพื้นฐาน (เทียบเท่ากันได้ตรง ๆ) ห่อ memo: ติ๊กรายการวันเดียว ช่องอื่นไม่ถูกวาดใหม่ */
+const MonthCell = memo(function MonthCell({ d, day, isToday, isSel, live, count, cats, pct, freeMin, freeMode, dim, onPress }: MonthCellProps) {
+  const t = useTokens();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: isSel }}
+      accessibilityLabel={`${thaiDate(d)}${live ? ` · ${count} รายการ` : ''}${pct >= 0 ? ` · ทำแล้ว ${pct}%` : ''}`}
+      onPress={() => onPress(d)}
+      style={pressFade({ flex: 1, height: ROW_H, paddingTop: 4, alignItems: 'center', gap: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, opacity: dim ? 0.4 : 1 })}>
+      <View
+        style={{
+          width: 32,
+          height: 32,
+          borderRadius: 16,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: isSel ? t.ink : 'transparent',
+          borderWidth: isToday && !isSel ? 1.5 : 0,
+          borderColor: t.accent,
+        }}>
+        <Txt size={15} num weight={isSel || isToday ? 'bold' : 'reg'} color={isSel ? t.bg : t.ink}>
+          {day}
+        </Txt>
+      </View>
+      {freeMode ? (
+        freeMin > 0 ? (
+          <Txt size={10.5} num weight="med" color={GREEN}>
+            {hoursText(freeMin)}
+          </Txt>
+        ) : null
+      ) : (
+        <>
+          <View style={{ flexDirection: 'row', gap: 3, height: 6 }}>
+            {(cats ? (cats.split(',') as CatId[]) : []).map((cid) => (
+              <View key={cid} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: CAT_BY_ID[cid].color }} />
+            ))}
+          </View>
+          <View style={{ width: 18, height: 3, borderRadius: 2, backgroundColor: pct >= 0 ? t.rail : 'transparent', overflow: 'hidden' }}>
+            {pct >= 0 ? <View style={{ width: `${pct}%`, height: 3, backgroundColor: pct >= 80 ? GREEN : ATTN }} /> : null}
+          </View>
+        </>
+      )}
+    </Pressable>
+  );
+});
+
 /** การ์ดรายการของวันที่เลือก — กางใต้สัปดาห์ของวันนั้น · ✕ = พับ · "เปิดมุมมองวัน" = เข้ามุมมองวัน */
-function DayCard({
+const DayCard = memo(function DayCard({
   date,
   items,
   free,
@@ -325,7 +398,7 @@ function DayCard({
   catFilter: CatId | null;
   now: NowRef;
   noteOf: (it: DayItem) => string | undefined;
-  onOpenDay: () => void;
+  onOpenDay: (d: string) => void;
   onClose: () => void;
   onPressItem: (it: DayItem) => void;
   onPressSlot?: (date: string, start: number, end: number) => void;
@@ -333,8 +406,12 @@ function DayCard({
 }) {
   const t = useTokens();
   const dp = dayProgress(items, now);
+  // ตั้งชื่อไว้ (ไม่เขียนฝังใน JSX) — Rail ห่อ memo ต้องได้ฟังก์ชันตัวเดิมถึงจะข้ามการคิดซ้ำได้
+  const pressSlot = useCallback((s: FreeSlot) => onPressSlot?.(date, s.start, s.end), [onPressSlot, date]);
   return (
-    <View style={{ marginHorizontal: 12, marginTop: 4, marginBottom: 10, backgroundColor: t.card, borderRadius: 16, paddingTop: 12, paddingBottom: 4, shadowColor: '#221C13', shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
+    // เลือกวัน → การ์ดจางเข้า + ลอยลงมาจากแถวสัปดาห์ (key ตามวัน — เลือกวันอื่นในสัปดาห์เดียวกันก็เล่นใหม่)
+    <FadeInView rise={-8} duration={220}>
+    <View style={{ marginHorizontal: 12, marginTop: 4, marginBottom: 10, backgroundColor: t.card, borderRadius: 20, paddingTop: 12, paddingBottom: 4, shadowColor: t.shadow, shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 14, paddingRight: 10, marginBottom: 10 }}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Txt size={15} weight="bold" numberOfLines={1}>
@@ -348,7 +425,7 @@ function DayCard({
         </View>
         <Pressable
           accessibilityRole="button"
-          onPress={onOpenDay}
+          onPress={() => onOpenDay(date)}
           style={({ pressed }) => ({ height: 36, paddingLeft: 12, paddingRight: 8, borderRadius: 18, backgroundColor: pressed ? t.rail : t.track, flexDirection: 'row', alignItems: 'center', gap: 2 })}>
           <Txt size={12.5} weight="med">
             เปิดมุมมองวัน
@@ -368,7 +445,7 @@ function DayCard({
             showNow={date === now.date}
             onPressItem={onPressItem}
             onToggle={onToggle}
-            onPressSlot={onPressSlot ? (s) => onPressSlot(date, s.start, s.end) : undefined}
+            onPressSlot={onPressSlot ? pressSlot : undefined}
             noteOf={noteOf}
             nextCardBg={t.bg}
           />
@@ -377,8 +454,9 @@ function DayCard({
         <View style={{ height: 10 }} />
       )}
     </View>
+    </FadeInView>
   );
-}
+});
 
 function FilterChip({ label, color, on, onPress }: { label: string; color?: string; on: boolean; onPress: () => void }) {
   const t = useTokens();

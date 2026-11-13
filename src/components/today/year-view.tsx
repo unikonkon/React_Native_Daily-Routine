@@ -93,7 +93,7 @@ export function TodayYearView({ year, onPressMonth, bottomPad }: YearViewProps) 
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 10, paddingBottom: bottomPad, gap: 12 }}>
-      <View style={{ flexDirection: 'row', backgroundColor: t.card, borderRadius: 16, paddingVertical: 14, shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
+      <View style={{ flexDirection: 'row', backgroundColor: t.card, borderRadius: 20, paddingVertical: 14, shadowColor: t.shadow, shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
         <Stat value={data.total ? `${Math.round(data.rate * 100)}%` : '—'} label="ทำเสร็จทั้งปี" color={t.greenInk} />
         <View style={{ width: 1, backgroundColor: t.line }} />
         <Stat value={`${data.fullDays}`} label="วันที่ทำครบ" />

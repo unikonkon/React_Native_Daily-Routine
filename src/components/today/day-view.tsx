@@ -8,18 +8,27 @@ import { Pressable, ScrollView, View, type ScrollViewInstance } from 'react-nati
 
 import { DateHeader, type CalView } from '@/components/b1/date-header';
 import { Rail } from '@/components/b1/rail';
+import { StatusDot } from '@/components/b1/status-circle';
 import { useNow } from '@/components/b1/use-now';
 import { useToggleStatus } from '@/components/b1/use-toggle';
 import { WeekStrip } from '@/components/b1/week-strip';
+import { EmptyState } from '@/components/empty-state';
+import { FadeInView, useBurst } from '@/components/motion';
 import { SvgIcon } from '@/components/svg-icon';
 import { SwipeDays } from '@/components/today/swipe-days';
-import { Txt, pressFade, useTokens } from '@/components/ui';
+import { Txt, useTokens } from '@/components/ui';
 import { addDays, beYear, fromISO, MONTH_TH, WD_TH_FULL, wdMon } from '@/lib/dates';
 import { daytimeFreeSlots, streakBefore, streakWithToday } from '@/lib/engine';
 import { dayProgress, overdueBetween } from '@/lib/progress';
-import type { DayItem } from '@/lib/types';
-import { useActivities, useDay, useDayReader } from '@/stores/activities';
-import { ATTN } from '@/constants/theme';
+import type { DayItem, FreeSlot } from '@/lib/types';
+import { useActs, useDay, useDayReader, useNotes, useOcc } from '@/stores/activities';
+import { ATTN, GREEN } from '@/constants/theme';
+
+/** คำทักทายตามช่วงเวลา (นาทีของวัน — เกิน 1440 = หลังเที่ยงคืนของหน้าต่างวันเดิม) */
+function greeting(min: number): string {
+  const h = Math.floor((min % 1440) / 60);
+  return h < 5 ? 'ดึกแล้ว พักผ่อนนะ' : h < 11 ? 'อรุณสวัสดิ์' : h < 13 ? 'สวัสดีตอนเที่ยง' : h < 17 ? 'สวัสดีตอนบ่าย' : h < 21 ? 'สวัสดีตอนเย็น' : 'ราตรีสวัสดิ์';
+}
 
 interface DayViewProps {
   focus: string;
@@ -42,9 +51,10 @@ export function TodayDayView({ focus, onChangeFocus, onPressTitle, onPressItem, 
   const router = useRouter();
   const items = useDay(focus);
   const getDay = useDayReader();
-  const acts = useActivities((s) => s.acts);
-  const occ = useActivities((s) => s.occ);
-  const notes = useActivities((s) => s.notes);
+  // อ่านผ่านประตูของชั้น (useActs/useOcc/useNotes) — ตอนมุมมองวันถูกซ่อน (ดูสัปดาห์/เดือนอยู่) ไม่ต้องคิด streak/รายการใหม่ตามทุกการเปลี่ยนแปลง
+  const acts = useActs();
+  const occ = useOcc();
+  const notes = useNotes();
   const toggle = useToggleStatus();
   const now = useNow();
   const isNowDay = focus === now.date;
@@ -61,7 +71,14 @@ export function TodayDayView({ focus, onChangeFocus, onPressTitle, onPressItem, 
 
   const d = fromISO(focus);
   const title = `${WD_TH_FULL[wdMon(focus)]} ${d.getDate()} ${MONTH_TH[d.getMonth()]}`;
-  const summary = isNowDay && streak > 1 ? `${beYear(d.getFullYear())} · ทำต่อเนื่อง ${streak} วัน` : `${beYear(d.getFullYear())}${p.total ? ` · เสร็จ ${p.done}/${p.total}` : ''}`;
+  // วันนี้: ทักทายตามช่วงเวลาแทนปี (อยู่บรรทัดสรุปเดิม — หัวจอไม่สูงขึ้น ปัดไปวันอื่นแล้วไม่กระตุก) · วันอื่น: ปี + ความคืบหน้า
+  const summary = isNowDay
+    ? [greeting(now.min), p.total ? `เสร็จ ${p.done}/${p.total}` : 'ยังไม่มีรายการ', streak > 1 ? `ต่อเนื่อง ${streak} วัน` : ''].filter(Boolean).join(' · ')
+    : `${beYear(d.getFullYear())}${p.total ? ` · เสร็จ ${p.done}/${p.total}` : ''}`;
+  // ครบทั้งวัน = ไม่เหลือรายการที่ยังไม่ทำ (ทำแล้ว/ข้ามครบ) และทำแล้วอย่างน้อย 1 — การ์ดฉลองเบา ๆ บนสุดของรายการ (เฉพาะวันนี้)
+  const complete = isNowDay && p.done > 0 && p.done + p.skipped === p.total;
+  // เพิ่งครบระหว่างเปิดจออยู่ → การ์ดลอยเข้า + เลื่อนขึ้นไปให้เห็น (เปิดมาครบอยู่แล้ว = โชว์นิ่ง ๆ)
+  const justDone = useBurst(complete);
 
   // เลื่อนไปที่ "ตอนนี้" — ตอนเปิดวันนี้ครั้งแรก และทุกครั้งที่กด "วันนี้" ซ้ำ
   const scRef = useRef<ScrollViewInstance>(null);
@@ -76,7 +93,13 @@ export function TodayDayView({ focus, onChangeFocus, onPressTitle, onPressItem, 
     if (!isNowDay) scRef.current?.scrollTo({ y: 0, animated: false });
   }, [focus, isNowDay]);
 
+  useEffect(() => {
+    if (justDone) scRef.current?.scrollTo({ y: 0, animated: true });
+  }, [justDone]);
+
   const noteOf = (it: DayItem) => notes[it.date]?.[it.id];
+  // ตั้งชื่อไว้ (ไม่เขียนฝังใน JSX) — Rail ห่อ memo ต้องได้ฟังก์ชันตัวเดิมถึงจะข้ามการคิดซ้ำได้
+  const pressSlot = (s: FreeSlot) => onPressSlot(focus, s.start, s.end);
 
   return (
     <View style={{ flex: 1 }}>
@@ -87,23 +110,25 @@ export function TodayDayView({ focus, onChangeFocus, onPressTitle, onPressItem, 
       <SwipeDays focus={focus} onChangeFocus={onChangeFocus}>
         <ScrollView ref={scRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 8, paddingBottom: bottomPad }}>
           {overdue7 ? <ReviewBanner overdue7={overdue7} onReview={() => router.push('/review')} /> : null}
+          {complete ? <DayDone key={justDone} animate={justDone > 0} streak={streak} below={!!overdue7} /> : null}
 
           {items.length ? (
             <View onLayout={(e) => (railTop.current = e.nativeEvent.layout.y)} style={{ paddingLeft: 12, paddingRight: 18, paddingTop: 10 }}>
               <Rail
+                key={focus}
                 items={items}
                 now={now}
                 free={free}
                 showNow={isNowDay}
                 onPressItem={onPressItem}
                 onToggle={toggle}
-                onPressSlot={(s) => onPressSlot(focus, s.start, s.end)}
+                onPressSlot={pressSlot}
                 noteOf={noteOf}
                 onNowLayout={setNowY}
               />
             </View>
           ) : (
-            <EmptyDay onAdd={onAdd} />
+            <EmptyDay onAdd={onAdd} today={isNowDay} />
           )}
         </ScrollView>
       </SwipeDays>
@@ -125,9 +150,9 @@ function ReviewBanner({ overdue7, onReview }: { overdue7: number; onReview: () =
         gap: 10,
         paddingHorizontal: 14,
         minHeight: 48,
-        borderRadius: 16,
+        borderRadius: 20,
         backgroundColor: pressed ? t.track : t.card,
-        shadowColor: '#221C13',
+        shadowColor: t.shadow,
         shadowOpacity: 0.06,
         shadowRadius: 4,
         shadowOffset: { width: 0, height: 1 },
@@ -144,19 +169,47 @@ function ReviewBanner({ overdue7, onReview }: { overdue7: number; onReview: () =
   );
 }
 
-function EmptyDay({ onAdd }: { onAdd: () => void }) {
+/**
+ * การ์ด "วันนี้ครบแล้ว" — ฉลองแบบเรียบ ๆ: วงเขียววาดเครื่องหมายถูก + คำชม 1 บรรทัด (ไม่มีเอฟเฟกต์หวือหวา)
+ * animate = เพิ่งครบตอนเปิดจออยู่ → ลอยเข้า + วาดเครื่องหมายถูก
+ */
+function DayDone({ animate, streak, below }: { animate: boolean; streak: number; below: boolean }) {
+  const t = useTokens();
+  const body = (
+    <View
+      accessible
+      accessibilityLabel={`วันนี้ครบทุกรายการแล้ว${streak > 1 ? ` ทำต่อเนื่อง ${streak} วัน` : ''}`}
+      style={{ marginHorizontal: 18, marginTop: below ? 10 : 0, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 20, backgroundColor: GREEN + '1F' }}>
+      <StatusDot state="done" size={30} drawCheck={animate} />
+      <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+        <Txt size={14.5} weight="bold" color={t.greenInk}>
+          วันนี้ครบทุกรายการแล้ว
+        </Txt>
+        <Txt size={12.5} color={t.sub}>
+          {streak > 1 ? `ทำต่อเนื่องมา ${streak} วันแล้ว · พักผ่อนให้เต็มที่นะ` : 'เก่งมาก · พักผ่อนให้เต็มที่นะ'}
+        </Txt>
+      </View>
+    </View>
+  );
+  return animate ? (
+    <FadeInView rise={10} duration={320}>
+      {body}
+    </FadeInView>
+  ) : (
+    body
+  );
+}
+
+function EmptyDay({ onAdd, today }: { onAdd: () => void; today: boolean }) {
   const t = useTokens();
   return (
-    <View style={{ alignItems: 'center', paddingTop: 48, paddingHorizontal: 32, gap: 12 }}>
-      <Txt size={15} weight="med" color={t.sub} style={{ textAlign: 'center' }}>
-        ยังไม่มีกิจกรรมในวันนี้
-      </Txt>
-      <Pressable accessibilityRole="button" onPress={onAdd} style={pressFade({ height: 44, paddingHorizontal: 18, borderRadius: 22, backgroundColor: t.track, flexDirection: 'row', alignItems: 'center', gap: 6 })}>
+    <EmptyState icon="sun" title={today ? 'วันนี้ยังว่างอยู่' : 'ยังไม่มีกิจกรรมในวันนี้'} sub={today ? 'เริ่มจากสิ่งเล็ก ๆ สักอย่าง หรือจะปล่อยให้เป็นวันพักก็ได้นะ' : 'แตะ "เพิ่มกิจกรรม" เพื่อวางแผนของวันนี้'}>
+      <Pressable accessibilityRole="button" onPress={onAdd} style={({ pressed }) => ({ height: 44, paddingHorizontal: 18, borderRadius: 22, backgroundColor: pressed ? t.rail : t.track, flexDirection: 'row', alignItems: 'center', gap: 6 })}>
         <SvgIcon name="plus" size={16} color={t.ink} strokeWidth={2.2} />
         <Txt size={14} weight="bold">
           เพิ่มกิจกรรม
         </Txt>
       </Pressable>
-    </View>
+    </EmptyState>
   );
 }

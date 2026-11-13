@@ -1,6 +1,7 @@
 // แท็บ 1 — วันนี้ (ระบบ B1): มุมมอง วัน/สัปดาห์/เดือน/ปี + แถววันที่ (ไอคอนมุมมอง 4 อัน) + แถบลอยล่าง ‹ วันนี้ › · ปฏิทิน · ＋
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { memo, startTransition, useEffect, useMemo, useState } from 'react';
+import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BOTTOM_BAR_SPACE, CalendarBar } from '@/components/b1/bottom-bar';
@@ -8,6 +9,7 @@ import { DateHeader, type CalView } from '@/components/b1/date-header';
 import { useNow } from '@/components/b1/use-now';
 import { Screen } from '@/components/screen';
 import { TodayDayView } from '@/components/today/day-view';
+import { Layer } from '@/components/today/keep-alive';
 import { TodayMonthView } from '@/components/today/month-view';
 import { TodayWeekView } from '@/components/today/week-view';
 import { TodayYearView } from '@/components/today/year-view';
@@ -33,18 +35,93 @@ function rangeProgress(getDay: (d: string) => DayItem[], from: string, to: strin
   return { total, done, overdue, rate: total ? done / total : 0 };
 }
 
+/**
+ * มุมมองที่สร้างไว้ล่วงหน้าเบื้องหลังหลังจอแรกขึ้นแล้ว (ms) — แตะครั้งแรกก็สลับได้ทันทีเหมือนครั้งถัด ๆ ไป
+ * สร้างแบบงานเบื้องหลัง (transition) ทีละมุมมอง ไม่แย่งการแตะ/เลื่อนของจอที่ดูอยู่ · มุมมองปีไม่สร้างล่วงหน้า (คิดข้อมูลทั้งปี และใช้น้อย)
+ */
+const PREMOUNT: { view: CalView; after: number }[] = [
+  { view: 'week', after: 1500 },
+  { view: 'month', after: 3000 },
+];
+
+type YM = { y: number; m: number };
+
+// มุมมองแต่ละตัวห่อด้วย memo — ชั้นที่สลับเข้า/ออกโดยค่าที่ส่งให้ไม่เปลี่ยน (เช่น แค่สลับมุมมองไปมา) ไม่ต้องคิดทั้งจอใหม่
+// (คู่กับ callback ที่ตั้งชื่อไว้ใน TodayScreen ด้านล่าง — ฟังก์ชันที่เขียนฝังใน JSX ถูกสร้างใหม่ทุกครั้ง memo จะไม่ช่วย)
+const DayView = memo(TodayDayView);
+const WeekView = memo(TodayWeekView);
+const MonthView = memo(TodayMonthView);
+const YearView = memo(TodayYearView);
+
+/** หัวของมุมมองสัปดาห์/เดือน/ปี — ชื่อช่วง + บรรทัดสรุปความคืบหน้า (มุมมองวันมีหัวของตัวเอง) · อยู่ในชั้นของมุมมองนั้น จึงค้างค่าไว้ตอนถูกซ่อน */
+const PeriodHeader = memo(function PeriodHeader({ kind, monday, y, m, picked, onChangeView }: { kind: 'week' | 'month' | 'year'; monday: string; y: number; m: number; picked: CalView; onChangeView: (v: CalView) => void }) {
+  const getDay = useDayReader();
+  const now = useNow();
+  const header = useMemo(() => {
+    const ym = { y, m };
+    if (kind === 'week') {
+      const a = fromISO(monday);
+      const b = fromISO(addDays(monday, 6));
+      const p = rangeProgress(getDay, monday, addDays(monday, 6), now);
+      const title = a.getMonth() === b.getMonth() ? `${a.getDate()}–${b.getDate()} ${MONTH_TH[a.getMonth()]}` : `${a.getDate()} ${MONTH_TH[a.getMonth()]} – ${b.getDate()} ${MONTH_TH[b.getMonth()]}`;
+      return { title, summary: `${beYear(b.getFullYear())}${p.total ? ` · เสร็จ ${p.done}/${p.total}` : ''}${p.overdue ? ` · ค้าง ${p.overdue}` : ''}` };
+    }
+    if (kind === 'month') {
+      const from = toISO(new Date(ym.y, ym.m, 1));
+      const p = rangeProgress(getDay, from, toISO(new Date(ym.y, ym.m + 1, 0)), now);
+      return {
+        title: `${MONTH_TH_FULL[ym.m]} ${beYear(ym.y)}`,
+        summary: from > now.date ? 'ยังไม่ถึง' : p.total ? `เสร็จ ${Math.round(p.rate * 100)}%${p.overdue ? ` · ค้าง ${p.overdue}` : ''}` : 'ยังไม่มีรายการ',
+      };
+    }
+    const p = rangeProgress(getDay, `${ym.y}-01-01`, `${ym.y}-12-31`, now);
+    const n = fromISO(now.date);
+    return { title: `${beYear(ym.y)}`, summary: p.total ? `ทำเสร็จ ${Math.round(p.rate * 100)}%${ym.y === n.getFullYear() ? ` · ข้อมูลถึง ${n.getDate()} ${MONTH_TH[n.getMonth()]}` : ''}` : 'ยังไม่มีรายการ' };
+  }, [kind, monday, y, m, getDay, now]);
+  return (
+    <DateHeader
+      title={header.title}
+      summary={header.summary}
+      onPressTitle={kind === 'month' ? () => onChangeView('year') : kind === 'year' ? undefined : () => onChangeView('month')}
+      view={picked}
+      onChangeView={onChangeView}
+    />
+  );
+});
+
 export default function TodayScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const openSheet = useUI((s) => s.openSheet);
   const freeMode = useUI((s) => s.freeMode);
-  const getDay = useDayReader();
   const now = useNow();
 
-  const [view, setView] = useState<CalView>('day');
+  // มุมมองทั้ง 4 เป็น "ชั้น" ที่เปิดแล้วเก็บไว้ (components/today/keep-alive) — สลับกลับไปมุมมองที่เคยเปิด = แค่เปิดชั้นให้เห็น ไม่สร้างใหม่
+  //   picked  = มุมมองที่ผู้ใช้เพิ่งแตะ (ตัวเลือกมุมมองที่หัวจอติดสถานะทันที)
+  //   mounted = มุมมองที่สร้างไว้แล้ว · มุมมองที่ยังไม่เคยเปิดถูกสร้างเป็นงานเบื้องหลัง (transition) แอปไม่ค้างตอนแตะ
+  //   view    = มุมมองที่แสดงอยู่จริง — เท่ากับ picked เมื่อชั้นนั้นพร้อม · ระหว่างรอ = มุมมองเดิม (จางลงเล็กน้อย)
+  const [picked, setPicked] = useState<CalView>('day');
+  const [mounted, setMounted] = useState<CalView[]>(['day']);
+  const [shown, setShown] = useState<CalView>('day');
+  const ready = mounted.includes(picked);
+  if (ready && shown !== picked) setShown(picked);
+  const view = ready ? picked : shown;
+  // ไม่อ่าน mounted ตรง ๆ ในฟังก์ชันนี้ (เช็กใน updater แทน) — ฟังก์ชันจึงเป็นตัวเดิมตลอด callback ที่ต่อจากมัน (goDay ฯลฯ)
+  // ไม่เปลี่ยนตาม ชั้นที่ซ่อนอยู่จึงไม่ต้องถูกวาดใหม่ตอนกลับมาแสดงเพียงเพราะได้ฟังก์ชันตัวใหม่
+  const setView = (v: CalView) => {
+    setPicked(v);
+    startTransition(() => setMounted((m) => (m.includes(v) ? m : [...m, v])));
+  };
+  useEffect(() => {
+    // ถึงเวลาแล้วรอให้เครื่องว่างก่อน (requestIdleCallback) — ไม่แทรกงานสร้างจอระหว่างที่ผู้ใช้กำลังแตะ/เลื่อนอยู่
+    const idle = (run: () => void) => (typeof requestIdleCallback === 'function' ? requestIdleCallback(run, { timeout: 2500 }) : run());
+    const ids = PREMOUNT.map((p) => setTimeout(() => idle(() => startTransition(() => setMounted((m) => (m.includes(p.view) ? m : [...m, p.view])))), p.after));
+    return () => ids.forEach(clearTimeout);
+  }, []);
+
   const [focus, setFocus] = useState(todayISO());
   const [monday, setMonday] = useState(mondayOf(todayISO()));
-  const [ym, setYm] = useState(() => {
+  const [ym, setYm] = useState<YM>(() => {
     const d = new Date();
     return { y: d.getFullYear(), m: d.getMonth() };
   });
@@ -58,7 +135,7 @@ export default function TodayScreen() {
   useEffect(() => {
     if (focusDate) {
       setFocus(focusDate);
-      setView('day');
+      setPicked('day');
       useUI.getState().setFocusDate(null);
     }
   }, [focusDate]);
@@ -81,6 +158,15 @@ export default function TodayScreen() {
   const openSlot = (date: string, start: number, end: number) => {
     useDraft.getState().loadSlot(date, start, end);
     router.push('/add');
+  };
+
+  // callback ที่ส่งให้มุมมอง — ตั้งชื่อไว้ตรงนี้ (ไม่เขียนฝังใน JSX) ให้ตัวเดิมถูกใช้ซ้ำข้ามการวาด มุมมองที่ห่อ memo จึงข้ามได้
+  const openItem = (it: DayItem) => openSheet(it.id, it.date);
+  const titleToMonth = () => changeView('month');
+  const openDeleteMany = () => router.push('/settings/delete');
+  const pickMonth = (m: number) => {
+    setYm({ y: ym.y, m });
+    setView('month');
   };
 
   const openAdd = () => {
@@ -124,96 +210,59 @@ export default function TodayScreen() {
   };
   const unit = { day: 'วัน', week: 'สัปดาห์', month: 'เดือน', year: 'ปี' }[view];
 
-  // บรรทัดสรุปของหัวสัปดาห์/เดือน/ปี (มุมมองวันทำเอง)
-  const header = useMemo(() => {
-    if (view === 'week') {
-      const a = fromISO(monday);
-      const b = fromISO(addDays(monday, 6));
-      const p = rangeProgress(getDay, monday, addDays(monday, 6), now);
-      const title = a.getMonth() === b.getMonth() ? `${a.getDate()}–${b.getDate()} ${MONTH_TH[a.getMonth()]}` : `${a.getDate()} ${MONTH_TH[a.getMonth()]} – ${b.getDate()} ${MONTH_TH[b.getMonth()]}`;
-      return { title, summary: `${beYear(b.getFullYear())}${p.total ? ` · เสร็จ ${p.done}/${p.total}` : ''}${p.overdue ? ` · ค้าง ${p.overdue}` : ''}` };
-    }
-    if (view === 'month') {
-      const from = toISO(new Date(ym.y, ym.m, 1));
-      const p = rangeProgress(getDay, from, toISO(new Date(ym.y, ym.m + 1, 0)), now);
-      return {
-        title: `${MONTH_TH_FULL[ym.m]} ${beYear(ym.y)}`,
-        summary: from > now.date ? 'ยังไม่ถึง' : p.total ? `ถึงวันนี้เสร็จ ${Math.round(p.rate * 100)}%${p.overdue ? ` · ค้าง ${p.overdue} รายการ` : ''}` : 'ยังไม่มีรายการ',
-      };
-    }
-    if (view === 'year') {
-      const p = rangeProgress(getDay, `${ym.y}-01-01`, `${ym.y}-12-31`, now);
-      const n = fromISO(now.date);
-      return { title: `${beYear(ym.y)}`, summary: p.total ? `ทำเสร็จ ${Math.round(p.rate * 100)}%${ym.y === n.getFullYear() ? ` · ข้อมูลถึง ${n.getDate()} ${MONTH_TH[n.getMonth()]}` : ''}` : 'ยังไม่มีรายการ' };
-    }
-    return null;
-  }, [view, monday, ym, getDay, now]);
-
   const bottomPad = insets.bottom + BOTTOM_BAR_SPACE + 16;
 
   return (
     <Screen title="วันนี้" scroll={false} showFreeToggle={view !== 'year'}>
-      {view === 'day' ? (
-        <TodayDayView
-          focus={focus}
-          onChangeFocus={setFocus}
-          onPressTitle={() => changeView('month')}
-          onPressItem={(it) => openSheet(it.id, it.date)}
-          bottomPad={bottomPad}
-          view={view}
-          onChangeView={changeView}
-          onPressSlot={openSlot}
-          onAdd={openAdd}
-          scrollToNowSignal={scrollNow}
-          freeMode={freeMode}
-        />
-      ) : (
-        <DateHeader
-          title={header?.title ?? ''}
-          summary={header?.summary}
-          onPressTitle={view === 'month' ? () => changeView('year') : view === 'year' ? undefined : () => changeView('month')}
-          view={view}
-          onChangeView={changeView}
-        />
-      )}
+      {/* ชั้นของแต่ละมุมมองซ้อนกันเต็มพื้นที่ · กำลังสร้างมุมมองที่ยังไม่เคยเปิดอยู่เบื้องหลัง → จอเดิมจางลงเล็กน้อย บอกว่ารับคำสั่งแล้ว */}
+      <View style={{ flex: 1, opacity: ready ? 1 : 0.55 }}>
+        <Layer active={view === 'day'}>
+          <DayView
+            focus={focus}
+            onChangeFocus={setFocus}
+            onPressTitle={titleToMonth}
+            onPressItem={openItem}
+            bottomPad={bottomPad}
+            view={picked}
+            onChangeView={changeView}
+            onPressSlot={openSlot}
+            onAdd={openAdd}
+            scrollToNowSignal={scrollNow}
+            freeMode={freeMode}
+          />
+        </Layer>
 
-      {view === 'week' ? (
-        <TodayWeekView
-          monday={monday}
-          onChangeMonday={changeMonday}
-          onPressItem={(it) => openSheet(it.id, it.date)}
-          onPressDay={goDay}
-          bottomPad={bottomPad}
-          freeMode={freeMode}
-          onPressSlot={openSlot}
-          onDeleteMany={() => router.push('/settings/delete')}
-        />
-      ) : null}
+        {mounted.includes('week') ? (
+          <Layer active={view === 'week'}>
+            <PeriodHeader kind="week" monday={monday} y={ym.y} m={ym.m} picked={picked} onChangeView={changeView} />
+            <WeekView monday={monday} onChangeMonday={changeMonday} onPressItem={openItem} onPressDay={goDay} bottomPad={bottomPad} freeMode={freeMode} onPressSlot={openSlot} onDeleteMany={openDeleteMany} />
+          </Layer>
+        ) : null}
 
-      {view === 'month' ? (
-        <TodayMonthView
-          year={ym.y}
-          month={ym.m}
-          selected={focus}
-          onPressDay={goDay}
-          onVisibleMonth={setYm}
-          bottomPad={bottomPad}
-          freeMode={freeMode}
-          onPressSlot={openSlot}
-          onPressItem={(it) => openSheet(it.id, it.date)}
-        />
-      ) : null}
+        {mounted.includes('month') ? (
+          <Layer active={view === 'month'}>
+            <PeriodHeader kind="month" monday={monday} y={ym.y} m={ym.m} picked={picked} onChangeView={changeView} />
+            <MonthView
+              year={ym.y}
+              month={ym.m}
+              selected={focus}
+              onPressDay={goDay}
+              onVisibleMonth={setYm}
+              bottomPad={bottomPad}
+              freeMode={freeMode}
+              onPressSlot={openSlot}
+              onPressItem={openItem}
+            />
+          </Layer>
+        ) : null}
 
-      {view === 'year' ? (
-        <TodayYearView
-          year={ym.y}
-          onPressMonth={(m) => {
-            setYm({ y: ym.y, m });
-            setView('month');
-          }}
-          bottomPad={bottomPad}
-        />
-      ) : null}
+        {mounted.includes('year') ? (
+          <Layer active={view === 'year'}>
+            <PeriodHeader kind="year" monday={monday} y={ym.y} m={ym.m} picked={picked} onChangeView={changeView} />
+            <YearView year={ym.y} onPressMonth={pickMonth} bottomPad={bottomPad} />
+          </Layer>
+        ) : null}
+      </View>
 
       <CalendarBar
         onPrev={() => step(-1)}

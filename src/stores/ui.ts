@@ -24,6 +24,9 @@ interface UIState {
   /** โหมด "วันที่ว่าง" — แท็บวันนี้ดึงช่วงเวลาว่างออกมาให้แตะเพื่อเพิ่มกิจกรรม */
   freeMode: boolean;
   toggleFreeMode: () => void;
+  /** เปิดหน้าคำแนะนำการใช้ซ้ำจากหน้าตั้งค่า (ครั้งแรกเปิดเองตาม settings.welcomed) */
+  guide: boolean;
+  setGuide: (v: boolean) => void;
   /** action = ปุ่มในตัว toast (เช่น เลิกทำ) — มีปุ่มแล้วค้างนานขึ้นให้กดทัน · action2 = ปุ่มที่สอง (แสดงก่อน action) */
   showToast: (msg: string, action?: ToastAction, action2?: ToastAction) => void;
   hideToast: () => void;
@@ -51,6 +54,8 @@ export const useUI = create<UIState>((set) => ({
   freeMode: false,
 
   toggleFreeMode: () => set((s) => ({ freeMode: !s.freeMode })),
+  guide: false,
+  setGuide: (guide) => set({ guide }),
   showToast: (msg, action, action2) => {
     set({ toast: msg, toastAction: action ?? null, toastAction2: action2 ?? null });
     if (toastTimer) clearTimeout(toastTimer);

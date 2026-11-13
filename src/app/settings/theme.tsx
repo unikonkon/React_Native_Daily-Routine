@@ -8,6 +8,7 @@ import { Pressable, View, useColorScheme } from 'react-native';
 import { StatusDot } from '@/components/b1/status-circle';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
+import { ThemeThumb } from '@/components/theme-thumb';
 import { Card, Segmented, Txt, useThemeName, useTokens } from '@/components/ui';
 import {
   ATTN,
@@ -20,7 +21,6 @@ import {
   THEME_PALETTES,
   type DarkThemeId,
   type LightThemeId,
-  type Palette,
   type ThemeMeta,
   type ThemeName,
   type ThemePref,
@@ -287,30 +287,5 @@ function ThemeRow({ meta, selected, onPress }: { meta: ThemeMeta; selected: bool
         {selected ? <SvgIcon name="check" size={14} color="#FFFFFF" strokeWidth={3} /> : null}
       </View>
     </Pressable>
-  );
-}
-
-/** หน้าจอย่อของธีม — วาดด้วยสีของธีมนั้นเอง (ไม่ใช่ธีมที่ใช้อยู่): พื้น · การ์ด · วงวันนี้ · รายการ · ปุ่มหลัก */
-function ThemeThumb({ p }: { p: Palette }) {
-  const t = useTokens();
-  return (
-    <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ width: 92, height: 66, borderRadius: 12, backgroundColor: p.bg, borderWidth: 1, borderColor: t.line2, padding: 6, gap: 5, overflow: 'hidden' }}>
-      <View style={{ flexDirection: 'row', gap: 3 }}>
-        {[0, 1, 2, 3].map((i) => (
-          <View key={i} style={{ flex: 1, height: 11, borderRadius: 4, backgroundColor: i === 1 ? p.card : p.track, borderWidth: i === 1 ? 1.5 : 0, borderColor: p.accent }} />
-        ))}
-      </View>
-      <View style={{ flex: 1, backgroundColor: p.card, borderRadius: 7, paddingHorizontal: 6, justifyContent: 'center', gap: 5 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: GREEN }} />
-          <View style={{ width: 30, height: 3, borderRadius: 2, backgroundColor: p.faint }} />
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, borderWidth: 2, borderColor: p.accent }} />
-          <View style={{ width: 22, height: 3, borderRadius: 2, backgroundColor: p.ink }} />
-          <View style={{ marginLeft: 'auto', width: 20, height: 9, borderRadius: 5, backgroundColor: p.primary }} />
-        </View>
-      </View>
-    </View>
   );
 }

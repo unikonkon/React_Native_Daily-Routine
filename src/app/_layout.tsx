@@ -12,6 +12,7 @@ import { ActivitySheet } from '@/components/activity-sheet';
 import { LaunchSplash } from '@/components/launch-splash';
 import { RescheduleModal } from '@/components/reschedule-modal';
 import { ToastHost } from '@/components/toast';
+import { Welcome } from '@/components/welcome';
 import { pressFade, useThemeName, useTokens } from '@/components/ui';
 import { useActivities } from '@/stores/activities';
 import { useContacts } from '@/stores/contacts';
@@ -37,7 +38,11 @@ export default function RootLayout() {
 
   const boot = useCallback(() => {
     Promise.all([useSettings.getState().boot(), useActivities.getState().boot(), useContacts.getState().boot()])
-      .then(() => setBooted(true))
+      .then(() => {
+        // ใช้แอปมาก่อนมีหน้าต้อนรับ (มีกิจกรรมอยู่แล้ว) → ไม่ต้องโชว์หน้าต้อนรับย้อนหลัง
+        if (!useSettings.getState().welcomed && useActivities.getState().acts.length) useSettings.getState().setWelcomed(true);
+        setBooted(true);
+      })
       .catch((e: unknown) => {
         console.warn('[boot] failed', e);
         setBootError(e instanceof Error ? e.message : String(e));
@@ -83,6 +88,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: pal.bg } }}>
         <Stack.Screen name="(tabs)" />
       </Stack>
+      <Welcome />
       <ActivitySheet />
       <RescheduleModal />
       <ToastHost />

@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import { create } from 'zustand';
 
 import { addDays } from '@/lib/dates';
+import { useGated } from '@/lib/active';
 import * as db from '@/lib/db';
 import { dayItems, seriesDates } from '@/lib/engine';
 import { requestResync } from '@/lib/notifications';
@@ -322,20 +323,28 @@ export const useActivities = create<ActivitiesState>((set, get) => {
 });
 
 // cache รายวันตัวกลางเดียว ใช้ร่วมกันทุกจุด (วัน/สัปดาห์/เดือน/ฟอร์ม/CSV/notifications)
-// ล้างอัตโนมัติเมื่อ acts หรือ occ เปลี่ยน identity (ทุก mutation สร้าง object ใหม่เสมอ)
+// acts เปลี่ยน (เพิ่ม/แก้/ลบกิจกรรม) → ล้างทั้งหมด · occ เปลี่ยน (ติ๊กทำแล้ว/ข้าม) → ทิ้งเฉพาะวันที่สถานะเปลี่ยนจริง
+// การติ๊ก 1 รายการสร้าง occ ใหม่โดยเปลี่ยน object ของวันนั้นวันเดียว (วันอื่นใช้ object เดิม) — เทียบ occ[date] รายวันจึงรู้ว่าวันไหนยังใช้ได้
+// เดิมล้างทั้ง cache ทุกครั้งที่ติ๊ก ทำให้มุมมองสัปดาห์/เดือน/ปีต้องคิดทุกวันใหม่หมดหลังติ๊กแค่รายการเดียว
 let cachedActs: Activity[] | null = null;
 let cachedOcc: OccMap | null = null;
 const dayCache = new Map<string, DayItem[]>();
 
 function dayItemsCached(acts: Activity[], occ: OccMap, date: string): DayItem[] {
-  if (acts !== cachedActs || occ !== cachedOcc) {
+  if (acts !== cachedActs) {
     dayCache.clear();
     cachedActs = acts;
+    cachedOcc = occ;
+  } else if (occ !== cachedOcc) {
+    const prev = cachedOcc;
+    for (const d of dayCache.keys()) if (prev?.[d] !== occ[d]) dayCache.delete(d);
     cachedOcc = occ;
   }
   let v = dayCache.get(date);
   if (!v) {
-    if (dayCache.size > 500) dayCache.clear();
+    // เพดาน 1,500 วัน (≈4 ปี) — มุมมองปีอ่านทั้งปี (365) + เดือน/สัปดาห์ใกล้จอ; เพดานเดิม 500 ทำให้ล้างทั้ง cache
+    // กลางคันแล้วคิดซ้ำทุกครั้งที่สลับมุมมอง
+    if (dayCache.size > 1500) dayCache.clear();
     v = dayItems(acts, occ, date);
     dayCache.set(date, v);
   }
@@ -352,15 +361,24 @@ export function getDay(date: string): DayItem[] {
 }
 
 /** hook แบบ reactive สำหรับ component — อ้าง acts/occ ตรง ๆ เพื่อให้ React Compiler เห็น dependency จริง */
+// ตัวอ่านค่าจาก store ผ่าน "ประตู" ของชั้น (lib/active) — มุมมองที่ถูกซ่อนไว้ในแท็บวันนี้ไม่ถูกปลุกเมื่อข้อมูลเปลี่ยน
+// (นอกชั้น ประตูเปิดตลอด = เหมือน useActivities((s) => s.x) ทุกอย่าง)
+const selActs = () => useActivities.getState().acts;
+const selOcc = () => useActivities.getState().occ;
+const selNotes = () => useActivities.getState().notes;
+export const useActs = () => useGated(useActivities.subscribe, selActs);
+export const useOcc = () => useGated(useActivities.subscribe, selOcc);
+export const useNotes = () => useGated(useActivities.subscribe, selNotes);
+
 export function useDay(date: string): DayItem[] {
-  const acts = useActivities((s) => s.acts);
-  const occ = useActivities((s) => s.occ);
+  const acts = useActs();
+  const occ = useOcc();
   return useMemo(() => dayItemsCached(acts, occ, date), [acts, occ, date]);
 }
 
 /** เหมือน useDay แต่คืนฟังก์ชันอ่านได้หลายวัน (week/month grid, พรีวิวฟอร์มเพิ่ม) — identity เปลี่ยนเมื่อข้อมูลเปลี่ยน */
 export function useDayReader(): (date: string) => DayItem[] {
-  const acts = useActivities((s) => s.acts);
-  const occ = useActivities((s) => s.occ);
+  const acts = useActs();
+  const occ = useOcc();
   return useMemo(() => (date: string) => dayItemsCached(acts, occ, date), [acts, occ]);
 }

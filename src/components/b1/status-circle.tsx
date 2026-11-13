@@ -2,10 +2,10 @@
 // ติ๊กว่าทำแล้ว: วงเด้งเบา ๆ + เครื่องหมายถูกวาดเป็นเส้น + คลื่นเขียวจาง 1 วง (เปิดมาเป็น "ทำแล้ว" อยู่แล้วไม่เล่น)
 import React, { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
-import Animated, { useAnimatedProps, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { useAnimatedProps, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
-import { EASE_OUT, useBurst } from '@/components/motion';
+import { EASE_OUT, Pop, useBurst } from '@/components/motion';
 import { SvgIcon } from '@/components/svg-icon';
 import { useTokens } from '@/components/ui';
 import { ATTN, GREEN } from '@/constants/theme';
@@ -92,16 +92,6 @@ function DoneRipple({ size }: { size: number }) {
   );
 }
 
-/** ย่อแล้วคืนขนาดแบบสปริงนุ่ม (เกินขนาดจริงเพียงเล็กน้อย) — play = false: นิ่ง */
-function Pop({ play, children }: { play: boolean; children: React.ReactNode }) {
-  const s = useSharedValue(play ? 0.84 : 1);
-  useEffect(() => {
-    if (play) s.set(withSpring(1, { duration: 300, dampingRatio: 0.68 }));
-  }, [play, s]);
-  const style = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
-  return <Animated.View style={style}>{children}</Animated.View>;
-}
-
 /** วงกลมสถานะที่กดได้ (ปุ่มติ๊ก) */
 export function StatusCircle({ state, onPress, size = 24, label }: { state: RailState; onPress?: () => void; size?: number; label?: string }) {
   // จำนวนครั้งที่ "เพิ่งกลายเป็นทำแล้ว" — เปลี่ยน key ให้แอนิเมชันเริ่มใหม่ทุกครั้งที่ติ๊ก
@@ -116,9 +106,14 @@ export function StatusCircle({ state, onPress, size = 24, label }: { state: Rail
       style={({ pressed }) => ({ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', transform: [{ scale: pressed ? 0.88 : 1 }] })}>
       {/* key ต้องไม่ซ้ำกันระหว่างพี่น้อง — ใช้คำนำหน้าแยกคลื่นกับตัววงกลม */}
       {fresh ? <DoneRipple key={`ripple-${burst}`} size={size} /> : null}
-      <Pop key={`dot-${burst}`} play={fresh}>
-        <StatusDot state={state} size={size} drawCheck={fresh} />
-      </Pop>
+      {/* ชิ้นแอนิเมชันมีเฉพาะตอนเพิ่งติ๊ก — ปกติเป็นวงกลมธรรมดา (ทุกแถวบนรางมีปุ่มนี้ ต้องเบาที่สุด) */}
+      {fresh ? (
+        <Pop key={`dot-${burst}`} play>
+          <StatusDot state={state} size={size} drawCheck />
+        </Pop>
+      ) : (
+        <StatusDot state={state} size={size} />
+      )}
     </Pressable>
   );
 }

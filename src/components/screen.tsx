@@ -7,6 +7,7 @@ import React from 'react';
 import { KeyboardAvoidingView, Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { BOTTOM_BAR_SPACE, SubBar, type SubBarAction } from '@/components/b1/bottom-bar';
 import { SvgIcon } from '@/components/svg-icon';
@@ -92,6 +93,27 @@ function DayliyUseToggle() {
       })}>
       {freeMode ? <Icon name="clockPlus" size={20} color="#FFFFFF" /> : <SvgIcon name="clock" size={20} color={t.sub} strokeWidth={1.8} />}
     </Pressable>
+  );
+}
+
+/**
+ * แสงสีเน้นของธีมจาง ๆ ไล่ลงมาจากขอบบนจอ — ให้พื้นหลังไม่แบนและแต่ละธีมมีบรรยากาศของตัวเอง
+ * อยู่หลังทุกอย่าง ไม่รับการแตะ · จางมากพอที่ตัวอักษรบนหัวจอยังคอนทราสต์เท่าเดิม
+ */
+export function TopGlow() {
+  const t = useTokens();
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, height: 280 }}>
+      <Svg width="100%" height="100%">
+        <Defs>
+          <LinearGradient id="topglow" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={t.accent} stopOpacity={0.13} />
+            <Stop offset="1" stopColor={t.accent} stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#topglow)" />
+      </Svg>
+    </View>
   );
 }
 
@@ -198,6 +220,7 @@ export function Screen({ title, subtitle, children, scroll = true, scrollRef, va
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: insets.top }}>
+      <TopGlow />
       {header}
       {scroll ? (
         // แอปเป็น edge-to-edge (Android ไม่ย่อหน้าต่างให้เองเมื่อคีย์บอร์ดขึ้น) — หดพื้นที่เลื่อนเท่าคีย์บอร์ด

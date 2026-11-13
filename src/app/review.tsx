@@ -6,6 +6,7 @@ import { Pressable, View } from 'react-native';
 import { Rail } from '@/components/b1/rail';
 import { useNow } from '@/components/b1/use-now';
 import { useToggleStatus } from '@/components/b1/use-toggle';
+import { EmptyState } from '@/components/empty-state';
 import { Screen } from '@/components/screen';
 import { Segmented, Txt, pressFade, useTokens } from '@/components/ui';
 import { addDays, thaiDate } from '@/lib/dates';
@@ -153,14 +154,7 @@ export default function ReviewScreen() {
           );
         })
       ) : (
-        <View style={{ alignItems: 'center', paddingVertical: 48, gap: 6 }}>
-          <Txt size={16} weight="bold">
-            บันทึกครบทุกรายการแล้ว
-          </Txt>
-          <Txt size={13} color={t.sub}>
-            ไม่มีรายการค้างใน{range === '7' ? ' 7 วันล่าสุด' : ' 30 วัน'}
-          </Txt>
-        </View>
+        <EmptyState icon="check" tone="done" title="บันทึกครบทุกรายการแล้ว" sub={`เยี่ยมเลย ไม่มีอะไรค้างใน${range === '7' ? ' 7 วันล่าสุด' : ' 30 วันล่าสุด'}`} />
       )}
     </Screen>
   );

@@ -80,6 +80,9 @@ interface SettingsState {
   sheetsUrl: string;
   /** รายการ URL ที่เคยบันทึก ใหม่ → เก่า (สูงสุด 5, ไม่ซ้ำ) — คงอยู่แม้ยกเลิกการเชื่อมต่อ ไว้สลับ/เชื่อมต่อใหม่ */
   sheetsUrls: string[];
+  /** ผ่านหน้าต้อนรับ (เลือกโทนสี + คำแนะนำการใช้) แล้ว — false = เปิดแอปครั้งแรก */
+  welcomed: boolean;
+  setWelcomed: (v: boolean) => void;
   boot: () => Promise<void>;
   setTheme: (t: ThemePref) => void;
   setThemeLight: (id: LightThemeId) => void;
@@ -226,6 +229,7 @@ export const useSettings = create<SettingsState>((set, get) => {
   noteDisplay: NOTE_DISPLAY_DEFAULTS,
   sheetsUrl: '',
   sheetsUrls: [],
+  welcomed: true, // ยังไม่ได้โหลดค่า = ไม่โชว์หน้าต้อนรับ (boot ตั้งค่าจริง)
 
   boot: async () => {
     const s = await db.loadSettings();
@@ -244,7 +248,13 @@ export const useSettings = create<SettingsState>((set, get) => {
       noteDisplay: parseNoteDisplay(s.note_display),
       sheetsUrl: s.sheets_url ?? '',
       sheetsUrls: parseSheetsUrls(s),
+      welcomed: s.welcomed === '1',
     });
+  },
+
+  setWelcomed: (v) => {
+    set({ welcomed: v });
+    db.saveSetting('welcomed', v ? '1' : '0');
   },
 
   setTheme: (theme) => {

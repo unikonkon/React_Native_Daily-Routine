@@ -9,6 +9,7 @@ import { Linking, Pressable, ScrollView, TextInput, View, type ScrollViewInstanc
 
 import { Field } from '@/components/field';
 import { Icon } from '@/components/icon';
+import { EmptyState } from '@/components/empty-state';
 import { Screen } from '@/components/screen';
 import { SvgIcon } from '@/components/svg-icon';
 import { Btn, Chip, Txt, pressFade, useTokens } from '@/components/ui';
@@ -155,7 +156,7 @@ function ContactList({ list, links, onEdit }: { list: Contact[]; links: ReturnTy
             <Txt size={13} weight="bold" color={t.sub} style={{ marginHorizontal: 2 }}>
               {priFilter ? `${priFilter} · ${PRI_BY_ID[priFilter].label}` : 'เรียงตามความสำคัญ'}
             </Txt>
-            <View style={{ backgroundColor: t.card, borderRadius: 16, overflow: 'hidden', shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
+            <View style={{ backgroundColor: t.card, borderRadius: 20, overflow: 'hidden', shadowColor: t.shadow, shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
               {shown.length ? (
                 shown.map((c, i) => <ContactRow key={c.id} c={c} last={i === shown.length - 1} link={links.get(c.id) ?? null} onPress={() => onEdit(c)} />)
               ) : (
@@ -167,14 +168,7 @@ function ContactList({ list, links, onEdit }: { list: Contact[]; links: ReturnTy
           </View>
         </>
       ) : (
-        <View style={{ alignItems: 'center', paddingVertical: 48, gap: 6 }}>
-          <Txt size={16} weight="bold">
-            ยังไม่มีรายชื่อ
-          </Txt>
-          <Txt size={13} color={t.sub} style={{ textAlign: 'center' }}>
-            เพิ่มคนที่นัดเป็นประจำไว้ เลือกซ้ำในฟอร์มนัดเคสได้ทันที
-          </Txt>
-        </View>
+        <EmptyState icon="users" title="ยังไม่มีรายชื่อ" sub="เพิ่มคนที่นัดเป็นประจำไว้ แล้วเลือกซ้ำในฟอร์มนัดเคสได้ทันที — กด “เพิ่มรายชื่อ” ด้านล่างได้เลย" />
       )}
     </Screen>
   );
@@ -355,7 +349,7 @@ function ContactEdit({ draft, linked, onClose }: { draft: Draft; linked: { count
 
       {d.id ? (
         confirmDel ? (
-          <View style={{ backgroundColor: t.card, borderRadius: 16, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 10 }}>
+          <View style={{ backgroundColor: t.card, borderRadius: 20, borderWidth: 1.5, borderColor: t.warn, padding: 14, gap: 10 }}>
             <Txt size={15} weight="bold">
               ลบ “{draft.name}” ออกจากสมุดรายชื่อ?
             </Txt>
@@ -396,7 +390,7 @@ function FieldGroup({ title, hint, children }: { title: string; hint?: string; c
       <Txt size={13} weight="bold" color={t.sub} style={{ marginHorizontal: 2 }}>
         {title}
       </Txt>
-      <View style={{ backgroundColor: t.card, borderRadius: 16, padding: 14, gap: 12, shadowColor: '#221C13', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
+      <View style={{ backgroundColor: t.card, borderRadius: 20, padding: 14, gap: 12, shadowColor: t.shadow, shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }}>
         {hint ? (
           <Txt size={12} color={t.faint} style={{ marginTop: -4 }}>
             {hint}

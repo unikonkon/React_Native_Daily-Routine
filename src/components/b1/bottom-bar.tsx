@@ -14,13 +14,14 @@ import { Txt, pressFade, useTokens } from '@/components/ui';
 export const BOTTOM_BAR_SPACE = 92;
 const BAR_BOTTOM = 20;
 
-const SHADOW: ViewStyle = {
-  shadowColor: '#221C13',
+/** เงาของแถบลอย — สีเงาตามธีม */
+const shadowOf = (shadow: string): ViewStyle => ({
+  shadowColor: shadow,
   shadowOpacity: 0.14,
   shadowRadius: 14,
   shadowOffset: { width: 0, height: 8 },
   elevation: 8,
-};
+});
 
 export function BarFade() {
   const t = useTokens();
@@ -63,7 +64,7 @@ export function CalendarBar({ onPrev, onNext, onToday, onCalendar, onAdd, prevLa
     <>
       <BarFade />
       <View style={{ position: 'absolute', left: 18, right: 18, bottom: insets.bottom + BAR_BOTTOM, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <View style={[{ flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, borderRadius: 26, padding: 4 }, SHADOW]}>
+        <View style={[{ flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, borderRadius: 26, padding: 4 }, shadowOf(t.shadow)]}>
           <Pressable accessibilityRole="button" accessibilityLabel={prevLabel} onPress={onPrev} hitSlop={4} style={pressFade({ width: 40, height: 44, alignItems: 'center', justifyContent: 'center' })}>
             <SvgIcon name="chevL" size={17} color={t.sub} strokeWidth={2.2} />
           </Pressable>
@@ -91,7 +92,7 @@ export function CalendarBar({ onPrev, onNext, onToday, onCalendar, onAdd, prevLa
           </Pressable>
         </View>
 
-        <View style={[{ flexDirection: 'row', gap: 4, backgroundColor: t.card, borderRadius: 26, padding: 4 }, SHADOW]}>
+        <View style={[{ flexDirection: 'row', gap: 4, backgroundColor: t.card, borderRadius: 26, padding: 4 }, shadowOf(t.shadow)]}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="ปฏิทิน"
@@ -145,7 +146,7 @@ export function SubBar({ onBack, backLabel = 'กลับ', action }: { onBack:
     <>
       <BarFade />
       <View style={{ position: 'absolute', left: 18, right: 18, bottom: insets.bottom + BAR_BOTTOM, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-        <View style={[{ backgroundColor: t.card, borderRadius: 26, padding: 4 }, SHADOW]}>
+        <View style={[{ backgroundColor: t.card, borderRadius: 26, padding: 4 }, shadowOf(t.shadow)]}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={backLabel}
@@ -176,7 +177,7 @@ export function SubBar({ onBack, backLabel = 'กลับ', action }: { onBack:
                 opacity: action.disabled ? 0.45 : 1,
                 transform: [{ scale: pressed ? 0.96 : 1 }],
               },
-              SHADOW,
+              shadowOf(t.shadow),
             ]}>
             {action.icon ? <SvgIcon name={action.icon} size={18} color="#FFFFFF" strokeWidth={2.4} /> : null}
             <Txt size={15} weight="bold" color="#FFFFFF" numberOfLines={1} style={{ flexShrink: 1 }}>

@@ -6,13 +6,13 @@
 // รายการที่เวลาทับกัน (≥2) → รวมเป็นกลุ่มซ้อน: พื้นแผ่นเดียว + ขอบการ์ดซ้อนด้านล่าง
 //   หัวกลุ่ม = "ซ้อนเวลา n รายการ · ทับกัน 18:30–19:30" + แถบเวลาย่อ (แท่งละรายการ · ช่วงที่ทับกันแรเงา)
 //   ในกลุ่ม: คอลัมน์ซ้ายโชว์แค่เวลาเริ่ม (ซ้ำกับแถวก่อน = เว้นว่าง) · เวลาจบย้ายไปบรรทัดรายละเอียด "ถึง 19:30"
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, View, type LayoutChangeEvent } from 'react-native';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition, useAnimatedStyle } from 'react-native-reanimated';
 
 import { ContactIcons } from '@/components/b1/contact-icons';
 import { StatusCircle } from '@/components/b1/status-circle';
-import { ProgressFill, SettleIn, useEased } from '@/components/motion';
+import { EASE_OUT, ProgressFill, Pulse, SettleIn, useEased } from '@/components/motion';
 import { SvgIcon } from '@/components/svg-icon';
 import { useCaseContacts } from '@/components/today/parts';
 import { Txt, useTokens } from '@/components/ui';
@@ -26,6 +26,15 @@ const TIME_W = 42;
 const RAIL_W = 28;
 const LINE_X = 13; // กึ่งกลางราง (เส้นหนา 2)
 const DOT_Y = 13; // กึ่งกลางวงกลม = บรรทัดแรกของชื่อ
+
+// แถวถูกลบ/เลื่อนนัด/กลับมา (เลิกทำ) หรือช่วงว่างถูกแทรก: แถวนั้นจางออก/เข้า แล้วแถวที่เหลือ "เลื่อน" เข้าที่ (ไม่กระโดด)
+// เปิดรายการครั้งแรก/เปลี่ยนวันไม่เล่น (LayoutAnimationConfig ที่รากของ Rail — ผู้เรียกใส่ key ตามวันให้ Rail ถูกสร้างใหม่)
+// แอนิเมชันชุดนี้ "ติด" ให้แถวหลังรายการขึ้นจอแล้ว ARM_MS (ดู armed ใน Rail) — การลงทะเบียนต่อแถวมีต้นทุน
+// ถ้าทำตอนเปิดรายการ จะทำให้เปิดมุมมองวัน/ปัดเปลี่ยนวันช้าลงตามจำนวนแถว
+const ARM_MS = 450;
+const ROW_MOVE = LinearTransition.duration(220).easing(EASE_OUT);
+const ROW_IN = FadeIn.duration(200);
+const ROW_OUT = FadeOut.duration(140);
 
 /** ระยะที่แผ่นกลุ่มซ้อนยื่นออกนอกคอลัมน์ราง/เนื้อหา */
 const GROUP_PAD = 6;
@@ -113,6 +122,9 @@ interface RailProps {
   onNowLayout?: (y: number) => void;
 }
 
+/** ค่าว่างตัวเดียวใช้ซ้ำ — ไม่ให้ค่าเริ่มต้นเป็น array ใหม่ทุกครั้ง (จะทำให้ผลที่จำไว้ใช้ไม่ได้) */
+const EMPTY_FREE: FreeSlot[] = [];
+
 /** เส้นประแนวตั้ง — วาดเองเป็นขีด ๆ (borderStyle ด้านเดียวเพี้ยนบน Android) */
 function VDash({ color }: { color: string }) {
   return (
@@ -124,12 +136,21 @@ function VDash({ color }: { color: string }) {
   );
 }
 
-export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, onPressSlot, noteOf, renderRight, nextCardBg, onNowLayout }: RailProps) {
+function RailImpl({ items, now, free = EMPTY_FREE, showNow, onPressItem, onToggle, onPressSlot, noteOf, renderRight, nextCardBg, onNowLayout }: RailProps) {
   const t = useTokens();
   const noteShow = useSettings((s) => s.noteDisplay.rail);
   const noteLines = useSettings((s) => s.noteDisplay.railLines);
   const caseContactsOf = useCaseContacts();
   const nextId = nextItemId(items, now);
+  // รายการขึ้นจอและนิ่งแล้ว → ค่อยติดแอนิเมชันย้าย/เข้า/ออกให้แถว (ปัดเปลี่ยนวันเร็ว ๆ = ยังไม่ทันติด ไม่เสียงานเปล่า)
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setArmed(true), ARM_MS);
+    return () => clearTimeout(id);
+  }, []);
+  const move = armed ? ROW_MOVE : undefined;
+  const enter = armed ? ROW_IN : undefined;
+  const exit = armed ? ROW_OUT : undefined;
 
   const rows: Row[] = [
     ...items.map((it) => ({ kind: 'item' as const, key: `${it.id}:${it.date}`, at: it.startMin, it, state: railState(it, now, nextId) })),
@@ -153,15 +174,21 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
     if (ci !== undefined) lastIdx.set(ci, i);
   });
   const blocks: Block[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const ci = rows[i].kind === 'item' ? clusterOf.get(rows[i].key) : undefined;
+  // ตัวนับ (at) ต้องไม่ถูกจับไว้ในฟังก์ชันย่อย — React Compiler ข้ามทั้งคอมโพเนนต์ถ้าตัวแปรที่ถูกเพิ่มค่าถูกใช้ใน lambda
+  // (Rail คือส่วนที่หนักที่สุดของมุมมองวัน ต้องให้คอมไพล์ได้ แถวที่ไม่เปลี่ยนจะไม่ถูกคิดซ้ำ)
+  let at = 0;
+  while (at < rows.length) {
+    const start = at;
+    const head = rows[start];
+    const ci = head.kind === 'item' ? clusterOf.get(head.key) : undefined;
     if (ci === undefined) {
-      blocks.push({ kind: 'row', key: rows[i].key, row: rows[i], idx: i });
+      blocks.push({ kind: 'row', key: head.key, row: head, idx: start });
+      at = start + 1;
       continue;
     }
     const end = lastIdx.get(ci)!;
-    blocks.push({ kind: 'group', key: `group:${rows[i].key}`, cluster: clusters[ci], rows: rows.slice(i, end + 1).map((row, j) => ({ row, idx: i + j })) });
-    i = end;
+    blocks.push({ kind: 'group', key: `group:${head.key}`, cluster: clusters[ci], rows: rows.slice(start, end + 1).map((row, j) => ({ row, idx: start + j })) });
+    at = end + 1;
   }
 
   // ช่วงว่างที่คร่อมเวลาปัจจุบัน — เส้นตอนนี้อยู่หลังช่วงว่างนั้น (ช่วงว่างเริ่มก่อน) และรางยังเป็นเส้นประต่อเนื่อง
@@ -196,7 +223,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
 
     if (r.kind === 'now') {
       return (
-        <View key={r.key} onLayout={layout} style={{ flexDirection: 'row', gap: 8, minHeight: 30, marginBottom: 10 }}>
+        <Animated.View key={r.key} layout={move} entering={enter} exiting={exit} onLayout={layout} style={{ flexDirection: 'row', gap: 8, minHeight: 30, marginBottom: 10 }}>
           <View style={{ width: TIME_W, alignItems: 'flex-end', paddingTop: 5 }}>
             <Txt size={13} num weight="bold" color={t.accentInk}>
               {fmtMin(r.at)}
@@ -204,6 +231,8 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
           </View>
           <View style={{ width: RAIL_W }}>
             {rail}
+            {/* คลื่นจาง ๆ รอบจุด "ตอนนี้" — บอกว่าเป็นเวลาจริงที่กำลังเดิน */}
+            <Pulse size={10} color={t.primary} style={{ left: 9, top: 8 }} />
             <View style={{ position: 'absolute', left: 9, top: 8, width: 10, height: 10, borderRadius: 5, backgroundColor: t.primary, shadowColor: t.primary, shadowOpacity: 0.3, shadowRadius: 4, elevation: 2 }} />
           </View>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, height: 26, paddingRight: inGroup ? GROUP_PAD : 0 }}>
@@ -214,7 +243,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
             </View>
             <View style={{ flex: 1, height: 1.5, backgroundColor: t.primary }} />
           </View>
-        </View>
+        </Animated.View>
       );
     }
 
@@ -224,7 +253,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
       const live = showNow && s.start < now.min && now.min < s.end;
       const label = live ? `ว่างอีก ${durText(s.end - now.min)} · ถึง ${fmtMin(s.end)}` : `ว่าง ${hoursText(s.end - s.start)} · ถึง ${fmtMin(s.end)}`;
       return (
-        <View key={r.key} onLayout={layout} style={{ flexDirection: 'row', gap: 8 }}>
+        <Animated.View key={r.key} layout={move} entering={enter} exiting={exit} onLayout={layout} style={{ flexDirection: 'row', gap: 8 }}>
           <View style={{ width: TIME_W, alignItems: 'flex-end', paddingTop: 12 }}>
             <Txt size={13} num color={t.muted}>
               {fmtMin(s.start)}
@@ -260,7 +289,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
               </Txt>
             ) : null}
           </Pressable>
-        </View>
+        </Animated.View>
       );
     }
 
@@ -293,7 +322,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
               : '';
     const pct = live ? Math.min(Math.max((now.min - it.startMin) / Math.max(it.endMin - it.startMin, 1), 0), 1) * 100 : 0;
     return (
-      <View key={r.key} onLayout={layout} style={{ flexDirection: 'row', gap: 8 }}>
+      <Animated.View key={r.key} layout={move} entering={enter} exiting={exit} onLayout={layout} style={{ flexDirection: 'row', gap: 8 }}>
         <View style={{ width: TIME_W, alignItems: 'flex-end', paddingTop: 2 }}>
           {hideStart ? null : (
             <Txt size={13} num weight={live ? 'bold' : 'reg'} color={live ? t.accentInk : muted ? t.muted : t.ink}>
@@ -334,7 +363,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
                   paddingBottom: 12,
                   marginTop: -9,
                   marginBottom: 16,
-                  shadowColor: '#221C13',
+                  shadowColor: t.shadow,
                   shadowOpacity: 0.07,
                   shadowRadius: 12,
                   shadowOffset: { width: 0, height: 2 },
@@ -349,7 +378,12 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
             style={({ pressed }) => ({ gap: 2, opacity: pressed ? 0.7 : 1 })}>
             {tag ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                {live ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.accent }} /> : null}
+                {live ? (
+                  <View style={{ width: 7, height: 7 }}>
+                    <Pulse size={7} color={t.accent} />
+                    <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.accent }} />
+                  </View>
+                ) : null}
                 <Txt size={12} weight="bold" color={st === 'overdue' ? t.warn : t.accentInk} style={{ flexShrink: 1 }}>
                   {tag}
                 </Txt>
@@ -408,11 +442,12 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
           <ContactIcons contacts={people} dim={muted} />
         </View>
         {renderRight ? <View style={{ paddingTop: 0 }}>{renderRight(it)}</View> : null}
-      </View>
+      </Animated.View>
     );
   };
 
   return (
+    <LayoutAnimationConfig skipEntering skipExiting>
     <View>
       {blocks.map((b) => {
         if (b.kind === 'row') return renderRow(b.row, b.idx, false, nowLayout(b.key === nowKey));
@@ -422,7 +457,7 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
         const spans = c.overlaps.map((o) => `${fmtMin(o.start)}–${fmtMin(o.end)}`);
         const spanText = spans.length > 2 ? `${spans.slice(0, 2).join(', ')} …` : spans.join(', ');
         return (
-          <View key={b.key} onLayout={nowLayout(b.rows.some(({ row }) => row.key === nowKey))} style={{ paddingBottom: 6, marginBottom: 12 }}>
+          <Animated.View key={b.key} layout={move} entering={enter} exiting={exit} onLayout={nowLayout(b.rows.some(({ row }) => row.key === nowKey))} style={{ paddingBottom: 6, marginBottom: 12 }}>
             {/* ขอบการ์ดซ้อนด้านหลัง (โผล่ใต้แผ่น) + แผ่นกลุ่ม — เริ่มที่คอลัมน์ราง ให้วงกลมอยู่บนแผ่น */}
             <View pointerEvents="none" style={{ position: 'absolute', left: TIME_W + 8 + 4, right: 4, top: 16, bottom: 0, borderRadius: 14, backgroundColor: t.rail }} />
             <View
@@ -462,10 +497,11 @@ export function Rail({ items, now, free = [], showNow, onPressItem, onToggle, on
               const hide = row.kind === 'item' && prev?.row.kind === 'item' && prev.row.it.startMin === row.it.startMin;
               return renderRow(row, idx, true, undefined, hide);
             })}
-          </View>
+          </Animated.View>
         );
       })}
     </View>
+    </LayoutAnimationConfig>
   );
 }
 
@@ -551,3 +587,6 @@ function OverlapBar({ cluster, now }: { cluster: Cluster; now: number | null }) 
     </View>
   );
 }
+
+/** ห่อ memo — ค่าที่ส่งเข้ามาไม่เปลี่ยน (เช่น มุมมองแม่แค่ถูกสลับเข้า/ออก) ไม่ต้องไล่คิดทุกแถวใหม่ */
+export const Rail = React.memo(RailImpl);

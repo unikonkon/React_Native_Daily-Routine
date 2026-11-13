@@ -47,6 +47,8 @@ export interface Palette {
   greenInk: string;
   freeLine: string;
   skipFill: string;
+  /** สีเงาของการ์ด/ปุ่มลอย — โหมดสว่าง = หมึกของธีมนั้น (เงาอมสีธีม ไม่ติดน้ำตาล) · โหมดมืด = ดำ */
+  shadow: string;
 }
 
 // ค่าสีพื้น/ตัวอักษรของธีมใหม่ทำจากบันไดความสว่างเดียวกับธีมเดิม (OKLCH) แล้วเปลี่ยนเฉดสี — คอนทราสต์จึงเท่าธีมเดิมทุกธีม
@@ -76,6 +78,7 @@ const cream: Palette = {
   greenInk: '#2F6B45', // ข้อความสีเขียว (เวลาว่าง)
   freeLine: '#CFE0D3', // กรอบเส้นประช่วงว่าง
   skipFill: '#DDD5C8', // วงกลม "ข้าม"
+  shadow: '#221C13',
 };
 
 const rose: Palette = {
@@ -104,6 +107,7 @@ const rose: Palette = {
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#E5D0D4',
+  shadow: '#27181B',
 };
 
 const lavender: Palette = {
@@ -132,6 +136,7 @@ const lavender: Palette = {
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#D8D3E6',
+  shadow: '#1F1A27',
 };
 
 const sage: Palette = {
@@ -160,6 +165,7 @@ const sage: Palette = {
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#C9DBD1',
+  shadow: '#132119',
 };
 
 const peach: Palette = {
@@ -188,6 +194,7 @@ const peach: Palette = {
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#EAD0C4',
+  shadow: '#2A1810',
 };
 
 const cocoa: Palette = {
@@ -216,6 +223,7 @@ const cocoa: Palette = {
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#4A4236',
+  shadow: '#000000',
 };
 
 const plum: Palette = {
@@ -244,6 +252,7 @@ const plum: Palette = {
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#523C48',
+  shadow: '#000000',
 };
 
 const midnight: Palette = {
@@ -272,6 +281,7 @@ const midnight: Palette = {
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#414157',
+  shadow: '#000000',
 };
 
 const forest: Palette = {
@@ -300,6 +310,7 @@ const forest: Palette = {
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#33493F',
+  shadow: '#000000',
 };
 
 const graphite: Palette = {
@@ -328,6 +339,7 @@ const graphite: Palette = {
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#464244',
+  shadow: '#000000',
 };
 
 const sky: Palette = {
@@ -356,6 +368,7 @@ const sky: Palette = {
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#C9D8E6',
+  shadow: '#131E28',
 };
 
 const honey: Palette = {
@@ -384,6 +397,7 @@ const honey: Palette = {
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#DFD6BB',
+  shadow: '#231C07',
 };
 
 const mist: Palette = {
@@ -412,6 +426,7 @@ const mist: Palette = {
   greenInk: '#2F6B45',
   freeLine: '#CFE0D3',
   skipFill: '#D3D6DB',
+  shadow: '#1B1D20',
 };
 
 const ocean: Palette = {
@@ -440,6 +455,7 @@ const ocean: Palette = {
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#334558',
+  shadow: '#000000',
 };
 
 const gold: Palette = {
@@ -468,6 +484,7 @@ const gold: Palette = {
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#484333',
+  shadow: '#000000',
 };
 
 const onyx: Palette = {
@@ -496,6 +513,7 @@ const onyx: Palette = {
   greenInk: '#6FBF8C',
   freeLine: '#2F4A38',
   skipFill: '#2F3135',
+  shadow: '#000000',
 };
 
 export const THEME_PALETTES: Record<ThemeId, Palette> = { cream, rose, lavender, sage, peach, sky, honey, mist, cocoa, plum, midnight, forest, graphite, ocean, gold, onyx };

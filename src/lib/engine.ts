@@ -17,14 +17,18 @@ function customSet(a: Activity, dates: string[]): Set<string> {
   return set;
 }
 
-/** กิจกรรมนี้เกิดในวัน date หรือไม่ (ตามกฎ series) */
-export function occursOn(a: Activity, date: string): boolean {
+/**
+ * กิจกรรมนี้เกิดในวัน date หรือไม่ (ตามกฎ series)
+ * wd = วันในสัปดาห์ของ date (0 = จันทร์) ถ้าผู้เรียกคิดไว้แล้ว — dayItems ตรวจชุดทำซ้ำทุกชุดกับวันเดียวกัน
+ * จึงคิดครั้งเดียวแล้วส่งมา (การแปลงวันที่จากข้อความเป็นงานหนักเมื่อคูณ ชุด × วัน ในมุมมองเดือน/ปี)
+ */
+export function occursOn(a: Activity, date: string, wd?: number): boolean {
   if (a.status !== 'active') return false;
   if (date < a.startDate || (a.endDate != null && date > a.endDate)) return false;
   if (a.repeat === 'none') return a.startDate === date;
   // "เลือกเอง" ที่มีรายการวันที่ = เฉพาะวันที่เลือกจริง (ข้อมูลรุ่นเก่าไม่มีรายการ → ถอยไปใช้ daysMask แบบเดิม)
   if (a.repeat === 'custom' && a.dates) return customSet(a, a.dates).has(date);
-  return ((a.daysMask >> wdMon(date)) & 1) === 1;
+  return ((a.daysMask >> (wd ?? wdMon(date))) & 1) === 1;
 }
 
 /** ชุดไม่มีวันสิ้นสุด (end_date = null) — ขยายดูล่วงหน้าแค่ 1 ปีสำหรับฟอร์ม/พรีวิว */
@@ -76,7 +80,8 @@ function indexOf(acts: Activity[]): ActsIndex {
 export function dayItems(acts: Activity[], occ: OccMap, date: string): DayItem[] {
   const { once, series } = indexOf(acts);
   const hits: { a: Activity; pos: number }[] = [...(once.get(date) ?? [])];
-  for (const h of series) if (occursOn(h.a, date)) hits.push(h);
+  const wd = series.length ? wdMon(date) : 0;
+  for (const h of series) if (occursOn(h.a, date, wd)) hits.push(h);
   hits.sort((x, y) => x.a.startMin - y.a.startMin || x.pos - y.pos);
   const out: DayItem[] = [];
   const dayOcc = occ[date];
