@@ -64,14 +64,14 @@ const PeriodHeader = memo(function PeriodHeader({ kind, monday, y, m, picked, on
       const b = fromISO(addDays(monday, 6));
       const p = rangeProgress(getDay, monday, addDays(monday, 6), now);
       const title = a.getMonth() === b.getMonth() ? `${a.getDate()}–${b.getDate()} ${MONTH_TH[a.getMonth()]}` : `${a.getDate()} ${MONTH_TH[a.getMonth()]} – ${b.getDate()} ${MONTH_TH[b.getMonth()]}`;
-      return { title, summary: `${beYear(b.getFullYear())}${p.total ? ` · เสร็จ ${p.done}/${p.total}` : ''}${p.overdue ? ` · ยังไม่บันทึก ${p.overdue}` : ''}` };
+      return { title, summary: `${beYear(b.getFullYear())}${p.total ? ` · เสร็จ ${p.done}/${p.total}` : ''}${p.overdue ? ` · ไม่บันทึก ${p.overdue}` : ''}` };
     }
     if (kind === 'month') {
       const from = toISO(new Date(ym.y, ym.m, 1));
       const p = rangeProgress(getDay, from, toISO(new Date(ym.y, ym.m + 1, 0)), now);
       return {
         title: `${MONTH_TH_FULL[ym.m]} ${beYear(ym.y)}`,
-        summary: from > now.date ? 'ยังไม่ถึง' : p.total ? `เสร็จ ${Math.round(p.rate * 100)}%${p.overdue ? ` · ยังไม่บันทึก ${p.overdue}` : ''}` : 'ยังไม่มีรายการ',
+        summary: from > now.date ? 'ยังไม่ถึง' : p.total ? `เสร็จ ${Math.round(p.rate * 100)}%${p.overdue ? ` · ไม่บันทึก ${p.overdue}` : ''}` : 'ยังไม่มีรายการ',
       };
     }
     const p = rangeProgress(getDay, `${ym.y}-01-01`, `${ym.y}-12-31`, now);
